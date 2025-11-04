@@ -4,6 +4,7 @@
 #include "LveDevice.h"
 #include "LveObject.h"
 #include "LveCamera.h"
+#include "LveFrameInfo.h"
 
 #include <memory>
 #include <vector>
@@ -12,19 +13,18 @@ namespace lve {
 
 class RenderSystem {
 public:
-	RenderSystem(LveDevice& device, VkRenderPass renderPass);
+	RenderSystem(LveDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout);
 	~RenderSystem();
 
 	RenderSystem(const RenderSystem&) = delete;
 	RenderSystem& operator=(const RenderSystem&) = delete;
 
-	void RenderGameObjects(VkCommandBuffer commandBuffer, 
-						   std::vector<LveObject>& gameObjects, 
-						   const LveCamera& camera); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
+	void RenderGameObjects(FrameInfo& frameInfo, 
+						   std::vector<LveObject>& objects); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
 	void RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& camera, VkExtent2D extent);
 
 private:
-	void CreatePipelineLayout();
+	void CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout);
 	void CreatePipeline(VkRenderPass renderPass);
 	void CreatePipelines(VkRenderPass renderPass);
 	void CreateAxisVertices();

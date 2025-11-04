@@ -13,14 +13,14 @@
 namespace lve {
 
     struct SimplePushConstantData {
-        glm::mat4 transform{ 1.f };   // 初始化为单位矩阵
+        glm::mat4 modelMatrix{ 1.f };   // 初始化为单位矩阵
         glm::mat4 normalMatrix{ 1.f };
     };
 
-RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass)
+RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout)
     : m_lveDevice(device)
 {
-    CreatePipelineLayout(); // 定义渲染管线的layout
+    CreatePipelineLayout(globalSetLayout); // 定义渲染管线的layout
     CreatePipelines(renderPass);
     CreateAxisVertices();
 }
@@ -31,29 +31,25 @@ RenderSystem::~RenderSystem()
 }
 
 /* 创建渲染管线
-    * 告诉vulkan渲染管线在执行时可以用哪些数据
-    *
-    */
-void RenderSystem::CreatePipelineLayout()
+ * 告诉vulkan渲染管线在执行时可以用哪些数据
+ */
+void RenderSystem::CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout)
 {
     /* 从偏移0开始，大小为sizeof(SimplePushConstantData)的一段push常量
-        * 能被VS和FS两个阶段可见
-    */
+     * 能被VS和FS两个阶段可见
+     */
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(SimplePushConstantData);
 
+    /*描述符集*/
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts{ globalSetLayout };
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    /*这个管线不使用任何 descriptor set（即着色器不访问纹理、UBO、SSBO 等外部资源）*/
-    pipelineLayoutInfo.setLayoutCount = 0;  // 描述符集布局数量（descriptor set layouts）
-    pipelineLayoutInfo.pSetLayouts = nullptr;   // 指向布局数组的指针
-#if 0
-    /*没有使用任何 push constant（即不向着色器传递小块即时数据）*/
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = nullptr;
-#endif
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());  // 描述符集布局数量（descriptor set layouts）
+    pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();   // 指向布局数组的指针
+
     /*把push constant范围装入管线布局*/
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
@@ -79,7 +75,7 @@ void RenderSystem::CreatePipeline(VkRenderPass renderPass)
     /*绑定管线布局（createPipelineLayout）*/
     pipelineConfig.pipelineLayout = m_pipelineLayout;
     /*创建图形渲染管线对象*/
-    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "res/shaders/simple_shader.vert.spv", "res/shaders/simple_shader.frag.spv", pipelineConfig);
+    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/shader.vert.spv", "../../../res/shaders/shader.frag.spv", pipelineConfig);
 }
 
 void RenderSystem::CreatePipelines(VkRenderPass renderPass)
@@ -91,7 +87,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
     LvePipeline::DefaultPipelineConfigInfo(pipelineConfig);
     pipelineConfig.renderPass = renderPass;
     pipelineConfig.pipelineLayout = m_pipelineLayout;
-    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "res/shaders/simple_shader.vert.spv", "res/shaders/simple_shader.frag.spv", pipelineConfig);
+    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/shader.vert.spv", "../../../res/shaders/shader.frag.spv", pipelineConfig);
 
 
     // --- 坐标轴管线：线段模型 ---
@@ -112,31 +108,36 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
  * gameObjects为FirstApp持有`
  * 
  */
-void RenderSystem::RenderGameObjects(VkCommandBuffer commandBuffer,
-    std::vector<LveObject>& objects,
-    const LveCamera& camera)
+void RenderSystem::RenderGameObjects(FrameInfo& frameInfo, std::vector<LveObject>& objects)
 {
-    m_lvePipeline->Bind(commandBuffer);
+    m_lvePipeline->Bind(frameInfo.commandBuffer);
 
-    auto projectionView = camera.GetProjection() * camera.GetView();
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_pipelineLayout,
+        0,
+        1,
+        &frameInfo.globalDescriptorSet,
+        0,
+        nullptr);
 
     for (auto& obj : objects) {
         SimplePushConstantData push{};
-        auto modelMatrix = obj.transform.mat4();
-        push.transform = projectionView * modelMatrix;
+        push.modelMatrix = obj.transform.mat4();
         push.normalMatrix = obj.transform.normalMatrix();
 
-        vkCmdPushConstants(commandBuffer, m_pipelineLayout,
+        vkCmdPushConstants(frameInfo.commandBuffer, m_pipelineLayout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             0, sizeof(SimplePushConstantData), &push);
-        obj.model->Bind(commandBuffer);
-        obj.model->Draw(commandBuffer);
+        obj.model->Bind(frameInfo.commandBuffer);
+        obj.model->Draw(frameInfo.commandBuffer);
     }
 }
 
 /*固定在窗口左下角的小坐标系*/
 void RenderSystem::RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& camera, VkExtent2D extent)
 {
+#if 0
     // 小视口放左下角
     VkViewport viewport{};
     viewport.x = 0.f;
@@ -181,6 +182,8 @@ void RenderSystem::RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& ca
     VkRect2D mainScissor{ {0, 0}, extent };
     vkCmdSetViewport(commandBuffer, 0, 1, &mainViewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &mainScissor);
+#endif
+
 }
 
 void RenderSystem::CreateAxisVertices() 

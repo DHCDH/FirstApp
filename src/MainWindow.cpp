@@ -77,7 +77,6 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     if (obj == m_renderWidget) {
         switch (event->type()) {
             case QEvent::MouseButtonPress: {
-                std::cout << "MouseButtonPress" << "\n";
                 auto* e = static_cast<QMouseEvent*>(event);
                 m_lastPos = e->pos();
                 if (e->button() == Qt::LeftButton) m_leftDown = true;
@@ -102,7 +101,6 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 return true;
             }
             case QEvent::MouseButtonRelease: {
-                std::cout << "MouseButtonRelease" << "\n";
                 auto* e = static_cast<QMouseEvent*>(event);
                 if (e->button() == Qt::LeftButton)   m_leftDown = false;
                 if (e->button() == Qt::MiddleButton) m_midDown = false;
@@ -115,7 +113,6 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 return true;
             }
             case QEvent::Wheel: {
-                std::cout << "Wheel" << "\n";
                 auto* e = static_cast<QWheelEvent*>(event);
                 // 120 对应 1 step；如需触控板平滑滚动可优先用 pixelDelta
                 float steps = 0.f;

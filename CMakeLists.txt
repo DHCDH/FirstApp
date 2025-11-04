@@ -48,6 +48,11 @@ set(PROJECT_SOURCES
     src/lve/LveObject.cpp
     src/lve/LveKeyboardController.h
     src/lve/LveKeyboardController.cpp
+    src/lve/LveBuffer.h
+    src/lve/LveBuffer.cpp
+    src/lve/LveFrameInfo.h
+    src/lve/LveDescriptors.h
+    src/lve/LveDescriptors.cpp
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -57,13 +62,6 @@ if (WIN32)
         WIN32_EXECUTABLE OFF
     )
 endif()
-
-#[[
-set_target_properties(${TARGET_NAME}
-    PROPERTIES
-        WIN32_EXECUTABLE TRUE
-)
-]]
 
 target_link_libraries(${TARGET_NAME}
     PUBLIC

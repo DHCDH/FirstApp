@@ -1,6 +1,7 @@
 ﻿#pragma
 
 #include "LveDevice.h"
+#include "LveBuffer.h"
 
 #define GLM_FORCE_RADIANS	// 无论在什么系统上，glm都会希望角度以弧度指定
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE	//深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
@@ -58,14 +59,14 @@ private:
 
 	LveDevice& m_lveDevice;
 
-	VkBuffer m_vertexBuffer;
-	VkDeviceMemory m_vertexBufferMemory;
+	/*顶点缓冲区*/
+	std::unique_ptr<LveBuffer> m_vertexBuffer;
 	uint32_t m_vertexCount;
 
 	bool m_hasIndexBuffer = false;
 
-	VkBuffer m_indexBuffer;
-	VkDeviceMemory m_indexBufferMemory;
+	/*索引缓冲区*/
+	std::unique_ptr<LveBuffer> m_indexBuffer;
 	uint32_t m_indexCount;
 };
 

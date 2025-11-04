@@ -1,15 +1,23 @@
 ﻿#include "FirstApp.h"
 
+#include "lve/LveBuffer.h"
+
 #include <stdexcept>
 #include <array>
 #include <iostream>
 #include <chrono>
+#include <numeric>
 
 namespace lve {
 
 static constexpr float ORBIT_SENS = 0.005f; // 每像素旋转弧度
 static constexpr float PAN_SENS = 0.002f;   // 每像素平移比例
 static constexpr float DOLLY_RATE = 0.12f;    // 滚轮step的缩放比率
+
+struct GlobalUbo {
+    glm::mat4 projectionView{ 1.f };
+    glm::vec3 lightDirection = glm::normalize(glm::vec3{ 1.f, -3.f, -1.f });
+};
 
 FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
 {
@@ -23,7 +31,38 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
     m_lveDevice = std::make_unique<LveDevice>(*m_lveWindow);
     m_lveRenderer = std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice);
     m_lveCamera = std::make_unique<LveCamera>();
-    m_renderSystem = std::make_unique<RenderSystem>(*m_lveDevice, m_lveRenderer->GetSwapChainRenderPass());
+
+    /*ubo*/
+    m_globalPool = LveDescriptorPool::Builder(*m_lveDevice)
+        .SetMaxSets(LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+        .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+        .Build();
+
+    m_uboBuffers.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT); //2
+    for (int i = 0; i < m_uboBuffers.size(); i++) {
+        m_uboBuffers[i] = std::make_unique<LveBuffer>(
+            *m_lveDevice,
+            sizeof(GlobalUbo),
+            1,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        m_uboBuffers[i]->Map();
+    }
+
+    m_globalSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
+        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT)
+        .Build();
+    m_globalDescriptorSets.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);
+    for (int i = 0; i < m_globalDescriptorSets.size(); i++) {
+        auto bufferInfo = m_uboBuffers[i]->DescriptorInfo();
+        LveDescriptorWriter(*m_globalSetLayout, *m_globalPool)
+            .WriteBuffer(0, &bufferInfo)
+            .Build(m_globalDescriptorSets[i]);
+    }
+
+    m_renderSystem = std::make_unique<RenderSystem>(*m_lveDevice, 
+        m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
 }
 
 void FirstApp::runFrame()
@@ -39,18 +78,31 @@ void FirstApp::runFrame()
         return;
     }
 
-    /*进入本帧的主RenderPass*/
-    m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
-
     /*设置相机的视图与投影*/
     float aspect = m_lveRenderer->GetAspectRatio(); // 宽高比
     m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
 
+    int frameIndex = m_lveRenderer->GetFrameIndex();
+    FrameInfo frameInfo{
+        frameIndex,
+        commandBuffer,
+        *m_lveCamera,
+        m_globalDescriptorSets[frameIndex]
+    };
+
+    /*将PV矩阵写入UBO*/
+    GlobalUbo ubo{};
+    ubo.projectionView = m_lveCamera->GetProjection() * m_lveCamera->GetView();
+    m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
+
+    /*进入本帧的主RenderPass*/
+    m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
+
     /*绘制*/
-    m_renderSystem->RenderGameObjects(commandBuffer, m_objects, *m_lveCamera);
-    m_renderSystem->RenderAxis(commandBuffer, *m_lveCamera, m_lveRenderer->GetSwapChainExtent());
+    m_renderSystem->RenderGameObjects(frameInfo, m_objects);
+    // m_renderSystem->RenderAxis(commandBuffer, *m_lveCamera, m_lveRenderer->GetSwapChainExtent());
 
     /*结束本帧RenderPass并提交*/
     m_lveRenderer->EndSwapChainRenderPass(commandBuffer);
