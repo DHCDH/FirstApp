@@ -56,7 +56,7 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
     }
 
     m_globalSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
-        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT)
+        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL_GRAPHICS)
         .Build();
     m_globalDescriptorSets.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < m_globalDescriptorSets.size(); i++) {
