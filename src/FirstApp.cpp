@@ -16,7 +16,12 @@ static constexpr float DOLLY_RATE = 0.12f;    // 滚轮step的缩放比率
 
 struct GlobalUbo {
     glm::mat4 projectionView{ 1.f };
-    glm::vec3 lightDirection = glm::normalize(glm::vec3{ 1.f, -3.f, -1.f });
+    // glm::vec3 lightDirection = glm::normalize(glm::vec3{ 1.f, -3.f, -1.f });
+
+    /*点光源*/ 
+    glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .02f }; // w is intensity
+    glm::vec3 lightPosition{ -1.f };
+    alignas(16) glm::vec4 lightColor{ 1.f };    // w存储灯光强度
 };
 
 FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
@@ -80,7 +85,7 @@ void FirstApp::runFrame()
 
     /*设置相机的视图与投影*/
     float aspect = m_lveRenderer->GetAspectRatio(); // 宽高比
-    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
+    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
 
@@ -113,7 +118,7 @@ void FirstApp::LoadObjects() {
     std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "res/models/flat_vase.obj");
     auto flatVase = LveObject::CreateObject();
     flatVase.model = lveModel;
-    flatVase.transform.translation = { -.5f, .5f, 2.5f };
+    flatVase.transform.translation = { -.5f, .5f, 0.f };
     // gameObj.transform.scale = glm::vec3(3.f);
     flatVase.transform.scale = { 3.f, 1.5f, 3.f };
     m_objects.push_back(std::move(flatVase));
@@ -121,10 +126,17 @@ void FirstApp::LoadObjects() {
     lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "res/models/smooth_vase.obj");
     auto smoothVase = LveObject::CreateObject();
     smoothVase.model = lveModel;
-    smoothVase.transform.translation = { .5f, .5f, 2.5f };
+    smoothVase.transform.translation = { .5f, .5f, 0.f };
     // gameObj.transform.scale = glm::vec3(3.f);
     smoothVase.transform.scale = { 3.f, 1.5f, 3.f };
     m_objects.push_back(std::move(smoothVase));
+
+    lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/quad.obj");
+    auto quad = LveObject::CreateObject();
+    quad.model = lveModel;
+    quad.transform.translation = { 0.f, .5f, 0.f };
+    quad.transform.scale = { 3.f, 1.f, 3.f };
+    m_objects.push_back(std::move(quad));
 }
 
 void FirstApp::UpdateCameraFromOrbit()
