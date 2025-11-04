@@ -48,7 +48,7 @@ private:
 	std::unique_ptr<LveDescriptorSetLayout> m_globalSetLayout;
 	std::vector<VkDescriptorSet> m_globalDescriptorSets;
 
-	std::vector<LveObject> m_objects;
+	LveObject::Map m_objects;
 
 	glm::vec3 m_cameraTraget{ 0.f, 0.f, 1.f };
 	float m_cameraDistance{ 0.1f };

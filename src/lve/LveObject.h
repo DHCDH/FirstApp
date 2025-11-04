@@ -5,6 +5,7 @@
 #include <gtc/matrix_transform.hpp>
 
 #include <memory>
+#include <unordered_map>
 
 namespace lve {
 
@@ -23,6 +24,7 @@ struct TransformComponent {
 class LveObject {
 public:
 	using id_t = unsigned int;
+	using Map = std::unordered_map<id_t, LveObject>;
 
 	static LveObject CreateObject() {
 		static id_t current_id = 0;

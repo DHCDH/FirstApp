@@ -108,7 +108,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
  * gameObjects为FirstApp持有`
  * 
  */
-void RenderSystem::RenderGameObjects(FrameInfo& frameInfo, std::vector<LveObject>& objects)
+void RenderSystem::RenderGameObjects(FrameInfo& frameInfo)
 {
     m_lvePipeline->Bind(frameInfo.commandBuffer);
 
@@ -121,7 +121,9 @@ void RenderSystem::RenderGameObjects(FrameInfo& frameInfo, std::vector<LveObject
         0,
         nullptr);
 
-    for (auto& obj : objects) {
+    for (auto& kv : frameInfo.objects) {
+        auto& obj = kv.second;
+        if (obj.model == nullptr) continue;
         SimplePushConstantData push{};
         push.modelMatrix = obj.transform.mat4();
         push.normalMatrix = obj.transform.normalMatrix();

@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "LveCamera.h"
+#include "LveObject.h"
 
 #include <vulkan/vulkan.h>
 
@@ -11,6 +12,7 @@ struct FrameInfo {
 	VkCommandBuffer commandBuffer;
 	LveCamera& camera;
 	VkDescriptorSet globalDescriptorSet;
+	LveObject::Map& objects;
 };
 
 }

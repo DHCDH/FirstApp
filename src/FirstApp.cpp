@@ -94,7 +94,8 @@ void FirstApp::runFrame()
         frameIndex,
         commandBuffer,
         *m_lveCamera,
-        m_globalDescriptorSets[frameIndex]
+        m_globalDescriptorSets[frameIndex],
+        m_objects
     };
 
     /*将PV矩阵写入UBO*/
@@ -106,7 +107,7 @@ void FirstApp::runFrame()
     m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
 
     /*绘制*/
-    m_renderSystem->RenderGameObjects(frameInfo, m_objects);
+    m_renderSystem->RenderGameObjects(frameInfo);
     // m_renderSystem->RenderAxis(commandBuffer, *m_lveCamera, m_lveRenderer->GetSwapChainExtent());
 
     /*结束本帧RenderPass并提交*/
@@ -121,7 +122,7 @@ void FirstApp::LoadObjects() {
     flatVase.transform.translation = { -.5f, .5f, 0.f };
     // gameObj.transform.scale = glm::vec3(3.f);
     flatVase.transform.scale = { 3.f, 1.5f, 3.f };
-    m_objects.push_back(std::move(flatVase));
+    m_objects.emplace(flatVase.getId(), std::move(flatVase));
 
     lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "res/models/smooth_vase.obj");
     auto smoothVase = LveObject::CreateObject();
@@ -129,14 +130,14 @@ void FirstApp::LoadObjects() {
     smoothVase.transform.translation = { .5f, .5f, 0.f };
     // gameObj.transform.scale = glm::vec3(3.f);
     smoothVase.transform.scale = { 3.f, 1.5f, 3.f };
-    m_objects.push_back(std::move(smoothVase));
+    m_objects.emplace(smoothVase.getId(), std::move(smoothVase));
 
     lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/quad.obj");
     auto quad = LveObject::CreateObject();
     quad.model = lveModel;
     quad.transform.translation = { 0.f, .5f, 0.f };
     quad.transform.scale = { 3.f, 1.f, 3.f };
-    m_objects.push_back(std::move(quad));
+    m_objects.emplace(quad.getId(), std::move(quad));
 }
 
 void FirstApp::UpdateCameraFromOrbit()
