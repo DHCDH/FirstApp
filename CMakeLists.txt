@@ -37,8 +37,6 @@ set(PROJECT_SOURCES
     src/lve/LveSwapChain.cpp
     src/lve/LveCamera.h
     src/lve/LveCamera.cpp
-    src/lve/RenderSystem.h
-    src/lve/RenderSystem.cpp
     src/lve/LvePipeline.h
     src/lve/LvePipeline.cpp
     src/lve/LveModel.h
@@ -53,6 +51,10 @@ set(PROJECT_SOURCES
     src/lve/LveFrameInfo.h
     src/lve/LveDescriptors.h
     src/lve/LveDescriptors.cpp
+    src/lve/systems/RenderSystem.h
+    src/lve/systems/RenderSystem.cpp
+    src/lve/systems/PointLightSystem.h
+    src/lve/systems/PointLightSystem.cpp
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -72,6 +74,7 @@ target_link_libraries(${TARGET_NAME}
 
 set(DEPENDENCIES "${CMAKE_SOURCE_DIR}/dependencies/")
 set(VENDOR "${CMAKE_SOURCE_DIR}/src/vendor")
+set(LVE "${CMAKE_SOURCE_DIR}/src/lve")
 
 target_link_libraries(${TARGET_NAME} PRIVATE "${DEPENDENCIES}/vulkan/lib/vulkan-1.lib")
 
@@ -79,6 +82,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${DEPENDENCIES}/vulkan/include
     ${VENDOR}/glm
     ${VENDOR}/tiny_object_loader
+    ${LVE}
 )
 
 #将模型资源复制到输出目录

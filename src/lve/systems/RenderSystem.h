@@ -24,7 +24,6 @@ public:
 
 private:
 	void CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout);
-	void CreatePipeline(VkRenderPass renderPass);
 	void CreatePipelines(VkRenderPass renderPass);
 	void CreateAxisVertices();
 

@@ -10,7 +10,8 @@ layout(location = 1) out vec3 fragPosWorld;    // 顶点世界位置
 layout(location = 2) out vec3 fragNormalWorld;    //片段中的法线
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 projectionViewMatrix;
+    mat4 projection;
+    mat4 view;
     vec4 ambientLightColor;
     vec3 lightPosition;
     vec4 lightColor;
@@ -24,7 +25,7 @@ layout(push_constant) uniform Push {
 void main() {
     vec4 positionWorld = push.modelMatrix * vec4(position, 1.0);    // 先将顶点从模型坐标系转换到世界坐标系，再计算光源方向
 
-    gl_Position = ubo.projectionViewMatrix * push.modelMatrix * vec4(position, 1.0);
+    gl_Position = ubo.projection * ubo.view * push.modelMatrix * vec4(position, 1.0);
 
     fragNormalWorld = normalize(mat3(push.normalMatrix) * normal);
     fragPosWorld = positionWorld.xyz;

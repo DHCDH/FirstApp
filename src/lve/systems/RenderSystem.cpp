@@ -60,24 +60,6 @@ void RenderSystem::CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout)
     }
 }
 
-/* 创建图形渲染管线对象
-    * 功能：使用默认管线配置，结合当前的Swap Chain、Render Pass和Pipeline Layout创建一个完整的图形渲染管线
-    */
-void RenderSystem::CreatePipeline(VkRenderPass renderPass)
-{
-    assert(m_pipelineLayout != nullptr && "Cannot create pipeline before pipeline layout");
-
-    /*配置视口大小*/
-    PipelineConfigInfo pipelineConfig{};
-    LvePipeline::DefaultPipelineConfigInfo(pipelineConfig);  // SwapChain的width和height不一定与窗口的宽高相同
-    /*指定渲染通道*/
-    pipelineConfig.renderPass = renderPass;
-    /*绑定管线布局（createPipelineLayout）*/
-    pipelineConfig.pipelineLayout = m_pipelineLayout;
-    /*创建图形渲染管线对象*/
-    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/shader.vert.spv", "../../../res/shaders/shader.frag.spv", pipelineConfig);
-}
-
 void RenderSystem::CreatePipelines(VkRenderPass renderPass)
 {
     assert(m_pipelineLayout != nullptr && "Cannot create pipeline before pipeline layout");
@@ -89,18 +71,6 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
     pipelineConfig.pipelineLayout = m_pipelineLayout;
     m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/shader.vert.spv", "../../../res/shaders/shader.frag.spv", pipelineConfig);
 
-
-    // --- 坐标轴管线：线段模型 ---
-    PipelineConfigInfo axisConfig{};
-    LvePipeline::DefaultPipelineConfigInfo(axisConfig);
-    axisConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-    axisConfig.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE; // 线框模式可选
-    axisConfig.renderPass = renderPass;
-    axisConfig.pipelineLayout = m_pipelineLayout;
-    /*让axisPipeline永远在最前*/
-    axisConfig.depthStencilInfo.depthTestEnable = VK_FALSE; // 关闭深度测试
-    axisConfig.depthStencilInfo.depthWriteEnable = VK_FALSE; // 不写入深度缓冲
-    m_axisPipeline = std::make_unique<LvePipeline>(m_lveDevice, "res/shaders/simple_shader.vert.spv", "res/shaders/simple_shader.frag.spv", axisConfig);
 }
 
 /* 主循环中每帧都会调用renderGameObjects

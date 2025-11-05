@@ -4,7 +4,8 @@
 #include "lve/LveDevice.h"
 #include "lve/LveRenderer.h"
 #include "lve/LveCamera.h"
-#include "lve/RenderSystem.h"
+#include "lve/systems/RenderSystem.h"
+#include "lve/systems/PointLightSystem.h"
 #include "lve/LveDescriptors.h"
 
 #include <memory>
@@ -43,6 +44,7 @@ private:
     std::unique_ptr<LveRenderer> m_lveRenderer;
 	std::unique_ptr<LveCamera> m_lveCamera;
 	std::unique_ptr<RenderSystem> m_renderSystem;
+	std::unique_ptr<PointLightSystem> m_pointLightSystem;
 	std::unique_ptr<LveDescriptorPool> m_globalPool;
 	std::vector<std::unique_ptr<LveBuffer>> m_uboBuffers;
 	std::unique_ptr<LveDescriptorSetLayout> m_globalSetLayout;

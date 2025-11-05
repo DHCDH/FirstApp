@@ -15,8 +15,8 @@ static constexpr float PAN_SENS = 0.002f;   // 每像素平移比例
 static constexpr float DOLLY_RATE = 0.12f;    // 滚轮step的缩放比率
 
 struct GlobalUbo {
-    glm::mat4 projectionView{ 1.f };
-    // glm::vec3 lightDirection = glm::normalize(glm::vec3{ 1.f, -3.f, -1.f });
+    glm::mat4 projection{ 1.f };
+    glm::mat4 view{ 1.f };
 
     /*点光源*/ 
     glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .02f }; // w is intensity
@@ -68,6 +68,8 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
 
     m_renderSystem = std::make_unique<RenderSystem>(*m_lveDevice, 
         m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
+    m_pointLightSystem = std::make_unique<PointLightSystem>(*m_lveDevice,
+        m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
 }
 
 void FirstApp::runFrame()
@@ -100,7 +102,8 @@ void FirstApp::runFrame()
 
     /*将PV矩阵写入UBO*/
     GlobalUbo ubo{};
-    ubo.projectionView = m_lveCamera->GetProjection() * m_lveCamera->GetView();
+    ubo.projection = m_lveCamera->GetProjection();
+    ubo.view = m_lveCamera->GetView();
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
     /*进入本帧的主RenderPass*/
@@ -108,7 +111,7 @@ void FirstApp::runFrame()
 
     /*绘制*/
     m_renderSystem->RenderGameObjects(frameInfo);
-    // m_renderSystem->RenderAxis(commandBuffer, *m_lveCamera, m_lveRenderer->GetSwapChainExtent());
+    m_pointLightSystem->Render(frameInfo);
 
     /*结束本帧RenderPass并提交*/
     m_lveRenderer->EndSwapChainRenderPass(commandBuffer);
