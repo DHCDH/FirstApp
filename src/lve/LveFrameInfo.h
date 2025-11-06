@@ -17,6 +17,7 @@ struct PointLight {
 struct GlobalUbo {
 	glm::mat4 projection{ 1.f };
 	glm::mat4 view{ 1.f };
+	glm::mat4 inverseView{ 1.f };	// 通过视图逆矩阵最后一列获取相机位置
 
 	/*点光源*/
 	glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .02f }; // w is intensity

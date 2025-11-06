@@ -25,10 +25,12 @@ public:
 
 	const glm::mat4& GetProjection() const { return m_projectionMatrix; }
 	const glm::mat4& GetView() const { return m_viewMatrix; }
+	const glm::mat4& GetInverseView() const { return m_inverseViewMatirx; }
 
 private:
 	glm::mat4 m_projectionMatrix{1.f};
 	glm::mat4 m_viewMatrix{1.f};	// 视图矩阵，存储相机变换
+	glm::mat4 m_inverseViewMatirx{1.f}; // 逆视图矩阵
 };
 
 }

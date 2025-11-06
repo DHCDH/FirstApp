@@ -100,6 +100,7 @@ void FirstApp::runFrame()
     GlobalUbo ubo{};
     ubo.projection = m_lveCamera->GetProjection();
     ubo.view = m_lveCamera->GetView();
+    ubo.inverseView = m_lveCamera->GetInverseView();
     m_pointLightSystem->Update(frameInfo, ubo);
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
@@ -139,6 +140,7 @@ void FirstApp::LoadObjects() {
     quad.transform.scale = { 3.f, 1.f, 3.f };
     m_objects.emplace(quad.getId(), std::move(quad));
 
+    /*原点点光源*/
     auto pointLight = LveObject::MakePointLight(0.2f);
     m_objects.emplace(pointLight.getId(), std::move(pointLight));
 
