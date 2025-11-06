@@ -78,7 +78,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
  * gameObjects为FirstApp持有`
  * 
  */
-void RenderSystem::RenderGameObjects(FrameInfo& frameInfo)
+void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
     m_lvePipeline->Bind(frameInfo.commandBuffer);
 

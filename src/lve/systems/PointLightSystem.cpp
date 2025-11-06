@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <array>
 #include <iostream>
+#include <map>
 
 namespace lve {
 
@@ -69,6 +70,7 @@ void PointLightSystem::CreatePipelines(VkRenderPass renderPass)
     // --- 主管线：填充模式 ---
     PipelineConfigInfo pipelineConfig{};
     LvePipeline::DefaultPipelineConfigInfo(pipelineConfig);
+    LvePipeline::EnableAlphaBlending(pipelineConfig);   // 启用alpha混合
     pipelineConfig.attributeDescriptions.clear();
     pipelineConfig.bindingDescriptions.clear();
     pipelineConfig.renderPass = renderPass;
@@ -83,6 +85,7 @@ void PointLightSystem::CreatePipelines(VkRenderPass renderPass)
 void PointLightSystem::Update(FrameInfo& frameInfo, GlobalUbo& ubo)
 {
     auto rotateLight = glm::rotate(glm::mat4(1.f), frameInfo.frameTime, {0.f, -1.f, 0.f});
+    // glm::mat4 rotateLight{ 1.f };
 
     int lightIndex = 0;
     for (auto& kv : frameInfo.objects) {
@@ -107,11 +110,21 @@ void PointLightSystem::Update(FrameInfo& frameInfo, GlobalUbo& ubo)
 
 /* 主循环中每帧都会调用renderGameObjects
  * 引用传递gameObjects，每次都会修改gameObjects中的数据并影响到下一个循环
- * gameObjects为FirstApp持有`
- * 
+ * gameObjects为FirstApp持有
  */
 void PointLightSystem::Render(FrameInfo& frameInfo)
 {
+    /*对点光源进行排序*/
+    std::map<float, LveObject::id_t> sorted;    // k: 点光源的距离 v: 点光源id
+    for (auto& kv : frameInfo.objects) {
+        auto& obj = kv.second;
+        if (obj.pointLight == nullptr) continue;
+
+        auto offset = frameInfo.camera.GetPosition() - obj.transform.translation;
+        float disSquared = glm::dot(offset, offset);
+        sorted[disSquared] = obj.getId();
+    }
+
     m_lvePipeline->Bind(frameInfo.commandBuffer);
 
     vkCmdBindDescriptorSets(frameInfo.commandBuffer,
@@ -123,9 +136,9 @@ void PointLightSystem::Render(FrameInfo& frameInfo)
         0,
         nullptr);
 
-    for (auto& kv : frameInfo.objects) {
-        auto& obj = kv.second;
-        if (obj.pointLight == nullptr) continue;
+    /*从后到前渲染对象*/
+    for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
+        auto& obj = frameInfo.objects.at(it->second);
 
         PointLightPushConstants push{};
         push.position = glm::vec4(obj.transform.translation, 1.f);

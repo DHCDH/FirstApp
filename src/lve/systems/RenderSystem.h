@@ -19,7 +19,7 @@ public:
 	RenderSystem(const RenderSystem&) = delete;
 	RenderSystem& operator=(const RenderSystem&) = delete;
 
-	void RenderGameObjects(FrameInfo& frameInfo); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
+	void RenderObjects(FrameInfo& frameInfo); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
 	void RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& camera, VkExtent2D extent);
 
 private:

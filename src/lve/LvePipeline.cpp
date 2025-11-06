@@ -216,4 +216,20 @@ void LvePipeline::DefaultPipelineConfigInfo(PipelineConfigInfo& configInfo)
 	configInfo.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
 }
 
+void LvePipeline::EnableAlphaBlending(PipelineConfigInfo& configInfo)
+{
+	configInfo.colorBlendAttachment.blendEnable = VK_TRUE;	// 启用会有性能成本，只有需要使用alpha混合的对象才启用
+
+	configInfo.colorBlendAttachment.colorWriteMask =
+		VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+		VK_COLOR_COMPONENT_A_BIT;	// 允许写出RGBA四个通道
+	
+	configInfo.colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;  
+	configInfo.colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA; 
+	configInfo.colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;             
+	configInfo.colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;  
+	configInfo.colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; 
+	configInfo.colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;             
+}
+
 }

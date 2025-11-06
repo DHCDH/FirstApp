@@ -108,7 +108,7 @@ void FirstApp::runFrame()
     m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
 
     /*绘制*/
-    m_renderSystem->RenderGameObjects(frameInfo);
+    m_renderSystem->RenderObjects(frameInfo);
     m_pointLightSystem->Render(frameInfo);
 
     /*结束本帧RenderPass并提交*/
@@ -133,6 +133,7 @@ void FirstApp::LoadObjects() {
     smoothVase.transform.scale = { 3.f, 1.5f, 3.f };
     m_objects.emplace(smoothVase.getId(), std::move(smoothVase));
 
+    /*地板*/
     lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/quad.obj");
     auto quad = LveObject::CreateObject();
     quad.model = lveModel;
@@ -156,8 +157,7 @@ void FirstApp::LoadObjects() {
     for (int i = 0; i < lightColors.size(); i++) {
         auto pointLight = LveObject::MakePointLight(0.2f);
         pointLight.color = lightColors[i];
-        auto rotateLight = glm::rotate(glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(),
-            { 0.f, -1.f, 0.f });
+        auto rotateLight = glm::rotate(glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(), { 0.f, -1.f, 0.f });
         pointLight.transform.translation = glm::vec3(rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f));
         m_objects.emplace(pointLight.getId(), std::move(pointLight));
     }

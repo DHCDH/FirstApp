@@ -42,6 +42,7 @@ public:
 
 	/*创建默认管道配置的公共函数*/
 	static void DefaultPipelineConfigInfo(PipelineConfigInfo& configInfo);
+	static void EnableAlphaBlending(PipelineConfigInfo& configInfo);
 
 private:
 	static std::vector<char> ReadFile(const std::string& filepath);
