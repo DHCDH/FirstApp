@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <array>
 #include <iostream>
-#include <chrono>
 #include <numeric>
 
 namespace lve {
@@ -13,16 +12,6 @@ namespace lve {
 static constexpr float ORBIT_SENS = 0.005f; // 每像素旋转弧度
 static constexpr float PAN_SENS = 0.002f;   // 每像素平移比例
 static constexpr float DOLLY_RATE = 0.12f;    // 滚轮step的缩放比率
-
-struct GlobalUbo {
-    glm::mat4 projection{ 1.f };
-    glm::mat4 view{ 1.f };
-
-    /*点光源*/ 
-    glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .02f }; // w is intensity
-    glm::vec3 lightPosition{ -1.f };
-    alignas(16) glm::vec4 lightColor{ 1.f };    // w存储灯光强度
-};
 
 FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
 {
@@ -70,6 +59,8 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
         m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
     m_pointLightSystem = std::make_unique<PointLightSystem>(*m_lveDevice,
         m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
+
+    m_lastTick = std::chrono::high_resolution_clock::now();
 }
 
 void FirstApp::runFrame()
@@ -78,6 +69,10 @@ void FirstApp::runFrame()
         m_lveWindow->ResetWindowResizedFlag();
         m_lveRenderer->RecreateSwapChain();
     }
+
+    auto now = std::chrono::high_resolution_clock::now();
+    m_frameTimeSec = std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick).count();
+    m_lastTick = now;
 
     VkCommandBuffer commandBuffer = m_lveRenderer->BeginFrame();
     if (commandBuffer == nullptr) {
@@ -94,6 +89,7 @@ void FirstApp::runFrame()
     int frameIndex = m_lveRenderer->GetFrameIndex();
     FrameInfo frameInfo{
         frameIndex,
+        m_frameTimeSec,
         commandBuffer,
         *m_lveCamera,
         m_globalDescriptorSets[frameIndex],
@@ -104,6 +100,7 @@ void FirstApp::runFrame()
     GlobalUbo ubo{};
     ubo.projection = m_lveCamera->GetProjection();
     ubo.view = m_lveCamera->GetView();
+    m_pointLightSystem->Update(frameInfo, ubo);
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
     /*进入本帧的主RenderPass*/
@@ -141,6 +138,27 @@ void FirstApp::LoadObjects() {
     quad.transform.translation = { 0.f, .5f, 0.f };
     quad.transform.scale = { 3.f, 1.f, 3.f };
     m_objects.emplace(quad.getId(), std::move(quad));
+
+    auto pointLight = LveObject::MakePointLight(0.2f);
+    m_objects.emplace(pointLight.getId(), std::move(pointLight));
+
+    std::vector<glm::vec3> lightColors{
+        {1.f, .1f, .1f},
+        {.1f, .1f, 1.f},
+        {.1f, 1.f, .1f},
+        {1.f, 1.f, .1f},
+        {.1f, 1.f, 1.f},
+        {1.f, 1.f, 1.f},
+    };
+
+    for (int i = 0; i < lightColors.size(); i++) {
+        auto pointLight = LveObject::MakePointLight(0.2f);
+        pointLight.color = lightColors[i];
+        auto rotateLight = glm::rotate(glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(),
+            { 0.f, -1.f, 0.f });
+        pointLight.transform.translation = glm::vec3(rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f));
+        m_objects.emplace(pointLight.getId(), std::move(pointLight));
+    }
 }
 
 void FirstApp::UpdateCameraFromOrbit()

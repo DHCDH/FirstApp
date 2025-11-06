@@ -1,4 +1,4 @@
-#include "LveObject.h"
+﻿#include "LveObject.h"
 
 namespace lve { 
 
@@ -61,6 +61,17 @@ glm::mat3 TransformComponent::normalMatrix()
         }
     };
 
+}
+
+LveObject LveObject::MakePointLight(float intensity, float radius, glm::vec3 color)
+{
+    LveObject obj = LveObject::CreateObject();
+    obj.color = color;
+    obj.transform.scale.x = radius;
+    obj.pointLight = std::make_unique<PointLightComponent>();
+    obj.pointLight->lightIntensity = intensity;
+
+    return obj;
 }
 
 }

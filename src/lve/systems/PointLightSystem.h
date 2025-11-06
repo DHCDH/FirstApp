@@ -19,6 +19,7 @@ public:
 	PointLightSystem(const PointLightSystem&) = delete;
 	PointLightSystem& operator=(const PointLightSystem&) = delete;
 
+	void Update(FrameInfo& frameInfo, GlobalUbo& ubo);
 	void Render(FrameInfo& frameInfo); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
 
 private:

@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <vector>
+#include <chrono>
 
 namespace lve {
 
@@ -54,6 +55,9 @@ private:
 
 	glm::vec3 m_cameraTraget{ 0.f, 0.f, 1.f };
 	float m_cameraDistance{ 0.1f };
+
+	std::chrono::high_resolution_clock::time_point m_lastTick{};
+	float m_frameTimeSec = 0.f;
 
 	void SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name);
 	void LoadObjects();

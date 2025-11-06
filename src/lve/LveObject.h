@@ -21,6 +21,10 @@ struct TransformComponent {
 	glm::mat3 normalMatrix();
 };
 
+struct PointLightComponent {
+	float lightIntensity = 1.0f;	// 光照强度
+};
+
 class LveObject {
 public:
 	using id_t = unsigned int;
@@ -38,9 +42,15 @@ public:
 
 	id_t getId() const { return id; }
 
-    std::shared_ptr<LveModel> model{};
+	static LveObject MakePointLight(
+		float intensity = 10.f,
+		float radius = 0.1f,
+		glm::vec3 color = glm::vec3(1.f));
+
 	glm::vec3 color{1.f, 1.f, 1.f};
 	TransformComponent transform{};
+	std::unique_ptr<PointLightComponent> pointLight = nullptr;	// 为空则表示不使用点光源
+	std::shared_ptr<LveModel> model{};	// 若为点光源，则不设置模型指针
 
 private:
 	LveObject(id_t obj_id) : id{ obj_id } {}
