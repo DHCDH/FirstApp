@@ -59,6 +59,8 @@ private:
 	std::chrono::high_resolution_clock::time_point m_lastTick{};
 	float m_frameTimeSec = 0.f;
 
+	LveObject::id_t m_headlightId{114514};	// 跟随相机的点光源
+
 	void SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name);
 	void LoadObjects();
 	void UpdateCameraFromOrbit();

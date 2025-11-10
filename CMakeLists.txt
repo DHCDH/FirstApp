@@ -18,6 +18,10 @@ find_package(Qt${QT_VERSION_MAJOR}
 )
 qt_standard_project_setup()
 
+file(GLOB_RECURSE LVE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.cpp" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.h")
+
 set(PROJECT_SOURCES
     src/main.cpp
     src/MainWindow.h
@@ -25,36 +29,7 @@ set(PROJECT_SOURCES
     src/FirstApp.h
     src/FirstApp.cpp
 
-    src/lve/LveAdapter.h
-    src/lve/LveAdapter.cpp
-    src/lve/LveWindow.h
-    src/lve/LveWindow.cpp
-    src/lve/LveRenderer.h
-    src/lve/LveRenderer.cpp
-    src/lve/LveDevice.h
-    src/lve/LveDevice.cpp
-    src/lve/LveSwapChain.h
-    src/lve/LveSwapChain.cpp
-    src/lve/LveCamera.h
-    src/lve/LveCamera.cpp
-    src/lve/LvePipeline.h
-    src/lve/LvePipeline.cpp
-    src/lve/LveModel.h
-    src/lve/LveModel.cpp
-    src/lve/LveUtils.h
-    src/lve/LveObject.h
-    src/lve/LveObject.cpp
-    src/lve/LveKeyboardController.h
-    src/lve/LveKeyboardController.cpp
-    src/lve/LveBuffer.h
-    src/lve/LveBuffer.cpp
-    src/lve/LveFrameInfo.h
-    src/lve/LveDescriptors.h
-    src/lve/LveDescriptors.cpp
-    src/lve/systems/RenderSystem.h
-    src/lve/systems/RenderSystem.cpp
-    src/lve/systems/PointLightSystem.h
-    src/lve/systems/PointLightSystem.cpp
+    ${LVE_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -82,6 +57,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${DEPENDENCIES}/vulkan/include
     ${VENDOR}/glm
     ${VENDOR}/tiny_object_loader
+    ${VENDOR}/stb_image
     ${LVE}
 )
 

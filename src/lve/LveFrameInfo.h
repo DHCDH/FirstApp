@@ -20,7 +20,7 @@ struct GlobalUbo {
 	glm::mat4 inverseView{ 1.f };	// 通过视图逆矩阵最后一列获取相机位置
 
 	/*点光源*/
-	glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .02f }; // w is intensity
+	glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .5f }; // w is intensity
 	PointLight pointLights[MAX_LIGHTS];
 	int numLights;
 };

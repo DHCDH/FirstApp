@@ -91,12 +91,15 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 auto* e = static_cast<QMouseEvent*>(event);
                 QPoint d = e->pos() - m_lastPos;
                 m_lastPos = e->pos();
-                if(!m_vulkanApp) return true;
+                if (!m_vulkanApp) return true;
+                // === [新增] HiDPI 校正：把像素位移乘以设备像素比 ===
+                const float dpr = m_renderWidget->devicePixelRatioF();
+                const float dx  = d.x() * dpr;
+                const float dy  = d.y() * dpr;
                 if (m_leftDown) {
-                    m_vulkanApp->Orbit(d.x(), d.y());
-                }
-                else if (m_midDown || m_rightDown) {
-                    m_vulkanApp->Pan(-d.x(), d.y());
+                    m_vulkanApp->Orbit(dx, dy);
+                } else if (m_midDown || m_rightDown) {
+                    m_vulkanApp->Pan(-dx, dy); // 保持屏幕坐标系方向习惯
                 }
                 return true;
             }

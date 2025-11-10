@@ -57,6 +57,8 @@ void LveCamera::SetViewDirection(glm::vec3 position, glm::vec3 direction, glm::v
 	m_viewMatrix[3][0] = -glm::dot(u, position);
 	m_viewMatrix[3][1] = -glm::dot(v, position);
 	m_viewMatrix[3][2] = -glm::dot(w, position);
+
+	m_inverseViewMatirx = glm::inverse(m_viewMatrix);
 }
 
 /*设置视图目标*/

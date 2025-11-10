@@ -9,9 +9,16 @@
 
 namespace lve {
 
-static constexpr float ORBIT_SENS = 0.005f; // 每像素旋转弧度
-static constexpr float PAN_SENS = 0.002f;   // 每像素平移比例
-static constexpr float DOLLY_RATE = 0.12f;    // 滚轮step的缩放比率
+struct OrbitConfig {
+    float rotateSpeedPerPixel = 0.0020f;   // 每像素约 0.11°
+    float panBasePerPixel = 0.0015f;   // 每像素平移尺度 = distance * 该系数
+    float dollySpeed = 0.22f;     // 指数缩放强度（滚轮步长）
+    float minDistance = 0.05f;     // 缩放最近距离
+    float maxDistance = 500.0f;    // 缩放最远距离
+    float minPitch = -1.55334306f; // -89° (弧度)
+    float maxPitch = 1.55334306f; //  89° (弧度)
+    float fovY = 0.87266463f; //  50° (弧度) 供平移尺度估算
+}orbitCfg;
 
 FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
 {
@@ -30,6 +37,7 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
     m_globalPool = LveDescriptorPool::Builder(*m_lveDevice)
         .SetMaxSets(LveSwapChain::MAX_FRAMES_IN_FLIGHT)
         .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
         .Build();
 
     m_uboBuffers.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT); //2
@@ -46,12 +54,20 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
 
     m_globalSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
         .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL_GRAPHICS)
+        .AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
     m_globalDescriptorSets.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < m_globalDescriptorSets.size(); i++) {
-        auto bufferInfo = m_uboBuffers[i]->DescriptorInfo();
+        auto bufferInfo = m_uboBuffers[i]->DescriptorInfo(); // binding 0
+
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler = sampler;
+        imgInfo.imageView = imageView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
         LveDescriptorWriter(*m_globalSetLayout, *m_globalPool)
             .WriteBuffer(0, &bufferInfo)
+            .WriteImage(1, &imgInfo)
             .Build(m_globalDescriptorSets[i]);
     }
 
@@ -96,11 +112,21 @@ void FirstApp::runFrame()
         m_objects
     };
 
+    /*更新跟随镜头点光源*/
+    glm::vec3 camPos = m_lveCamera->GetPosition();
+    if (auto it = m_objects.find(m_headlightId); it != m_objects.end()) {
+        it->second.transform.translation = camPos;
+
+        float d = m_orbit.distance;
+        it->second.pointLight->lightIntensity = .3f * d * d;
+    }
+
     /*将PV矩阵写入UBO*/
     GlobalUbo ubo{};
     ubo.projection = m_lveCamera->GetProjection();
     ubo.view = m_lveCamera->GetView();
     ubo.inverseView = m_lveCamera->GetInverseView();
+    ubo.ambientLightColor.w = 0.08f;
     m_pointLightSystem->Update(frameInfo, ubo);
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
@@ -116,34 +142,19 @@ void FirstApp::runFrame()
     m_lveRenderer->EndFrame();
 }
 
-void FirstApp::LoadObjects() {
-    std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "res/models/flat_vase.obj");
-    auto flatVase = LveObject::CreateObject();
-    flatVase.model = lveModel;
-    flatVase.transform.translation = { -.5f, .5f, 0.f };
-    // gameObj.transform.scale = glm::vec3(3.f);
-    flatVase.transform.scale = { 3.f, 1.5f, 3.f };
-    m_objects.emplace(flatVase.getId(), std::move(flatVase));
-
-    lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "res/models/smooth_vase.obj");
-    auto smoothVase = LveObject::CreateObject();
-    smoothVase.model = lveModel;
-    smoothVase.transform.translation = { .5f, .5f, 0.f };
-    // gameObj.transform.scale = glm::vec3(3.f);
-    smoothVase.transform.scale = { 3.f, 1.5f, 3.f };
-    m_objects.emplace(smoothVase.getId(), std::move(smoothVase));
-
-    /*地板*/
-    lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/quad.obj");
+void FirstApp::LoadObjects() 
+{
+    std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/cutter.obj");
     auto quad = LveObject::CreateObject();
     quad.model = lveModel;
     quad.transform.translation = { 0.f, .5f, 0.f };
-    quad.transform.scale = { 3.f, 1.f, 3.f };
+    quad.transform.scale = { 1.f, 1.f, 1.f };
     m_objects.emplace(quad.getId(), std::move(quad));
 
-    /*原点点光源*/
-    auto pointLight = LveObject::MakePointLight(0.2f);
-    m_objects.emplace(pointLight.getId(), std::move(pointLight));
+    /*创建跟随相机的点光源*/
+    auto head = LveObject::MakePointLight(3., 0.25, { 1.f, .86f, .55f });
+    m_headlightId = head.getId();
+    m_objects.emplace(head.getId(), std::move(head));
 
     std::vector<glm::vec3> lightColors{
         {1.f, .1f, .1f},
@@ -155,63 +166,63 @@ void FirstApp::LoadObjects() {
     };
 
     for (int i = 0; i < lightColors.size(); i++) {
-        auto pointLight = LveObject::MakePointLight(0.2f);
+        auto pointLight = LveObject::MakePointLight(10.f);
         pointLight.color = lightColors[i];
         auto rotateLight = glm::rotate(glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(), { 0.f, -1.f, 0.f });
         pointLight.transform.translation = glm::vec3(rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f));
-        m_objects.emplace(pointLight.getId(), std::move(pointLight));
+        // m_objects.emplace(pointLight.getId(), std::move(pointLight));
     }
 }
 
 void FirstApp::UpdateCameraFromOrbit()
 {
-    float cy = std::cos(m_orbit.yaw);
-    float sy = std::sin(m_orbit.yaw);
-    float cp = std::cos(m_orbit.pitch);
-    float sp = std::sin(m_orbit.pitch);
-
-    /*相机看向的方向*/
-    glm::vec3 forward = glm::normalize(glm::vec3(cp * sy, sp, -cp * cy));
-
-    glm::vec3 position = m_orbit.target - forward * m_orbit.distance;
-    m_lveCamera->SetViewTarget(position, m_orbit.target);
+    const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
+    const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
+    glm::vec3 offset(
+        m_orbit.distance *  cp * sy,
+        m_orbit.distance *  sp,
+        m_orbit.distance *  cp * cy
+    );
+    glm::vec3 camPos = m_orbit.target - offset;
+    // 依你项目的 API 设置相机，这里用 setViewTarget 示例
+    m_lveCamera->SetViewTarget(camPos, m_orbit.target);
+    // 若有随相机移动的点光源，可在此同步（可选）
 }
 
 void FirstApp::Orbit(float dxPixels, float dyPixels)
 {
-    m_orbit.yaw += dxPixels * ORBIT_SENS;
-    m_orbit.pitch -= dyPixels * ORBIT_SENS;
-
-    const float kPole = 1.2f;
-    m_orbit.pitch = glm::clamp(m_orbit.pitch, -kPole, kPole);
-
-    constexpr float PI = glm::pi<float>();
-    float TAU = 2.f * PI;
-    if (m_orbit.yaw > PI) m_orbit.yaw -= TAU;
-    if (m_orbit.yaw < -PI) m_orbit.yaw += TAU;
+    m_orbit.yaw   -= dxPixels * orbitCfg.rotateSpeedPerPixel;
+    m_orbit.pitch -= dyPixels * orbitCfg.rotateSpeedPerPixel;
+    // 俯仰夹取
+    if (m_orbit.pitch > orbitCfg.maxPitch) m_orbit.pitch = orbitCfg.maxPitch;
+    if (m_orbit.pitch < orbitCfg.minPitch) m_orbit.pitch = orbitCfg.minPitch;
+    // 将 yaw 归一到 [-pi, pi]，避免数值漂移
+    if (m_orbit.yaw >  glm::pi<float>())  m_orbit.yaw -= glm::two_pi<float>();
+    if (m_orbit.yaw < -glm::pi<float>())  m_orbit.yaw += glm::two_pi<float>();
+    UpdateCameraFromOrbit();
 }
 
 void FirstApp::Pan(float dxPixels, float dyPixels)
 {
-    /*基于当前 forward 计算 right / up（世界上方向取(0, 1, 0)）*/
-    float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
-    float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
-
-    glm::vec3 forward = glm::normalize(glm::vec3(cp * sy, sp, -cp * cy));
-    glm::vec3 worldUp{ 0.f, 1.f, 0.f };
-    glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
-    glm::vec3 up = glm::normalize(glm::cross(right, forward));
-
-    float scale = std::max(0.1f, m_orbit.distance) * PAN_SENS;
-    // 屏幕坐标通常 x 右正、y 下正；如果想拖动方向完全模仿 VTK，可按需要取反
-    m_orbit.target -= right * (dxPixels * scale);
-    m_orbit.target += up * (dyPixels * scale);
+    const float panScale = m_orbit.distance * orbitCfg.panBasePerPixel;
+    const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
+    const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
+    // 朝向（从相机指向目标）
+    glm::vec3 forward = glm::normalize(glm::vec3(cp*sy, sp, cp*cy));
+    glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
+    glm::vec3 right   = glm::normalize(glm::cross(forward, worldUp));
+    glm::vec3 up      = glm::normalize(glm::cross(right,   forward));
+    // 屏幕像素位移 -> 世界位移（注意屏幕 y 向下为正）
+    m_orbit.target += (-dxPixels * panScale) * right;
+    m_orbit.target += ( dyPixels * panScale) * up;
+    UpdateCameraFromOrbit();
 }
 
 void FirstApp::Dolly(float steps)
 {
-    float scale = std::pow(1.f - DOLLY_RATE, steps);
-    m_orbit.distance = glm::clamp(m_orbit.distance * scale, 0.05f, 100.f);
+    const float k = std::exp(-steps * orbitCfg.dollySpeed); // steps>0 拉近
+    m_orbit.distance = glm::clamp(m_orbit.distance * k, orbitCfg.minDistance, orbitCfg.maxDistance);
+    UpdateCameraFromOrbit();
 }
 
 void FirstApp::ResetView()
