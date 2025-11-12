@@ -22,22 +22,25 @@ struct OrbitConfig {
 
 FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
 {
-    SetLveComponants(nativeWindowHandle, nativeInstanceHandle, w, h, name);
+    InitLveComponants(nativeWindowHandle, nativeInstanceHandle, w, h, name);
     LoadObjects();
 }
 
-void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
+void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
 {
     m_lveWindow = std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
     m_lveDevice = std::make_unique<LveDevice>(*m_lveWindow);
     m_lveRenderer = std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice);
     m_lveCamera = std::make_unique<LveCamera>();
+    m_texture = std::make_unique<LveTexture>(
+        *m_lveDevice, 
+        "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_BrushedStainlessSteel_header.jpg", 
+        true);
 
-    /*ubo*/
+    /*global ubo*/
     m_globalPool = LveDescriptorPool::Builder(*m_lveDevice)
         .SetMaxSets(LveSwapChain::MAX_FRAMES_IN_FLIGHT)
         .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
-        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
         .Build();
 
     m_uboBuffers.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT); //2
@@ -51,28 +54,83 @@ void FirstApp::SetLveComponants(void* nativeWindowHandle, void* nativeInstanceHa
         );
         m_uboBuffers[i]->Map();
     }
-
     m_globalSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
         .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL_GRAPHICS)
-        .AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
     m_globalDescriptorSets.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < m_globalDescriptorSets.size(); i++) {
         auto bufferInfo = m_uboBuffers[i]->DescriptorInfo(); // binding 0
 
-        VkDescriptorImageInfo imgInfo{};
-        imgInfo.sampler = sampler;
-        imgInfo.imageView = imageView;
-        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
         LveDescriptorWriter(*m_globalSetLayout, *m_globalPool)
             .WriteBuffer(0, &bufferInfo)
-            .WriteImage(1, &imgInfo)
             .Build(m_globalDescriptorSets[i]);
     }
 
-    m_renderSystem = std::make_unique<RenderSystem>(*m_lveDevice, 
-        m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
+    /*texture, set = 1*/
+    m_materialPool = LveDescriptorPool::Builder(*m_lveDevice)
+        .SetMaxSets(128)
+        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128)
+        .Build();
+    m_materialSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
+        .AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
+        .Build();
+
+    /*创建采样器Sampler*/
+    VkSamplerCreateInfo sci{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sci.magFilter = VK_FILTER_LINEAR;   // 放大采用线性过滤
+    sci.minFilter = VK_FILTER_LINEAR;   // 缩小采用线性过滤
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;    // 重复寻址，适合可平铺贴图
+    sci.anisotropyEnable = VK_TRUE; // 开启各向异性过滤
+    sci.maxAnisotropy = 16.0f;
+    sci.minLod = 0.0f; sci.maxLod = 100.0f; // 若你生成了 mipmap，这样才能访问所有 mip
+    if (vkCreateSampler(m_lveDevice->device(), &sci, nullptr, &m_sharedSampler) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create sampler!");
+    }
+
+    m_textureManager = std::make_unique<LveTextureManager>(*m_lveDevice, m_sharedSampler, *m_materialSetLayout, *m_materialPool);
+
+    // 占位 set=1：随便复用一张已有纹理（或你做一张 1x1 白图）
+    m_defaultTextureSet = m_textureManager->GetOrCreateMaterialSet(
+        "D:/Data/Study/vulkan/FirstApp/res/textures/white_1x1.png", true);
+
+    // set = 2，材质参数UBO
+    m_materialParamPool = lve::LveDescriptorPool::Builder(*m_lveDevice)
+        .SetMaxSets(128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+        .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+        .Build();
+
+    m_materialParamSetLayout = lve::LveDescriptorSetLayout::Builder(*m_lveDevice)
+        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT) // 先指向 FS，可先不使用
+        .Build();
+
+    MaterialUBO def{};
+    def.baseColorFactor = { 1,1,1,1 };
+    def.uvTilingOffset = { 1,1,0,0 };
+    def.pbrAoAlpha = { 0.0f, 0.5f, 1.0f, 0.0f };
+    def.flags = { 0u,0u,0u,0u };
+
+    for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
+        auto buf = std::make_unique<lve::LveBuffer>(
+            *m_lveDevice, sizeof(MaterialUBO), 1,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        buf->Map(); buf->WriteToBuffer(&def);
+        VkDescriptorBufferInfo bi = buf->DescriptorInfo();
+        lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
+            .WriteBuffer(0, &bi)
+            .Build(m_dummyMatSets[i]);
+        m_materialParamBuffers.push_back(std::move(buf));
+    }
+
+    m_renderSystem = std::make_unique<RenderSystem>(
+        *m_lveDevice, 
+        m_lveRenderer->GetSwapChainRenderPass(),
+        std::vector<VkDescriptorSetLayout>{
+            m_globalSetLayout->GetDescriptorSetLayout(),            // set = 0
+            m_materialSetLayout->GetDescriptorSetLayout(),          // set = 1
+            m_materialParamSetLayout->GetDescriptorSetLayout()});   // set = 2
+
     m_pointLightSystem = std::make_unique<PointLightSystem>(*m_lveDevice,
         m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
 
@@ -103,6 +161,18 @@ void FirstApp::runFrame()
     UpdateCameraFromOrbit();
 
     int frameIndex = m_lveRenderer->GetFrameIndex();
+
+    std::unordered_map<uint32_t, std::vector<VkDescriptorSet>> submeshMatThisFrame;
+    for (auto& kv : m_submeshMatSets) {
+        uint32_t objId = kv.first;
+        auto& perSubmeshArray = kv.second; // vector<array<VkDescriptorSet, MAX_FRAMES>>
+        std::vector<VkDescriptorSet> v(perSubmeshArray.size());
+        for (size_t i = 0; i < perSubmeshArray.size(); ++i) {
+            v[i] = perSubmeshArray[i][frameIndex];
+        }
+        submeshMatThisFrame[objId] = std::move(v);
+    }
+
     FrameInfo frameInfo{
         frameIndex,
         m_frameTimeSec,
@@ -111,6 +181,20 @@ void FirstApp::runFrame()
         m_globalDescriptorSets[frameIndex],
         m_objects
     };
+    frameInfo.submeshTexSets = &m_submeshTextureSets;     // set=1
+    frameInfo.submeshMatSetThisFrame = &submeshMatThisFrame;  // set=2（本帧）
+    frameInfo.dummyTexSet = m_defaultTextureSet;
+    frameInfo.dummyMatSet = m_dummyMatSets[frameIndex];
+
+    //准备材质参数（set=2）“本帧映射”并赋给 frameInfo ---
+    std::unordered_map<uint32_t, VkDescriptorSet> materialParamSetThisFrame;
+    for (auto& kv : m_objectMaterialParams) {        // 你给每个对象创建的MaterialGPU容器
+        uint32_t objId = kv.first;
+        const auto& mgpu = kv.second;                // 包含每帧一个的 UBO 描述符
+        materialParamSetThisFrame[objId] = mgpu.sets[frameIndex];
+    }
+    frameInfo.materialDescriptorSets = &m_objectMaterialSets;
+    frameInfo.materialParamSets = &materialParamSetThisFrame;
 
     /*更新跟随镜头点光源*/
     glm::vec3 camPos = m_lveCamera->GetPosition();
@@ -144,17 +228,73 @@ void FirstApp::runFrame()
 
 void FirstApp::LoadObjects() 
 {
-    std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/cutter.obj");
-    auto quad = LveObject::CreateObject();
-    quad.model = lveModel;
-    quad.transform.translation = { 0.f, .5f, 0.f };
-    quad.transform.scale = { 1.f, 1.f, 1.f };
-    m_objects.emplace(quad.getId(), std::move(quad));
+    /*毛坯*/
+    std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/blank.obj");
+    auto blank = LveObject::CreateObject();
+    blank.model = lveModel;
+    blank.transform.translation = { 0.f, 0.f, 0.f };
+    blank.transform.scale = { 1.f, 1.f, 1.f };
+    m_objects.emplace(blank.getId(), std::move(blank));
+
+    // set=1：占位材质集
+    VkDescriptorSet blankMatSet =
+        m_textureManager->GetOrCreateMaterialSet(
+            "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_BrushedStainlessSteel_header.jpg",
+            /*srgb=*/true);
+    m_objectMaterialSets[blank.getId()] = blankMatSet;
+
+    // set=2：材质参数，关闭 baseColor 贴图位（bit0=0），只用因子上色
+    MaterialUBO matBlank{};
+    matBlank.baseColorFactor = { 1, 1, 1, 1 };    // 这里决定“无贴图”时的颜色
+    matBlank.uvTilingOffset = { 1, 1, 0, 0 };
+    matBlank.pbrAoAlpha = { 0.0f, 0.5f, 1.0f, 0.0f }; // metal/rough/ao/alphaCut
+    matBlank.flags = { 0u, 0u, 0u, 0u };         // ★ bit0=0 -> 不采样 uAlbedo
+    AssignMaterialParamsToObject(blank.getId(), matBlank);
+
+    /*砂轮*/
+    lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/new_grinding_wheel.obj");
+    auto grindingWheel = LveObject::CreateObject();
+    grindingWheel.model = lveModel;
+    grindingWheel.transform.translation = { 0.f, 0.f, 0.f };
+    grindingWheel.transform.scale = { 1.f, 1.f, 1.f };
+
+    uint32_t wheelId = grindingWheel.getId();
+    auto subCount = grindingWheel.model->GetSubmeshCount();
+    m_submeshTextureSets[wheelId].resize(subCount);
+    m_submeshMatSets[wheelId].resize(subCount);
+    VkDescriptorSet dsAbrasive = m_textureManager->GetOrCreateMaterialSet(
+        "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_OldAluminium_header.jpg", true);
+    VkDescriptorSet dsMetal = m_textureManager->GetOrCreateMaterialSet(
+        "D:/Data/Study/vulkan/FirstApp/res/textures/Grinding_Wheel.jpg", true);
+    m_submeshTextureSets[wheelId][0] = dsAbrasive;
+    m_submeshTextureSets[wheelId][1] = dsMetal;
+
+    MaterialUBO mtlAbr{};
+    mtlAbr.baseColorFactor = { 1,1,1,1 };
+    mtlAbr.uvTilingOffset = { 1,1,0,0 };
+    mtlAbr.pbrAoAlpha = { 0.0f, 0.85f, 1.0f, 0.0f }; // 非金属、粗糙高
+    mtlAbr.flags = { 1u,0u,0u,0u };
+
+    MaterialUBO mtlMetal{};
+    mtlMetal.baseColorFactor = { 1,1,1,1 };
+    mtlMetal.uvTilingOffset = { 1,1,0,0 };
+    mtlMetal.pbrAoAlpha = { 1.0f, 0.35f, 1.0f, 0.0f }; // 金属、粗糙低
+    mtlMetal.flags = { 1u,0u,0u,0u };
+
+    // 为两个 submesh 生成“每帧一套”的 set=2
+    CreateMaterialParamSetsForSubmesh(wheelId, 0, mtlAbr);
+    CreateMaterialParamSetsForSubmesh(wheelId, 1, mtlMetal);
+
+    m_objects.emplace(grindingWheel.getId(), std::move(grindingWheel));
 
     /*创建跟随相机的点光源*/
-    auto head = LveObject::MakePointLight(3., 0.25, { 1.f, .86f, .55f });
+    auto head = LveObject::MakePointLight(.5, 0.25, { 1.f, .86f, .55f });
+    // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
     m_objects.emplace(head.getId(), std::move(head));
+
+    /*创建太阳光*/
+    CreateSunLight();
 
     std::vector<glm::vec3> lightColors{
         {1.f, .1f, .1f},
@@ -173,6 +313,86 @@ void FirstApp::LoadObjects()
         // m_objects.emplace(pointLight.getId(), std::move(pointLight));
     }
 }
+
+void FirstApp::CreateSunLight()
+{
+    glm::vec3 center = glm::vec3(0.f);
+    glm::vec3 sunDir = glm::normalize(glm::vec3(-0.3f, 1.0f, -0.2f));
+    float D = 200.f;
+    float radius = 0.1f;
+    glm::vec3 color(1.f, 0.97f, 0.90f);
+
+    const glm::vec3 dirs[] = {
+        // 六主轴
+        { 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1},
+        // 八个体对角（立方体顶点）
+        { 1, 1, 1},{ 1, 1,-1},{ 1,-1, 1},{ 1,-1,-1},
+        {-1, 1, 1},{-1, 1,-1},{-1,-1, 1},{-1,-1,-1},
+    };
+
+    int N = sizeof(dirs) / sizeof(dirs[0]);
+
+    m_sunLightIds.clear();
+    m_sunLightIds.reserve(N);
+
+    for (int i = 0; i < N; i++) {
+        glm::vec3 dir = glm::normalize(dirs[i]);
+        auto light = LveObject::MakePointLight(3000, radius, color);
+        auto id = light.getId();
+        m_sunLightIds.push_back(id);
+
+        light.transform.translation = center - dir * D;
+        m_objects.emplace(id, std::move(light));
+    }
+}
+
+
+void FirstApp::AssignMaterialParamsToObject(uint32_t objId, const MaterialUBO& init) 
+{
+    MaterialGPU mgpu{};
+    for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
+        mgpu.ubos[i] = std::make_unique<lve::LveBuffer>(
+            *m_lveDevice,
+            sizeof(MaterialUBO), 1,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        mgpu.ubos[i]->Map();
+        mgpu.ubos[i]->WriteToBuffer((void*)&init);
+
+        VkDescriptorBufferInfo bufferInfo = mgpu.ubos[i]->DescriptorInfo();
+        lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
+            .WriteBuffer(0, &bufferInfo)                      // set=2, binding=0
+            .Build(mgpu.sets[i]);
+    }
+    m_objectMaterialParams[objId] = std::move(mgpu);
+}
+
+void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex, const MaterialUBO& data) 
+{
+    auto it = m_objectMaterialParams.find(objId);
+    if (it == m_objectMaterialParams.end()) return;
+    it->second.ubos[frameIndex]->WriteToBuffer((void*)&data);
+}
+
+void FirstApp::CreateMaterialParamSetsForSubmesh(uint32_t objId, uint32_t submeshIndex, const MaterialUBO& u) 
+{
+    auto& slot = m_submeshMatSets[objId][submeshIndex];
+    for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
+        auto buf = std::make_unique<lve::LveBuffer>(
+            *m_lveDevice, sizeof(MaterialUBO), 1,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        buf->Map();
+        buf->WriteToBuffer((void*)&u);
+        VkDescriptorBufferInfo bi = buf->DescriptorInfo();
+        lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
+            .WriteBuffer(0, &bi)
+            .Build(slot[i]);
+        m_materialParamBuffers.push_back(std::move(buf));
+    }
+}
+
 
 void FirstApp::UpdateCameraFromOrbit()
 {
@@ -242,8 +462,14 @@ void FirstApp::WaitIdle()
 
 FirstApp::~FirstApp()
 {
+    m_textureManager.reset();
+
     if (m_lveDevice) {
         vkDeviceWaitIdle(m_lveDevice->device());
+        if (m_sharedSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(m_lveDevice->device(), m_sharedSampler, nullptr);
+            m_sharedSampler = VK_NULL_HANDLE;
+        }
     }
 }
 

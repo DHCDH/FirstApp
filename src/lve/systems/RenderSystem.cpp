@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <array>
 #include <iostream>
+#include <unordered_map>
 
 namespace lve {
 
@@ -17,12 +18,11 @@ namespace lve {
         glm::mat4 normalMatrix{ 1.f };
     };
 
-RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout)
+RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass, const std::vector<VkDescriptorSetLayout>& setLayouts)
     : m_lveDevice(device)
 {
-    CreatePipelineLayout(globalSetLayout); // 定义渲染管线的layout
+    CreatePipelineLayout(setLayouts); // 定义渲染管线的layout
     CreatePipelines(renderPass);
-    CreateAxisVertices();
 }
 
 RenderSystem::~RenderSystem()
@@ -33,7 +33,7 @@ RenderSystem::~RenderSystem()
 /* 创建渲染管线
  * 告诉vulkan渲染管线在执行时可以用哪些数据
  */
-void RenderSystem::CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout)
+void RenderSystem::CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>& setLayouts)
 {
     /* 从偏移0开始，大小为sizeof(SimplePushConstantData)的一段push常量
      * 能被VS和FS两个阶段可见
@@ -43,13 +43,13 @@ void RenderSystem::CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout)
     pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(SimplePushConstantData);
 
+    const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts = setLayouts;
+
     /*描述符集*/
-    std::vector<VkDescriptorSetLayout> descriptorSetLayouts{ globalSetLayout };
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());  // 描述符集布局数量（descriptor set layouts）
     pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();   // 指向布局数组的指针
-
     /*把push constant范围装入管线布局*/
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
@@ -78,6 +78,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
  * gameObjects为FirstApp持有`
  * 
  */
+#if 0
 void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
     m_lvePipeline->Bind(frameInfo.commandBuffer);
@@ -94,6 +95,30 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
     for (auto& kv : frameInfo.objects) {
         auto& obj = kv.second;
         if (obj.model == nullptr) continue;
+
+        /*绑定材质纹理（set = 1）*/
+        if (frameInfo.materialDescriptorSets) { // 可为空指针，便于兼容旧路径
+          auto& mapTex = *frameInfo.materialDescriptorSets; // unordered_map<uint32_t, VkDescriptorSet>
+          auto itTex = mapTex.find(obj.getId());
+          if (itTex != mapTex.end()) {
+            VkDescriptorSet matSet = itTex->second;
+            vkCmdBindDescriptorSets(frameInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_pipelineLayout, 1, 1,
+                                    &matSet, 0, nullptr);
+          }
+        }
+        /*绑定材质参数UBO（set = 2）*/
+        if (frameInfo.materialParamSets) {
+            auto& mapMat = *frameInfo.materialParamSets;
+            auto itMat = mapMat.find(obj.getId());
+            if (itMat != mapMat.end()) {
+                VkDescriptorSet matUboSet = itMat->second;
+                vkCmdBindDescriptorSets(frameInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_pipelineLayout, 2, 1,
+                                    &matUboSet, 0, nullptr);
+            }
+        }
+
         SimplePushConstantData push{};
         push.modelMatrix = obj.transform.mat4();
         push.normalMatrix = obj.transform.normalMatrix();
@@ -105,70 +130,139 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
         obj.model->Draw(frameInfo.commandBuffer);
     }
 }
-
-/*固定在窗口左下角的小坐标系*/
-void RenderSystem::RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& camera, VkExtent2D extent)
+#else
+void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
-#if 0
-    // 小视口放左下角
-    VkViewport viewport{};
-    viewport.x = 0.f;
-    viewport.y = static_cast<float>(extent.height - 200.f);
-    viewport.width = 200.f;
-    viewport.height = 200.f;
-    viewport.minDepth = 0.f;
-    viewport.maxDepth = 1.f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    m_lvePipeline->Bind(frameInfo.commandBuffer);                                // [KEPT]
 
-    // 只保留相机水平旋转
-    glm::mat4 view = camera.GetView();
-    glm::vec3 forward = glm::normalize(glm::vec3(view[0][2], 0.0f, view[2][2]));
-    float angle = atan2(forward.x, forward.z);
-    glm::mat4 rotY = glm::rotate(glm::mat4(1.f), -angle, glm::vec3(0.f, 1.f, 0.f));
+    // 先绑定 set=0（全局 UBO），每帧一次
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,                              // [KEPT]
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_pipelineLayout,
+        0,
+        1,
+        &frameInfo.globalDescriptorSet,
+        0,
+        nullptr);
 
-    glm::mat4 proj = glm::perspective(glm::radians(35.f), 1.f, 0.01f, 10.f);
-    // proj[1][1] *= -1;
-    glm::mat4 pv = proj * rotY;
+    for (auto& kv : frameInfo.objects) {                                          // [KEPT]
+        auto& obj = kv.second;                                                    // [KEPT]
+        if (obj.model == nullptr) continue;                                       // [KEPT]
 
-    // 画坐标轴
-    m_axisPipeline->Bind(commandBuffer);
-    SimplePushConstantData push{};
-    // push.color = { 1.f, 1.f, 1.f };
-    push.transform = pv * glm::translate(glm::mat4{ 1.f }, { 0.f, 0.f, -2.5f })
-        * glm::scale(glm::mat4{ 1.f }, glm::vec3{ 0.6f });
-    vkCmdPushConstants(commandBuffer, m_pipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        0, sizeof(SimplePushConstantData), &push);
+        obj.model->Bind(frameInfo.commandBuffer);                                 // [NEW] 先绑定VB/IB
 
-    m_axisModel->Bind(commandBuffer);
-    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        // ====== Submesh 分支（如果模型含有 submesh） ======
+        const uint32_t subCount = obj.model->GetSubmeshCount();                   // [NEW]
+        if (subCount > 0) {                                                       // [NEW]
+            for (uint32_t si = 0; si < subCount; ++si) {                          // [NEW]
+                // ---- 选 set=1：纹理 ----
+                VkDescriptorSet set1 = frameInfo.dummyTexSet;                     // [NEW] 默认占位
+                if (frameInfo.submeshTexSets) {                                   // [NEW]
+                    auto it = frameInfo.submeshTexSets->find(obj.getId());        // [NEW]
+                    if (it != frameInfo.submeshTexSets->end()
+                        && si < it->second.size()
+                        && it->second[si] != VK_NULL_HANDLE) {
+                        set1 = it->second[si];                                    // [NEW]
+                    }
+                }
+                else if (frameInfo.materialDescriptorSets) {                    // [NEW] 退化到每-object
+                    auto it = frameInfo.materialDescriptorSets->find(obj.getId());
+                    if (it != frameInfo.materialDescriptorSets->end()
+                        && it->second != VK_NULL_HANDLE) {
+                        set1 = it->second;                                        // [NEW]
+                    }
+                }
 
-    // 恢复主视口
-    VkViewport mainViewport{};
-    mainViewport.x = 0.0f;
-    mainViewport.y = 0.0f;
-    mainViewport.width = static_cast<float>(extent.width);
-    mainViewport.height = static_cast<float>(extent.height);
-    mainViewport.minDepth = 0.0f;
-    mainViewport.maxDepth = 1.0f;
-    VkRect2D mainScissor{ {0, 0}, extent };
-    vkCmdSetViewport(commandBuffer, 0, 1, &mainViewport);
-    vkCmdSetScissor(commandBuffer, 0, 1, &mainScissor);
+                // ---- 选 set=2：材质 UBO（本帧）----
+                VkDescriptorSet set2 = frameInfo.dummyMatSet;                     // [NEW] 默认占位
+                if (frameInfo.submeshMatSetThisFrame) {                           // [NEW]
+                    auto it = frameInfo.submeshMatSetThisFrame->find(obj.getId());
+                    if (it != frameInfo.submeshMatSetThisFrame->end()
+                        && si < it->second.size()
+                        && it->second[si] != VK_NULL_HANDLE) {
+                        set2 = it->second[si];                                    // [NEW]
+                    }
+                }
+                else if (frameInfo.materialParamSets) {                         // [NEW] 退化到每-object
+                    auto it = frameInfo.materialParamSets->find(obj.getId());
+                    if (it != frameInfo.materialParamSets->end()
+                        && it->second != VK_NULL_HANDLE) {
+                        set2 = it->second;                                        // [NEW]
+                    }
+                }
+
+                // 一次性绑定 set=1/2，避免漏绑
+                VkDescriptorSet sets12[2] = { set1, set2 };                       // [NEW]
+                vkCmdBindDescriptorSets(frameInfo.commandBuffer,                   // [NEW]
+                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_pipelineLayout,
+                    /*firstSet=*/1,
+                    /*descriptorSetCount=*/2,
+                    sets12,
+                    0, nullptr);
+
+                // push 常量（每个 submesh 同一变换，重复无害）
+                SimplePushConstantData push{};                                    // [NEW]
+                push.modelMatrix = obj.transform.mat4();                         // [NEW]
+                push.normalMatrix = obj.transform.normalMatrix();                 // [NEW]
+                vkCmdPushConstants(frameInfo.commandBuffer, m_pipelineLayout,     // [NEW]
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(SimplePushConstantData), &push);
+
+                // 绘制该 submesh
+                obj.model->DrawSubmesh(frameInfo.commandBuffer, si);              // [NEW]
+            }
+            continue;                                                             // [NEW] 处理下一个对象
+        }
+
+        // ====== 无 submesh：沿用你原来的“每对象材质”路径 ======
+
+        // 选 set=1（纹理）：原逻辑 + 占位兜底
+        VkDescriptorSet set1 = frameInfo.dummyTexSet;                              // [NEW]
+        if (frameInfo.materialDescriptorSets) {                                    // [CHG] 从“有则绑定”改为“选出一个要绑定的”
+            auto& mapTex = *frameInfo.materialDescriptorSets;
+            auto itTex = mapTex.find(obj.getId());
+            if (itTex != mapTex.end() && itTex->second != VK_NULL_HANDLE) {
+                set1 = itTex->second;                                                 // [CHG]
+            }
+        }
+
+        // 选 set=2（材质 UBO，本帧）：原逻辑 + 占位兜底
+        VkDescriptorSet set2 = frameInfo.dummyMatSet;                              // [NEW]
+        if (frameInfo.materialParamSets) {                                         // [CHG] 从“有则绑定”改为“选出一个要绑定的”
+            auto& mapMat = *frameInfo.materialParamSets;
+            auto itMat = mapMat.find(obj.getId());
+            if (itMat != mapMat.end() && itMat->second != VK_NULL_HANDLE) {
+                set2 = itMat->second;                                             // [CHG]
+            }
+        }
+
+        // 一次性绑定 set=1/2，避免‘set(2) out of bounds’
+        {                                                                          // [NEW]
+            VkDescriptorSet sets12[2] = { set1, set2 };                            // [NEW]
+            vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                m_pipelineLayout,
+                /*firstSet=*/1,
+                /*descriptorSetCount=*/2,
+                sets12,
+                0, nullptr);
+        }
+
+        // push 常量 + 绘制整模型
+        {                                                                          // [KEPT]
+            SimplePushConstantData push{};                                         // [KEPT]
+            push.modelMatrix = obj.transform.mat4();                              // [KEPT]
+            push.normalMatrix = obj.transform.normalMatrix();                      // [KEPT]
+            vkCmdPushConstants(frameInfo.commandBuffer, m_pipelineLayout,          // [KEPT]
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(SimplePushConstantData), &push);
+
+            obj.model->Draw(frameInfo.commandBuffer);                              // [KEPT]
+        }
+    }
+}
 #endif
 
-}
-
-void RenderSystem::CreateAxisVertices() 
-{
-    LveModel::Builder axisModelBuilder;
-    std::vector<LveModel::Vertex> axisVertices = {
-        {{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}}, {{1.f, 0.f, 0.f}, {1.f, 0.f, 0.f}}, // X 红
-        {{0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}}, {{0.f, 1.f, 0.f}, {0.f, 1.f, 0.f}}, // Y 绿
-        {{0.f, 0.f, 0.f}, {0.f, 0.f, 1.f}}, {{0.f, 0.f, 1.f}, {0.f, 0.f, 1.f}}, // Z 蓝
-    };
-    axisModelBuilder.vertices = axisVertices;
-
-    m_axisModel = std::make_unique<LveModel>(m_lveDevice, axisModelBuilder);
-}
 
 }

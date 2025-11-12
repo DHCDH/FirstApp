@@ -30,6 +30,7 @@ LveModel::LveModel(LveDevice& m_lveDevice, const LveModel::Builder& builder)
 {
 	CreateVertexBuffer(builder.vertices);
 	CreateIndexBuffer(builder.indices);
+	m_submeshes = builder.submeshes;
 }
 
 LveModel::~LveModel()
@@ -159,11 +160,17 @@ void LveModel::Builder::LoadModel(const std::string& filepath)
         throw std::runtime_error(warn + err);
 	}
 
+	/*materials和shapes的size不一定相同*/
+	std::cout << filepath << ":\nshapes.size = " << shapes.size() << " materials.size = " << materials.size() << "\n";
+
 	vertices.clear();
 	indices.clear();
 
 	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 	for (const auto& shape : shapes) {
+		/*记录shape再全局索引数组中的起点*/
+		uint32_t firstIndexThisShape = static_cast<uint32_t>(indices.size());
+
 		for (const auto& index : shape.mesh.indices) {
 			Vertex vertex{};
 
@@ -201,9 +208,27 @@ void LveModel::Builder::LoadModel(const std::string& filepath)
 				vertices.push_back(vertex);
 			}
 			indices.push_back(uniqueVertices[vertex]);
-
 		}
+
+		//以整个 shape 作为一个 submesh（一般对应一个 usemtl）
+		uint32_t indexCountThisShape = static_cast<uint32_t>(indices.size()) - firstIndexThisShape;
+		int materialId = -1;
+		if (!shape.mesh.material_ids.empty()) {
+			// 若该 shape 由单一 usemtl 生成，取第 1 个即可；否则后续可按 material_ids 拆更细
+			materialId = shape.mesh.material_ids[0];
+		}
+		lve::LveModel::Submesh sm;
+		sm.firstIndex = firstIndexThisShape;
+		sm.indexCount = indexCountThisShape;
+		sm.materialId = materialId;
+		submeshes.push_back(sm);
 	}
+}
+
+void LveModel::DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const {
+	if (!m_hasIndexBuffer) return;
+	const auto& s = m_submeshes[i];
+	vkCmdDrawIndexed(cmd, s.indexCount, 1, s.firstIndex, 0, 0);
 }
 
 }

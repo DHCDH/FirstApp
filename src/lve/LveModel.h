@@ -10,7 +10,7 @@
 #include <vector>
 #include <memory>
 
-namespace lve { 
+namespace lve {
 
 /*在CPU创建顶点数据，分配内存并将数据复制到GPU*/
 class LveModel {
@@ -35,9 +35,16 @@ public:
         Vertex() = default;
 	};
 
+	struct Submesh {
+		uint32_t firstIndex;
+		uint32_t indexCount;
+		int materialId = -1;	//来自obj的material id
+	};
+
 	struct Builder {
 		std::vector<Vertex> vertices{};
 		std::vector<uint32_t> indices{};
+		std::vector<Submesh> submeshes{};
 
 		void LoadModel(const std::string& filepath);
 	};
@@ -52,6 +59,10 @@ public:
 
 	void Bind(VkCommandBuffer commandBuffer);
 	void Draw(VkCommandBuffer commandBuffer);
+
+	const std::vector<Submesh>& GetSubmeshes() const { return m_submeshes; }
+	uint32_t GetSubmeshCount() const { return static_cast<uint32_t>(m_submeshes.size()); }
+	void DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const;
 
 private:
 	void CreateVertexBuffer(const std::vector<Vertex>& vertices);
@@ -68,6 +79,8 @@ private:
 	/*索引缓冲区*/
 	std::unique_ptr<LveBuffer> m_indexBuffer;
 	uint32_t m_indexCount;
+
+	std::vector<Submesh> m_submeshes;
 };
 
 }

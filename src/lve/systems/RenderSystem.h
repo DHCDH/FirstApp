@@ -13,19 +13,17 @@ namespace lve {
 
 class RenderSystem {
 public:
-	RenderSystem(LveDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout);
+	RenderSystem(LveDevice& device, VkRenderPass renderPass, const std::vector<VkDescriptorSetLayout>& setLayouts);
 	~RenderSystem();
 
 	RenderSystem(const RenderSystem&) = delete;
 	RenderSystem& operator=(const RenderSystem&) = delete;
 
 	void RenderObjects(FrameInfo& frameInfo); //不将camera作为成员变量，能在多个渲染系统之间共享相机对象
-	void RenderAxis(VkCommandBuffer commandBuffer, const LveCamera& camera, VkExtent2D extent);
 
 private:
-	void CreatePipelineLayout(VkDescriptorSetLayout globalSetLayout);
+	void CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>& globalSetLayout);
 	void CreatePipelines(VkRenderPass renderPass);
-	void CreateAxisVertices();
 
 	LveDevice& m_lveDevice;
 

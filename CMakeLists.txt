@@ -21,6 +21,9 @@ qt_standard_project_setup()
 file(GLOB_RECURSE LVE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.cpp" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.h")
+file(GLOB_RECURSE MOTION_CONTROL_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/motion_control/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/motion_control/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -30,6 +33,7 @@ set(PROJECT_SOURCES
     src/FirstApp.cpp
 
     ${LVE_SOURCES}
+    ${MOTION_CONTROL_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
