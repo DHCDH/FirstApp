@@ -1,14 +1,14 @@
 ﻿#pragma once
 
-#include "lve/LveWindow.h"
-#include "lve/LveDevice.h"
-#include "lve/LveRenderer.h"
-#include "lve/LveCamera.h"
-#include "lve/systems/RenderSystem.h"
-#include "lve/systems/PointLightSystem.h"
-#include "lve/LveDescriptors.h"
-#include "lve/LveTexture.h"
-#include "lve/LveTextureManager.h"
+#include "LveWindow.h"
+#include "LveDevice.h"
+#include "LveRenderer.h"
+#include "LveCamera.h"
+#include "systems/RenderSystem.h"
+#include "systems/PointLightSystem.h"
+#include "LveDescriptors.h"
+#include "LveTexture.h"
+#include "LveTextureManager.h"
 
 #include <memory>
 #include <vector>
@@ -38,7 +38,6 @@ public:
 
 private:
 	void InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name);
-	void InitLveTextures();
 	void LoadObjects();
 	void UpdateCameraFromOrbit();
 	void CreateSunLight();

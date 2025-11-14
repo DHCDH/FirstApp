@@ -1,4 +1,4 @@
-﻿#pragma
+﻿#pragma once
 
 #include "LveDevice.h"
 #include "LveBuffer.h"
