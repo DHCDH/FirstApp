@@ -21,9 +21,12 @@ qt_standard_project_setup()
 file(GLOB_RECURSE LVE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.cpp" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.h")
-file(GLOB_RECURSE MOTION_CONTROL_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/motion_control/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/motion_control/*.h")
+file(GLOB_RECURSE ENTITIES_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/entities/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/entities/*.h")
+file(GLOB_RECURSE ECS_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -31,9 +34,13 @@ set(PROJECT_SOURCES
     src/MainWindow.cpp
     src/FirstApp.h
     src/FirstApp.cpp
+    src/Simulation2DDialog.h
+    src/Simulation2DDialog.cpp
+
 
     ${LVE_SOURCES}
-    ${MOTION_CONTROL_SOURCES}
+    ${ENTITIES_SOURCES}
+    ${ECS_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -62,6 +69,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${VENDOR}/glm
     ${VENDOR}/tiny_object_loader
     ${VENDOR}/stb_image
+    ${VENDOR}/entt
     ${LVE}
 )
 

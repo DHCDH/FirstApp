@@ -1,5 +1,7 @@
 ﻿#include "MainWindow.h"
 
+#include "FirstApp.h"
+#include "Simulation2DDialog.h"
 #include "lve/LveWindow.h"
 
 #include <QPushButton>
@@ -13,9 +15,13 @@
 #include <iostream>
 
 MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this)), m_buttonWidget(new QWidget(this))
+    : QMainWindow(parent), m_renderWidget(new QWidget(this)), 
+    m_renderTimer(new QTimer(this)), m_buttonWidget(new QWidget(this)), 
+    m_simulation2DDialog(new Simulation2DDialog(this))
 {
     setWindowTitle("FirstApp");
+
+    this->resize(1080, 720);
 
     QWidget* centralWidget = new QWidget(this);
     QHBoxLayout* mainLayout = new QHBoxLayout(centralWidget);
@@ -33,7 +39,7 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::InitRenderWidget()
 {
-    m_renderWidget->setMinimumSize(800, 600);
+    // m_renderWidget->setMinimumSize(800, 600);
 
     /*获取原生窗口句柄HWND*/
     m_renderWidget->winId(); // 确保窗口创建
@@ -44,7 +50,7 @@ void MainWindow::InitRenderWidget()
     m_renderWidget->installEventFilter(this);
 
     /*创建vulkanApp，传入Qt窗口句柄*/
-    m_vulkanApp = std::make_unique<lve::FirstApp>(hwnd, hinstance, 800, 600, "Vulkan App");
+    m_vulkanApp = std::make_unique<FirstApp>(hwnd, hinstance, 800, 600, "Vulkan App");
 
     /*启动渲染循环*/
     connect(m_renderTimer, &QTimer::timeout, [this]() {
@@ -60,15 +66,31 @@ void MainWindow::InitUI()
     QPushButton* btnStart = new QPushButton("Start", m_buttonWidget);
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
+    QPushButton* btnTrack = new QPushButton("Generate Track", m_buttonWidget);
+    QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
+    buttonLayout->addWidget(btnTrack);
+    buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addStretch();  // 让按钮靠上排列
     buttonLayout->addWidget(btnQuit);
 
     connect(btnReset, &QPushButton::clicked, [this]() {
         m_vulkanApp->ResetView();
+    });
+    connect(btnStart, &QPushButton::clicked, this, [this]() {
+        m_vulkanApp->SetGrindingWheelMotionEnable(true);
+    });
+    connect(btnPause, &QPushButton::clicked, this, [this]() {
+        m_vulkanApp->SetGrindingWheelMotionEnable(false);
+    });
+    connect(btn2DSimulation, &QPushButton::clicked, this, [this]() {
+        m_simulation2DDialog->show();
+    });
+    connect(btnTrack, &QPushButton::clicked, [this]() {
+        // m_vulkanApp->BuildGrindingWheelTrackInstances(0.f, 5.f, 100);
     });
 }
 

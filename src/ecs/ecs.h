@@ -7,6 +7,8 @@
 #include <cassert>
 #include <unordered_map>
 
+#define ECS
+
 #define ASSERTM(msg, expr) assert(((void)msg, (expr)))
 
 namespace ecs {

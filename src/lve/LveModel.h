@@ -64,6 +64,9 @@ public:
 	uint32_t GetSubmeshCount() const { return static_cast<uint32_t>(m_submeshes.size()); }
 	void DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const;
 
+	void DrawInstanced(VkCommandBuffer commandBuffer, uint32_t instanceCount, uint32_t firstInstance = 0) const;
+	void DrawSubmeshInstanced(VkCommandBuffer commandBuffer, uint32_t submeshIndex, uint32_t instanceCount, uint32_t firstInstance = 0) const;
+
 private:
 	void CreateVertexBuffer(const std::vector<Vertex>& vertices);
 	void CreateIndexBuffer(const std::vector<uint32_t>& indices);

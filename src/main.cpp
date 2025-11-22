@@ -2,9 +2,9 @@
 #include <QtWidgets/QApplication>
 #include <iostream>
 
-#include "ecs/ecs.h"
+// #include "ecs/ecs.h"
 
-/*ecs test*/
+#ifdef ECS
 struct Name {
     std::string name;
 };
@@ -17,10 +17,7 @@ struct Timer {
     int t = 123;
 };
 
-
-int main(int argc, char *argv[])
-{
-    /*ecs test*/
+void EcsTest() {
     ecs::World world;
     ecs::Commands command(world);
     auto person1 = command.SpawnAndReturn<Name>(Name{ "person1" });
@@ -60,10 +57,12 @@ int main(int argc, char *argv[])
         std::cout << queryer.Get<ID>(entity).id << ", ";
         std::cout << queryer.Get<Name>(entity).name << "\n";
     }
+}
 
+#endif
 
-
-    /**************************************/
+int main(int argc, char *argv[])
+{
     QApplication app(argc, argv);
     MainWindow window;
     window.show();

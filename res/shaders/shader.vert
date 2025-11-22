@@ -9,6 +9,7 @@ layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec3 fragPosWorld;    // 顶点世界位置
 layout(location = 2) out vec3 fragNormalWorld;    //片段中的法线
 layout(location = 3) out vec2 fragUV;
+layout(location = 4) flat out int useFragColor;
 
 struct PointLight {
     vec4 position;  // ignore w
@@ -38,4 +39,5 @@ void main() {
     fragPosWorld = positionWorld.xyz;
     fragColor = color;
     fragUV = uv;
+    useFragColor = 0;
 }

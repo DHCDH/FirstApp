@@ -4,6 +4,7 @@ layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec3 fragPosWorld;
 layout(location = 2) in vec3 fragNormalWorld;
 layout(location = 3) in vec2 fragUV;
+layout(location = 4) flat in int useFragColor;
 
 layout(location = 0) out vec4 outColor;	// 输出到颜色附件的第0个位置
 
@@ -69,5 +70,9 @@ void main()
     vec3 N   = normalize(fragNormalWorld);
     vec3 rgb = shadePointLights(N, base.rgb);
 
-    outColor = vec4(rgb, base.a);
+    if(useFragColor == 1) {
+        outColor = vec4(fragColor, 1.);
+    } else {
+        outColor = vec4(rgb, base.a);
+    }
 }

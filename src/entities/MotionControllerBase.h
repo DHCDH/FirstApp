@@ -12,7 +12,6 @@ class MotionControllerBase
 {
 public:
 
-
 private:
 
 };

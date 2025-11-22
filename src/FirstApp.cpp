@@ -1,13 +1,15 @@
 ﻿#include "FirstApp.h"
 
 #include "lve/LveBuffer.h"
+#include "entities/GrindingWheel.h"
+#include "entities/Blank.h"
 
 #include <stdexcept>
 #include <array>
 #include <iostream>
 #include <numeric>
 
-namespace lve {
+using namespace lve;
 
 struct OrbitConfig {
     float rotateSpeedPerPixel = 0.0020f;   // 每像素约 0.11°
@@ -134,6 +136,17 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
     m_pointLightSystem = std::make_unique<PointLightSystem>(*m_lveDevice,
         m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
 
+    m_renderContext = std::make_unique<RenderContext>(
+        *m_lveDevice, 
+        m_submeshMatSets, 
+        m_submeshTextureSets, 
+        m_dummyMatSets, 
+        *m_textureManager,
+        *m_materialParamSetLayout,
+        *m_materialParamPool,
+        m_materialParamBuffers,
+        m_objectMaterialParams);
+
     m_lastTick = std::chrono::high_resolution_clock::now();
 }
 
@@ -156,7 +169,7 @@ void FirstApp::runFrame()
 
     /*设置相机的视图与投影*/
     float aspect = m_lveRenderer->GetAspectRatio(); // 宽高比
-    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
+    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 10.f, 500.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
 
@@ -196,6 +209,13 @@ void FirstApp::runFrame()
     frameInfo.materialDescriptorSets = &m_objectMaterialSets;
     frameInfo.materialParamSets = &materialParamSetThisFrame;
 
+    if (m_grindingWheel->GetMotionEnabled()) {
+        if (auto it = m_objects.find(m_grindingWheelId); it != m_objects.end()) {
+            auto transform = m_grindingWheel->Update(0.016);
+            it->second.transform = transform;
+        }
+    }
+
     /*更新跟随镜头点光源*/
     glm::vec3 camPos = m_lveCamera->GetPosition();
     if (auto it = m_objects.find(m_headlightId); it != m_objects.end()) {
@@ -214,12 +234,17 @@ void FirstApp::runFrame()
     m_pointLightSystem->Update(frameInfo, ubo);
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
+    // BuildGrindingWheelTrackInstances(0.f, 100.f, 100);
+
     /*进入本帧的主RenderPass*/
     m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
 
     /*绘制*/
     m_renderSystem->RenderObjects(frameInfo);
     m_pointLightSystem->Render(frameInfo);
+
+    /*实例化渲染*/
+    RenderGrindingWheelTrack(frameInfo);
 
     /*结束本帧RenderPass并提交*/
     m_lveRenderer->EndSwapChainRenderPass(commandBuffer);
@@ -228,65 +253,6 @@ void FirstApp::runFrame()
 
 void FirstApp::LoadObjects() 
 {
-    /*毛坯*/
-    std::shared_ptr<LveModel> lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/blank.obj");
-    auto blank = LveObject::CreateObject();
-    blank.model = lveModel;
-    blank.transform.translation = { 0.f, 0.f, 0.f };
-    blank.transform.scale = { 1.f, 1.f, 1.f };
-    m_objects.emplace(blank.getId(), std::move(blank));
-
-    // set=1：占位材质集
-    VkDescriptorSet blankMatSet =
-        m_textureManager->GetOrCreateMaterialSet(
-            "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_BrushedStainlessSteel_header.jpg",
-            /*srgb=*/true);
-    m_objectMaterialSets[blank.getId()] = blankMatSet;
-
-    // set=2：材质参数，关闭 baseColor 贴图位（bit0=0），只用因子上色
-    MaterialUBO matBlank{};
-    matBlank.baseColorFactor = { 1, 1, 1, 1 };    // 这里决定“无贴图”时的颜色
-    matBlank.uvTilingOffset = { 1, 1, 0, 0 };
-    matBlank.pbrAoAlpha = { 0.0f, 0.5f, 1.0f, 0.0f }; // metal/rough/ao/alphaCut
-    matBlank.flags = { 0u, 0u, 0u, 0u };         // ★ bit0=0 -> 不采样 uAlbedo
-    AssignMaterialParamsToObject(blank.getId(), matBlank);
-
-    /*砂轮*/
-    lveModel = LveModel::CreateModelFromFile(*m_lveDevice, "D:/Data/Study/vulkan/FirstApp/res/models/new_grinding_wheel.obj");
-    auto grindingWheel = LveObject::CreateObject();
-    grindingWheel.model = lveModel;
-    grindingWheel.transform.translation = { 0.f, 0.f, 0.f };
-    grindingWheel.transform.scale = { 1.f, 1.f, 1.f };
-
-    uint32_t wheelId = grindingWheel.getId();
-    auto subCount = grindingWheel.model->GetSubmeshCount();
-    m_submeshTextureSets[wheelId].resize(subCount);
-    m_submeshMatSets[wheelId].resize(subCount);
-    VkDescriptorSet dsAbrasive = m_textureManager->GetOrCreateMaterialSet(
-        "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_OldAluminium_header.jpg", true);
-    VkDescriptorSet dsMetal = m_textureManager->GetOrCreateMaterialSet(
-        "D:/Data/Study/vulkan/FirstApp/res/textures/Grinding_Wheel.jpg", true);
-    m_submeshTextureSets[wheelId][0] = dsAbrasive;
-    m_submeshTextureSets[wheelId][1] = dsMetal;
-
-    MaterialUBO mtlAbr{};
-    mtlAbr.baseColorFactor = { 1,1,1,1 };
-    mtlAbr.uvTilingOffset = { 1,1,0,0 };
-    mtlAbr.pbrAoAlpha = { 0.0f, 0.85f, 1.0f, 0.0f }; // 非金属、粗糙高
-    mtlAbr.flags = { 1u,0u,0u,0u };
-
-    MaterialUBO mtlMetal{};
-    mtlMetal.baseColorFactor = { 1,1,1,1 };
-    mtlMetal.uvTilingOffset = { 1,1,0,0 };
-    mtlMetal.pbrAoAlpha = { 1.0f, 0.35f, 1.0f, 0.0f }; // 金属、粗糙低
-    mtlMetal.flags = { 1u,0u,0u,0u };
-
-    // 为两个 submesh 生成“每帧一套”的 set=2
-    CreateMaterialParamSetsForSubmesh(wheelId, 0, mtlAbr);
-    CreateMaterialParamSetsForSubmesh(wheelId, 1, mtlMetal);
-
-    m_objects.emplace(grindingWheel.getId(), std::move(grindingWheel));
-
     /*创建跟随相机的点光源*/
     auto head = LveObject::MakePointLight(.5, 0.25, { 1.f, .86f, .55f });
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
@@ -296,22 +262,17 @@ void FirstApp::LoadObjects()
     /*创建太阳光*/
     CreateSunLight();
 
-    std::vector<glm::vec3> lightColors{
-        {1.f, .1f, .1f},
-        {.1f, .1f, 1.f},
-        {.1f, 1.f, .1f},
-        {1.f, 1.f, .1f},
-        {.1f, 1.f, 1.f},
-        {1.f, 1.f, 1.f},
-    };
+    /*毛坯*/
+    m_blank = std::make_unique<Blank>(*m_renderContext);
+    auto blank = m_blank->CreateObject();
+    uint32_t blankId = blank.getId();
+    m_objects.emplace(blank.getId(), std::move(blank));
 
-    for (int i = 0; i < lightColors.size(); i++) {
-        auto pointLight = LveObject::MakePointLight(10.f);
-        pointLight.color = lightColors[i];
-        auto rotateLight = glm::rotate(glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(), { 0.f, -1.f, 0.f });
-        pointLight.transform.translation = glm::vec3(rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f));
-        // m_objects.emplace(pointLight.getId(), std::move(pointLight));
-    }
+    /*砂轮*/
+    m_grindingWheel = std::make_unique<GrindingWheel>(*m_renderContext);
+    auto grindingWheel = m_grindingWheel->CreateObject();
+    m_grindingWheelId = grindingWheel.getId();
+    m_objects.emplace(m_grindingWheelId, std::move(grindingWheel));
 }
 
 void FirstApp::CreateSunLight()
@@ -346,28 +307,6 @@ void FirstApp::CreateSunLight()
     }
 }
 
-
-void FirstApp::AssignMaterialParamsToObject(uint32_t objId, const MaterialUBO& init) 
-{
-    MaterialGPU mgpu{};
-    for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
-        mgpu.ubos[i] = std::make_unique<lve::LveBuffer>(
-            *m_lveDevice,
-            sizeof(MaterialUBO), 1,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        mgpu.ubos[i]->Map();
-        mgpu.ubos[i]->WriteToBuffer((void*)&init);
-
-        VkDescriptorBufferInfo bufferInfo = mgpu.ubos[i]->DescriptorInfo();
-        lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
-            .WriteBuffer(0, &bufferInfo)                      // set=2, binding=0
-            .Build(mgpu.sets[i]);
-    }
-    m_objectMaterialParams[objId] = std::move(mgpu);
-}
-
 void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex, const MaterialUBO& data) 
 {
     auto it = m_objectMaterialParams.find(objId);
@@ -375,25 +314,96 @@ void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex, cons
     it->second.ubos[frameIndex]->WriteToBuffer((void*)&data);
 }
 
-void FirstApp::CreateMaterialParamSetsForSubmesh(uint32_t objId, uint32_t submeshIndex, const MaterialUBO& u) 
+void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount)
 {
-    auto& slot = m_submeshMatSets[objId][submeshIndex];
-    for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
-        auto buf = std::make_unique<lve::LveBuffer>(
-            *m_lveDevice, sizeof(MaterialUBO), 1,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        buf->Map();
-        buf->WriteToBuffer((void*)&u);
-        VkDescriptorBufferInfo bi = buf->DescriptorInfo();
-        lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
-            .WriteBuffer(0, &bi)
-            .Build(slot[i]);
-        m_materialParamBuffers.push_back(std::move(buf));
+    m_grndWheelInstances.clear();
+    m_grndWheelInstances.reserve(sampleCount);
+
+    for (int i = 0; i < sampleCount; i++) {
+        double alpha = (sampleCount == 1) ? 0. : double(i) / double(sampleCount - 1);
+        double ti = t1 + (t2 - t1) * alpha;
+        lve::TransformComponent transform = m_grindingWheel->EvaluateAtTime(ti);
+
+
+        InstanceData instanceData{};
+        instanceData.modelMatrix = transform.mat4();
+        // instanceData.modelMatrix = glm::mat4(1.0);
+
+        m_grndWheelInstances.push_back(instanceData);
     }
+
+    /*将实例数组上传GPU*/
+    VkDeviceSize bufferSize = sizeof(InstanceData) * m_grndWheelInstances.size();
+    m_grndWheelInstanceCount = static_cast<uint32_t>(m_grndWheelInstances.size());
+    if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceBuffer->GetBufferSize() < bufferSize) {
+        /*重建buffer*/
+        std::cout << "rebuild grinding wheel instance buffer" << "\n";
+        m_grndWheelInstanceBuffer = std::make_unique<lve::LveBuffer>(*m_lveDevice, 
+            sizeof(InstanceData),
+            m_grndWheelInstanceCount,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+
+    lve::LveBuffer stagingBuffer(*m_lveDevice,
+        sizeof(InstanceData),
+        m_grndWheelInstanceCount,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    stagingBuffer.Map();
+    stagingBuffer.WriteToBuffer(m_grndWheelInstances.data());
+
+    m_lveDevice->copyBuffer(stagingBuffer.GetBuffer(), m_grndWheelInstanceBuffer->GetBuffer(), bufferSize);
+
 }
 
+void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
+{
+    frameInfo.instanceBatches.clear();
 
+    BuildGrindingWheelTrackInstances(0., 100., 100);
+
+    if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
+        return;
+    }
+
+    auto it = m_objects.find(m_grindingWheelId);
+    if (it == m_objects.end()) {
+        return;
+    }
+
+    auto& grndWheelObj = it->second;
+    if (!grndWheelObj.model) {
+        return;
+    }
+
+    lve::InstanceBatch batch{};
+    batch.model = it->second.model.get();   // 绑定砂轮模型(location = 0)
+    batch.instanceBuffer = m_grndWheelInstanceBuffer->GetBuffer();
+    batch.instanceCount = m_grndWheelInstanceCount;
+    batch.instanceStride = sizeof(InstanceData);
+
+    // （可选）复用砂轮的贴图/材质参数
+    if (frameInfo.materialDescriptorSets) {
+        auto& mapTex = *frameInfo.materialDescriptorSets;
+        auto itTex = mapTex.find(m_grindingWheelId);
+        if (itTex != mapTex.end()) {
+            batch.set1 = itTex->second;  // set = 1
+        }
+    }
+    if (frameInfo.materialParamSets) {
+        auto& mapMat = *frameInfo.materialParamSets;
+        auto itMat = mapMat.find(m_grindingWheelId);
+        if (itMat != mapMat.end()) {
+            batch.set2 = itMat->second;  // set = 2
+        }
+    }
+
+    frameInfo.instanceBatches.push_back(batch);
+    m_renderSystem->RenderInstances(frameInfo);
+}
+
+/*******************************************************interaction****************************************************************************/
 void FirstApp::UpdateCameraFromOrbit()
 {
     const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
@@ -471,6 +481,4 @@ FirstApp::~FirstApp()
             m_sharedSampler = VK_NULL_HANDLE;
         }
     }
-}
-
 }

@@ -1,5 +1,6 @@
 ﻿#include "LvePipeline.h"
 #include "LveModel.h"
+#include "LveFrameInfo.h"
 
 #include <fstream>
 #include <iostream>
@@ -113,6 +114,13 @@ void LvePipeline::CreateGraphicsPipeline(const std::string& vertFilepath, const 
 	pipelineInfo.basePipelineIndex = -1;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
+	std::cout << "CreateGraphicsPipeline: bindingDescriptions = "
+		<< configInfo.bindingDescriptions.size() << std::endl;
+	for (size_t i = 0; i < configInfo.bindingDescriptions.size(); ++i) {
+		std::cout << "  [" << i << "] binding=" << configInfo.bindingDescriptions[i].binding
+			<< ", stride=" << configInfo.bindingDescriptions[i].stride << std::endl;
+	}
+
 	if (vkCreateGraphicsPipelines(m_lveDevice.device(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create graphics pipeline");
 	}
@@ -212,8 +220,14 @@ void LvePipeline::DefaultPipelineConfigInfo(PipelineConfigInfo& configInfo)
 	configInfo.dynamicStateInfo.dynamicStateCount = static_cast<uint32_t>(configInfo.dynamicStateEnables.size());
 	configInfo.dynamicStateInfo.flags = 0;
 
-	configInfo.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
-	configInfo.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+	//configInfo.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
+	//configInfo.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+
+	/* 不做默认binding配置，防止重复binding=0
+	 * binding改为在创建管线后进行
+	 */
+	configInfo.bindingDescriptions.clear();
+	configInfo.attributeDescriptions.clear();
 }
 
 void LvePipeline::EnableAlphaBlending(PipelineConfigInfo& configInfo)

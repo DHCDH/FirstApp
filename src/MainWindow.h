@@ -1,13 +1,14 @@
 ﻿#pragma once
 
 #include <QtWidgets/QMainWindow>
-
-#include "FirstApp.h"
+#include <QDialog>
 
 #include <memory>
 
 class VulkanWindow;
 class QTimer;
+class FirstApp;
+class Simulation2DDialog;
 
 class MainWindow : public QMainWindow
 {
@@ -17,16 +18,16 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
-protected:
-    void resizeEvent(QResizeEvent* event) override;
-    void closeEvent(QCloseEvent* e) override;
-    bool eventFilter(QObject* obj, QEvent* event) override;
+private:
+    void InitRenderWidget();
+    void InitUI();
 
 private:
     QWidget* m_renderWidget;
     QWidget* m_buttonWidget;
     QTimer* m_renderTimer;
-    std::unique_ptr<lve::FirstApp> m_vulkanApp;
+    std::unique_ptr<FirstApp> m_vulkanApp;
+    Simulation2DDialog* m_simulation2DDialog;
 
     /*窗口交互转台*/
     QPoint m_lastPos;
@@ -34,7 +35,9 @@ private:
     bool m_midDown = false;
     bool m_rightDown = false;
 
-    void InitRenderWidget();
-    void InitUI();
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+    void closeEvent(QCloseEvent* e) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 };
 

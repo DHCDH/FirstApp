@@ -1,6 +1,7 @@
 ﻿#include "LveModel.h"
 
 #include "LveUtils.h"
+#include "LveFrameInfo.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -130,6 +131,7 @@ std::vector<VkVertexInputBindingDescription> LveModel::Vertex::GetBindingDescrip
 	bindingDescriptions[0].binding = 0;
 	bindingDescriptions[0].stride = sizeof(Vertex);
     bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
 	return bindingDescriptions;
 }
 
@@ -141,7 +143,6 @@ std::vector<VkVertexInputAttributeDescription> LveModel::Vertex::GetAttributeDes
 	attributeDescriptions.push_back({ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color) });
 	attributeDescriptions.push_back({ 2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal) });
 	attributeDescriptions.push_back({ 3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv) });
-
 
 	return attributeDescriptions;
 }
@@ -229,6 +230,43 @@ void LveModel::DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const {
 	if (!m_hasIndexBuffer) return;
 	const auto& s = m_submeshes[i];
 	vkCmdDrawIndexed(cmd, s.indexCount, 1, s.firstIndex, 0, 0);
+}
+
+void LveModel::DrawInstanced(VkCommandBuffer commandBuffer, uint32_t instanceCount, uint32_t firstInstance) const
+{
+	if (instanceCount == 0) return;
+
+	if (m_hasIndexBuffer) {
+		vkCmdDrawIndexed(commandBuffer,
+			m_indexCount,
+			instanceCount,
+			0,
+			0,
+			firstInstance);
+	}
+	else {
+		vkCmdDraw(commandBuffer,
+			m_vertexCount,
+			instanceCount,
+			0,
+			firstInstance);
+	}
+}
+void LveModel::DrawSubmeshInstanced(VkCommandBuffer commandBuffer, uint32_t submeshIndex,
+	uint32_t instanceCount, uint32_t firstInstance) const
+{
+	if (!m_hasIndexBuffer || instanceCount == 0) return;
+	if (submeshIndex >= m_submeshes.size()) return;
+
+	const auto& s = m_submeshes[submeshIndex];
+
+	vkCmdDrawIndexed(
+		commandBuffer,
+		s.indexCount, 
+		instanceCount,
+		s.firstIndex, 
+		0,            
+		firstInstance);
 }
 
 }
