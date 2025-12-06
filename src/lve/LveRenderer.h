@@ -44,6 +44,10 @@ namespace lve {
 
 		void RecreateSwapChain();
 
+		/*用于离屏渲染*/
+		VkCommandBuffer BeginSingleTimeCommands();
+		void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
+
 	private:
 		void CreateCommandBuffers();
 		void FreeCommandBuffers();

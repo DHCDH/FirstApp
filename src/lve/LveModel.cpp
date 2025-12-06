@@ -115,7 +115,8 @@ void LveModel::Draw(VkCommandBuffer commandBuffer)
 	
 }
 
-void LveModel::Bind(VkCommandBuffer commandBuffer) {
+void LveModel::Bind(VkCommandBuffer commandBuffer) 
+{
 	VkBuffer buffer[] = { m_vertexBuffer->GetBuffer()};
 	VkDeviceSize offsets[] = { 0 };
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffer, offsets);

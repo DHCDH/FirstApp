@@ -29,7 +29,8 @@ public:
 
 	lve::LveWindow* GetLveWindow() const { return m_lveWindow.get(); }
 
-	void runFrame();
+	/*主渲染窗口*/
+	void RunFrame();
 	void WaitIdle();
 
 	/*交互*/
@@ -38,12 +39,36 @@ public:
 	void Dolly(float steps);					// 滚轮缩放
 	void ResetView();
 
-	/*动画*/
+	/*开关*/
 	void SetGrindingWheelMotionEnable(const bool& enabled) {
 		if (!m_grindingWheel) return; m_grindingWheel->SetMotionEnabled(enabled); }
+	void SetInstancesShown(const bool& shown) { m_isInstancesShown = shown; }
 
 	/*实例化*/
 	void BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount);
+
+public:
+	const GrindingWheel& GetGrindingWheel() const {
+		if (!m_grindingWheel) {
+			throw std::runtime_error("GrindingWheel is not initialized.");
+		}
+		return *m_grindingWheel;
+	}
+	const Blank& GetBlank() const {
+        if (!m_blank) {
+			throw std::runtime_error("Blank is not initialized.");
+		}
+		return *m_blank;
+	}
+	lve::LveDevice& GetDevice() const {
+		if (!m_lveDevice) {
+            throw std::runtime_error("Device is not initialized.");
+		}
+		return *m_lveDevice; 
+	}
+	const std::vector<lve::InstanceData>& GetGrindingWheelInstances() const {
+		return m_grndWheelInstances;
+	}
 
 private:
 	void InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name);
@@ -60,6 +85,8 @@ private:
 		float pitch{ 0.f };		// 绕X轴旋转
 	}m_orbit;
 
+private:
+	/*主窗口*/
 	std::unique_ptr<lve::LveWindow> m_lveWindow;
 	std::unique_ptr<lve::LveDevice> m_lveDevice;
     std::unique_ptr<lve::LveRenderer> m_lveRenderer;
@@ -101,6 +128,9 @@ private:
 
 	std::unique_ptr<RenderContext> m_renderContext;
 
+private:
+	/*开关*/
+	bool m_isInstancesShown = false;
 
 private:
 	/*objects*/

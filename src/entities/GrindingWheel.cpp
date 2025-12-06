@@ -8,9 +8,10 @@
 
 lve::LveObject GrindingWheel::CreateObject()
 {
-	std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
+	// std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
+	p_model = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
 	auto grindingWheel = lve::LveObject::CreateObject();
-	grindingWheel.model = lveModel;
+	grindingWheel.model = p_model;
 	// grindingWheel.transform.translation = { -45.9003f, 13.0961f , 16.0312f };
 	// grindingWheel.transform.rotation = {-0.949079, 0.014354, 0.027942 };
 	grindingWheel.transform.translation = { 0.f, 0.f, 0.f };
@@ -46,6 +47,7 @@ lve::LveObject GrindingWheel::CreateObject()
 	CreateMaterialParamSetsForSubmesh(m_id, 1, mtlMetal);
 
 	m_helixMotion.M0 = m_modelMatrix;
+	m_helixMotionInstanced.M0 = m_modelMatrix;
 
 	return grindingWheel;
 }
@@ -74,16 +76,16 @@ lve::TransformComponent GrindingWheel::Update(const float& dt)
 lve::TransformComponent GrindingWheel::EvaluateAtTime(const float& t)
 {
 	constexpr float pi = glm::pi<float>();
-	float pitch = m_helixMotion.pitch;
-	float feedRate = m_helixMotion.f;
+	float pitch = m_helixMotionInstanced.pitch;
+	float feedRate = m_helixMotionInstanced.f;
 	float omega = 2 * pi * feedRate / pitch;
 
-	m_helixMotion.theta = omega * t;
-	m_helixMotion.y = feedRate * t;
+	m_helixMotionInstanced.theta = omega * t;
+	m_helixMotionInstanced.y = feedRate * t;
 
 	lve::TransformComponent transform{};
-	transform.rotation = glm::vec3(0.f, m_helixMotion.theta, 0.f);
-	transform.translation = glm::vec3(0.f, m_helixMotion.y, 0.f);
+	transform.rotation = glm::vec3(0.f, m_helixMotionInstanced.theta, 0.f);
+	transform.translation = glm::vec3(0.f, m_helixMotionInstanced.y, 0.f);
 	transform.scale = glm::vec3(1.f);
 
 	return transform;

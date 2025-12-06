@@ -36,6 +36,9 @@ set(PROJECT_SOURCES
     src/FirstApp.cpp
     src/Simulation2DDialog.h
     src/Simulation2DDialog.cpp
+    src/SliceView.h
+    src/SliceView.cpp
+    src/Global.h
 
 
     ${LVE_SOURCES}

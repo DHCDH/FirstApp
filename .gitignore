@@ -42,3 +42,4 @@
 *.dwo
 
 src/vendor/
+out/

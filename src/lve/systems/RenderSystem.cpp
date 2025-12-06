@@ -66,6 +66,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
 
     CreatePipeline(renderPass);
     CreateInstancedPipeline(renderPass);
+    CreateInvisibleInstancedPipeline(renderPass);
 }
 
 void RenderSystem::CreatePipeline(VkRenderPass renderPass)
@@ -146,6 +147,50 @@ void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
         "../../../res/shaders/shader.frag.spv",
         pipelineConfig
     );
+
+}
+
+void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
+{
+
+    PipelineConfigInfo pipelineConfig{};
+    LvePipeline::DefaultPipelineConfigInfo(pipelineConfig);
+
+    pipelineConfig.renderPass = renderPass;
+    pipelineConfig.pipelineLayout = m_pipelineLayout;
+
+    /*binding = 0*/
+    auto bindingDescs = LveModel::Vertex::GetBindingDescriptions();
+    auto attributeDescs = LveModel::Vertex::GetAttributeDescriptions();
+
+    /*binding = 1*/
+    VkVertexInputBindingDescription instanceBinding{};
+    instanceBinding.binding = 1;
+    instanceBinding.stride = sizeof(InstanceData);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
+    instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    bindingDescs.push_back(instanceBinding);
+
+    /*把一个mat4拆成4个vec4，映射到顶点着色器location = 4, 5, 6, 7上*/
+    uint32_t locBase = 4;
+    for (uint32_t i = 0; i < locBase; ++i) {
+        VkVertexInputAttributeDescription attribute{};
+        attribute.binding = 1;
+        attribute.location = locBase + i;
+        attribute.offset = sizeof(glm::vec4) * i;  // 在InstanceData中，这个attribute从offset处开始读数据
+        attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;   // attribute从offset开始，从InstanceData中读取16个字节，当作4个float传递给shader中对应location
+        attributeDescs.push_back(attribute);
+    }
+    pipelineConfig.bindingDescriptions = std::move(bindingDescs);
+    pipelineConfig.attributeDescriptions = std::move(attributeDescs);
+
+    pipelineConfig.colorBlendAttachment.colorWriteMask = 0; // 关闭颜色写入
+
+    m_lvePipelineInstancedInvisible = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/shader_instanced.vert.spv",
+        "../../../res/shaders/shader.frag.spv",
+        pipelineConfig
+    );
 }
 
 /* 主循环中每帧都会调用renderGameObjects
@@ -176,8 +221,8 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 
         // ====== Submesh 分支（如果模型含有 submesh） ======
         const uint32_t subCount = obj.model->GetSubmeshCount();
-        if (subCount > 0) {                                    
-            for (uint32_t si = 0; si < subCount; ++si) {       
+        if (subCount > 0) {
+            for (uint32_t si = 0; si < subCount; ++si) {
                 // ---- 选 set=1：纹理 ----
                 VkDescriptorSet set1 = frameInfo.dummyTexSet;  
                 if (frameInfo.submeshTexSets) {                
@@ -185,20 +230,20 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
                     if (it != frameInfo.submeshTexSets->end()
                         && si < it->second.size()
                         && it->second[si] != VK_NULL_HANDLE) {
-                        set1 = it->second[si];                            
+                        set1 = it->second[si];
                     }
                 }
-                else if (frameInfo.materialDescriptorSets) {              
+                else if (frameInfo.materialDescriptorSets) {
                     auto it = frameInfo.materialDescriptorSets->find(obj.getId());
                     if (it != frameInfo.materialDescriptorSets->end()
                         && it->second != VK_NULL_HANDLE) {
-                        set1 = it->second;                                        
+                        set1 = it->second;
                     }
                 }
 
                 // ---- 选 set=2：材质 UBO（本帧）----
-                VkDescriptorSet set2 = frameInfo.dummyMatSet;                     
-                if (frameInfo.submeshMatSetThisFrame) {                           
+                VkDescriptorSet set2 = frameInfo.dummyMatSet;
+                if (frameInfo.submeshMatSetThisFrame) {
                     auto it = frameInfo.submeshMatSetThisFrame->find(obj.getId());
                     if (it != frameInfo.submeshMatSetThisFrame->end()
                         && si < it->second.size()
@@ -286,10 +331,13 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
     }
 }
 
-void RenderSystem::RenderInstances(FrameInfo& frameInfo)
+void RenderSystem::RenderInstances(FrameInfo& frameInfo, const bool& shown)
 {
     auto& cmd = frameInfo.commandBuffer;
-    m_lvePipelineInstanced->Bind(cmd);  // 绑定渲染管线
+    if(shown)
+        m_lvePipelineInstanced->Bind(cmd);  // 绑定渲染管线
+    else
+        m_lvePipelineInstancedInvisible->Bind(cmd);
 
     vkCmdBindDescriptorSets(cmd,
         VK_PIPELINE_BIND_POINT_GRAPHICS,

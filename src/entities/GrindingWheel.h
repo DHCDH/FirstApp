@@ -33,5 +33,6 @@ private:
     bool m_motionEnabled = false;
     uint32_t m_id{114514};
     HelixMotion m_helixMotion;
+    HelixMotion m_helixMotionInstanced;
     glm::mat4 m_modelMatrix{1.f};
 };

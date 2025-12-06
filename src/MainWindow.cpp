@@ -3,6 +3,7 @@
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
 #include "lve/LveWindow.h"
+#include "SliceView.h"
 
 #include <QPushButton>
 #include <QHBoxLayout>
@@ -16,8 +17,7 @@
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), m_renderWidget(new QWidget(this)), 
-    m_renderTimer(new QTimer(this)), m_buttonWidget(new QWidget(this)), 
-    m_simulation2DDialog(new Simulation2DDialog(this))
+    m_renderTimer(new QTimer(this)), m_buttonWidget(new QWidget(this))
 {
     setWindowTitle("FirstApp");
 
@@ -54,8 +54,8 @@ void MainWindow::InitRenderWidget()
 
     /*启动渲染循环*/
     connect(m_renderTimer, &QTimer::timeout, [this]() {
-        m_vulkanApp->runFrame();
-        });
+        m_vulkanApp->RunFrame();
+    });
     m_renderTimer->start(16); // 60 FPS
 
 }
@@ -66,13 +66,13 @@ void MainWindow::InitUI()
     QPushButton* btnStart = new QPushButton("Start", m_buttonWidget);
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
-    QPushButton* btnTrack = new QPushButton("Generate Track", m_buttonWidget);
+    QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
     QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
-    buttonLayout->addWidget(btnTrack);
+    buttonLayout->addWidget(btnInstanced);
     buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addStretch();  // 让按钮靠上排列
     buttonLayout->addWidget(btnQuit);
@@ -87,10 +87,19 @@ void MainWindow::InitUI()
         m_vulkanApp->SetGrindingWheelMotionEnable(false);
     });
     connect(btn2DSimulation, &QPushButton::clicked, this, [this]() {
-        m_simulation2DDialog->show();
+        if(m_2DSimDialog == nullptr)
+            m_2DSimDialog = new Simulation2DDialog(m_vulkanApp->GetDevice(), this);
+        m_2DSimDialog->show();
+        m_is2DSimulationActive = true;
+        m_2DSimDialog->UpdateEntitiesData(m_vulkanApp->GetGrindingWheel(),
+            m_vulkanApp->GetBlank(),
+            m_vulkanApp->GetGrindingWheelInstances());
+        m_2DSimDialog->BuildContactMask();
+
     });
-    connect(btnTrack, &QPushButton::clicked, [this]() {
-        // m_vulkanApp->BuildGrindingWheelTrackInstances(0.f, 5.f, 100);
+    connect(btnInstanced, &QPushButton::clicked, [this]() {
+        m_vulkanApp->SetInstancesShown(!m_instancedShown);
+        m_instancedShown = !m_instancedShown;
     });
 }
 
@@ -180,6 +189,13 @@ MainWindow::~MainWindow()
     if (m_renderTimer) {
         m_renderTimer->stop();
         disconnect(m_renderTimer, nullptr, this, nullptr);
+    }
+
+    /*必须保证2DSimDialog在vulkanApp前被销毁*/
+    if (m_2DSimDialog) {
+        m_2DSimDialog->close();
+        delete m_2DSimDialog;
+        m_2DSimDialog = nullptr;
     }
 
     if (m_vulkanApp) {

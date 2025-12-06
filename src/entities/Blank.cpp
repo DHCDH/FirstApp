@@ -2,9 +2,9 @@
 
 lve::LveObject Blank::CreateObject()
 {
-	std::shared_ptr<lve::LveModel> lveModel = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
+	p_model = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
 	auto blank = lve::LveObject::CreateObject();
-	blank.model = lveModel;
+	blank.model = p_model;
 	blank.transform.translation = { 0.f, 0.f, 0.f};
 	blank.transform.rotation = { 0.f, 0.f, 0.f };
 

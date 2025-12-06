@@ -150,7 +150,7 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
     m_lastTick = std::chrono::high_resolution_clock::now();
 }
 
-void FirstApp::runFrame()
+void FirstApp::RunFrame()
 {
     if (m_lveWindow->WasWindowResized()) {
         m_lveWindow->ResetWindowResizedFlag();
@@ -361,7 +361,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
 {
     frameInfo.instanceBatches.clear();
 
-    BuildGrindingWheelTrackInstances(0., 100., 100);
+    BuildGrindingWheelTrackInstances(0., 100., 500);
 
     if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
         return;
@@ -400,11 +400,11 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     }
 
     frameInfo.instanceBatches.push_back(batch);
-    m_renderSystem->RenderInstances(frameInfo);
+    m_renderSystem->RenderInstances(frameInfo, m_isInstancesShown);
 }
 
 /*******************************************************interaction****************************************************************************/
-void FirstApp::UpdateCameraFromOrbit()
+void FirstApp::UpdateCameraFromOrbit()  
 {
     const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
     const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);

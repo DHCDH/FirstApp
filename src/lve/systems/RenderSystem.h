@@ -20,18 +20,20 @@ public:
 	RenderSystem& operator=(const RenderSystem&) = delete;
 
 	void RenderObjects(FrameInfo& frameInfo);
-	void RenderInstances(FrameInfo& frameInfo);
+	void RenderInstances(FrameInfo& frameInfo, const bool& shown);
 
 private:
 	void CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>& globalSetLayout);
 	void CreatePipelines(VkRenderPass renderPass);
 	void CreatePipeline(VkRenderPass renderPass);
 	void CreateInstancedPipeline(VkRenderPass renderPass);
+	void CreateInvisibleInstancedPipeline(VkRenderPass renderPass);
 
 	LveDevice& m_lveDevice;
 
 	std::unique_ptr<LvePipeline> m_lvePipeline;	// 主三角形管线
 	std::unique_ptr<LvePipeline> m_lvePipelineInstanced;	// 实例化管线
+	std::unique_ptr<LvePipeline> m_lvePipelineInstancedInvisible;	// 不可见实例化管线
 	VkPipelineLayout m_pipelineLayout;
 	std::unique_ptr<LveModel> m_axisModel;
 };
