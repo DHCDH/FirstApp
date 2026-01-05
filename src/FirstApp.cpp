@@ -361,7 +361,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
 {
     frameInfo.instanceBatches.clear();
 
-    BuildGrindingWheelTrackInstances(0., 100., 500);
+    BuildGrindingWheelTrackInstances(0., 100., 1);
 
     if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
         return;

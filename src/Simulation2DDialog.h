@@ -36,6 +36,8 @@ private:
     const GrindingWheel* m_grndWheel = nullptr;
     std::vector<lve::InstanceData> m_grndWheelInstances;
 
+    double m_viewHalfSize{ 70. };
+
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
@@ -43,4 +45,5 @@ private:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* e) override;
+    void wheelEvent(QWheelEvent* event) override;
 };

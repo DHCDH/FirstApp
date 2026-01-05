@@ -4,6 +4,7 @@
 
 #include <QHBoxLayout>
 #include <QTimer>
+#include <QWheelEvent>
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 	: QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
@@ -75,8 +76,8 @@ void Simulation2DDialog::BuildContactMask()
 
 	/*准备帧数据*/
 	SliceFrameData frameData{};
-	frameData.yM = 5.f;
-	frameData.thickness = 10.f;
+	frameData.yM = 0.f;
+	frameData.thickness = 1.f;
 	frameData.blankModel = glm::mat4(1.f);
 	frameData.wheelModels.reserve(m_grndWheelInstances.size());
 	for (const auto& instance : m_grndWheelInstances) {
@@ -112,21 +113,18 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 	config.nX = static_cast<uint32_t>(w);
 	config.nZ = static_cast<uint32_t>(h);
 
-	/*设定视野基准*/
-	float baseViewHalfSize = 10.f;
-
 	/*根据比例修正视野范围*/
 	if (aspectRatio > 1.f) {
-		config.zMin = -baseViewHalfSize;
-		config.zMax = baseViewHalfSize;
-		config.xMin = -baseViewHalfSize * aspectRatio;
-		config.xMax = baseViewHalfSize * aspectRatio;
+		config.zMin = -m_viewHalfSize;
+		config.zMax = m_viewHalfSize;
+		config.xMin = -m_viewHalfSize * aspectRatio;
+		config.xMax = m_viewHalfSize * aspectRatio;
 	}
 	else {
-		config.xMin = -baseViewHalfSize;
-		config.xMax = baseViewHalfSize;
-		config.zMin = -baseViewHalfSize / aspectRatio;
-		config.zMax = baseViewHalfSize / aspectRatio;
+		config.xMin = -m_viewHalfSize;
+		config.xMax = m_viewHalfSize;
+		config.zMin = -m_viewHalfSize / aspectRatio;
+		config.zMax = m_viewHalfSize / aspectRatio;
 	}
 
 	return config;
@@ -147,6 +145,38 @@ void Simulation2DDialog::closeEvent(QCloseEvent* e)
 {
 	if (m_renderTimer) m_renderTimer->stop();
 	QDialog::closeEvent(e);
+}
+
+void Simulation2DDialog::wheelEvent(QWheelEvent* event)
+{
+	QPoint numPixels = event->pixelDelta();
+	QPoint numDegrees = event->angleDelta() / 8;
+
+	float steps = 0.f;
+	if (!numPixels.isNull()) {
+		steps = numPixels.y() / 15.f;
+	}
+	else if (!numDegrees.isNull()) {
+		steps = numDegrees.y() / 15.f;
+	}
+
+	if (steps == 0.f) return;
+
+	float zoomFactor = 1.1f;
+
+	if (steps > 0) {
+		m_viewHalfSize /= zoomFactor;
+	}
+	else {
+		m_viewHalfSize *= zoomFactor;
+	}
+
+	if (m_viewHalfSize < 0.1f) m_viewHalfSize = 0.1f;
+	if (m_viewHalfSize > 500.0f) m_viewHalfSize = 500.0f;
+
+	if (m_grndWheel && m_blank && !m_grndWheelInstances.empty()) {
+		m_resizeTimer->start();
+	}
 }
 
 Simulation2DDialog::~Simulation2DDialog()
