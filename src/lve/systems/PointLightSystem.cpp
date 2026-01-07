@@ -77,8 +77,8 @@ void PointLightSystem::CreatePipelines(VkRenderPass renderPass)
     pipelineConfig.pipelineLayout = m_pipelineLayout;
     m_lvePipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
-        "../../../res/shaders/point_light.vert.spv",
-        "../../../res/shaders/point_light.frag.spv",
+        "../../../res/shaders/spv/point_light.vert.spv",
+        "../../../res/shaders/spv/point_light.frag.spv",
         pipelineConfig);
 }
 

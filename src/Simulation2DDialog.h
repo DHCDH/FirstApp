@@ -29,7 +29,6 @@ private:
     std::unique_ptr<SliceView> m_sliceView = nullptr;
     QTimer* m_renderTimer = nullptr;
     QWidget* m_renderWidget = nullptr;
-    QLabel* m_displayLabel = nullptr;
     QTimer* m_resizeTimer = nullptr;    // 防抖定时器
 
     const Blank* m_blank = nullptr;

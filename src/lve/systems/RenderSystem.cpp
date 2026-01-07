@@ -98,7 +98,7 @@ void RenderSystem::CreatePipeline(VkRenderPass renderPass)
             << ", rate=" << bd.inputRate << "\n";
     }
 
-    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/shader.vert.spv", "../../../res/shaders/shader.frag.spv", pipelineConfig);
+    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/spv/shader.vert.spv", "../../../res/shaders/spv/shader.frag.spv", pipelineConfig);
 }
 
 void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
@@ -143,8 +143,8 @@ void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
 
     m_lvePipelineInstanced = std::make_unique<LvePipeline>(
         m_lveDevice,
-        "../../../res/shaders/shader_instanced.vert.spv",
-        "../../../res/shaders/shader.frag.spv",
+        "../../../res/shaders/spv/shader_instanced.vert.spv",
+        "../../../res/shaders/spv/shader.frag.spv",
         pipelineConfig
     );
 
@@ -187,8 +187,8 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
 
     m_lvePipelineInstancedInvisible = std::make_unique<LvePipeline>(
         m_lveDevice,
-        "../../../res/shaders/shader_instanced.vert.spv",
-        "../../../res/shaders/shader.frag.spv",
+        "../../../res/shaders/spv/shader_instanced.vert.spv",
+        "../../../res/shaders/spv/shader.frag.spv",
         pipelineConfig
     );
 }

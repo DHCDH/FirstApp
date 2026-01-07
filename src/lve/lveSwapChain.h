@@ -16,7 +16,7 @@ class LveSwapChain {
 public:
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
-    LveSwapChain(LveDevice &deviceRef, VkExtent2D windowExtent);
+    LveSwapChain(LveDevice &deviceRef, VkExtent2D windowExtent, VkSurfaceKHR surface);
     LveSwapChain(LveDevice &deviceRef, VkExtent2D windowExtent, std::shared_ptr<LveSwapChain> previous);
     ~LveSwapChain();
 
@@ -83,6 +83,8 @@ private:
     std::vector<VkSemaphore> m_imageAvailableSemaphores;    // 按帧
     std::vector<VkFence> m_inFlightFences;   // 按帧
     std::vector<VkFence> m_imagesInFlight;   // 按图像
+
+    VkSurfaceKHR m_surface; // 保存属于这个交换链的Surface
 
     size_t m_currentFrame = 0;
 };

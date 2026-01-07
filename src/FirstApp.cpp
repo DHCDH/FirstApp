@@ -1,67 +1,72 @@
 ﻿#include "FirstApp.h"
 
-#include "lve/LveBuffer.h"
-#include "entities/GrindingWheel.h"
-#include "entities/Blank.h"
-
-#include <stdexcept>
 #include <array>
 #include <iostream>
 #include <numeric>
+#include <stdexcept>
+
+#include "entities/Blank.h"
+#include "entities/GrindingWheel.h"
+#include "lve/LveBuffer.h"
 
 using namespace lve;
 
 struct OrbitConfig {
-    float rotateSpeedPerPixel = 0.0020f;   // 每像素约 0.11°
-    float panBasePerPixel = 0.0015f;   // 每像素平移尺度 = distance * 该系数
-    float dollySpeed = 0.22f;     // 指数缩放强度（滚轮步长）
-    float minDistance = 0.05f;     // 缩放最近距离
-    float maxDistance = 500.0f;    // 缩放最远距离
-    float minPitch = -1.55334306f; // -89° (弧度)
-    float maxPitch = 1.55334306f; //  89° (弧度)
-    float fovY = 0.87266463f; //  50° (弧度) 供平移尺度估算
-}orbitCfg;
+    float rotateSpeedPerPixel = 0.0020f;  // 每像素约 0.11°
+    float panBasePerPixel = 0.0015f;      // 每像素平移尺度 = distance * 该系数
+    float dollySpeed = 0.22f;             // 指数缩放强度（滚轮步长）
+    float minDistance = 0.05f;            // 缩放最近距离
+    float maxDistance = 500.0f;           // 缩放最远距离
+    float minPitch = -1.55334306f;        // -89° (弧度)
+    float maxPitch = 1.55334306f;         //  89° (弧度)
+    float fovY = 0.87266463f;             //  50° (弧度) 供平移尺度估算
+} orbitCfg;
 
-FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
+FirstApp::FirstApp(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h,
+                   std::string name)
 {
     InitLveComponants(nativeWindowHandle, nativeInstanceHandle, w, h, name);
     LoadObjects();
 }
 
-void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h, std::string name)
+void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle,
+                                 int w, int h, std::string name)
 {
-    m_lveWindow = std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
+    m_lveWindow =
+        std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
     m_lveDevice = std::make_unique<LveDevice>(*m_lveWindow);
-    m_lveRenderer = std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice);
+    m_lveRenderer = std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice, m_lveDevice->surface());
     m_lveCamera = std::make_unique<LveCamera>();
-    m_texture = std::make_unique<LveTexture>(
-        *m_lveDevice, 
-        "D:/Data/Study/vulkan/FirstApp/res/textures/TCom_BrushedStainlessSteel_header.jpg", 
-        true);
+    m_texture = std::make_unique<LveTexture>(*m_lveDevice,
+                                             "D:/Data/Study/vulkan/FirstApp/res/textures/"
+                                             "TCom_BrushedStainlessSteel_header.jpg",
+                                             true);
 
     /*global ubo*/
     m_globalPool = LveDescriptorPool::Builder(*m_lveDevice)
-        .SetMaxSets(LveSwapChain::MAX_FRAMES_IN_FLIGHT)
-        .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, LveSwapChain::MAX_FRAMES_IN_FLIGHT)
-        .Build();
+                       .SetMaxSets(LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+                       .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                    LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+                       .Build();
 
-    m_uboBuffers.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT); //2
+    m_uboBuffers.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);  // 2
     for (int i = 0; i < m_uboBuffers.size(); i++) {
         m_uboBuffers[i] = std::make_unique<LveBuffer>(
             *m_lveDevice,
             sizeof(GlobalUbo),
             1,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         m_uboBuffers[i]->Map();
     }
     m_globalSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
-        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL_GRAPHICS)
-        .Build();
+                            .AddBinding(0,
+                                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                        VK_SHADER_STAGE_ALL_GRAPHICS)
+                            .Build();
     m_globalDescriptorSets.resize(LveSwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < m_globalDescriptorSets.size(); i++) {
-        auto bufferInfo = m_uboBuffers[i]->DescriptorInfo(); // binding 0
+        auto bufferInfo = m_uboBuffers[i]->DescriptorInfo();  // binding 0
 
         LveDescriptorWriter(*m_globalSetLayout, *m_globalPool)
             .WriteBuffer(0, &bufferInfo)
@@ -70,54 +75,70 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
 
     /*texture, set = 1*/
     m_materialPool = LveDescriptorPool::Builder(*m_lveDevice)
-        .SetMaxSets(128)
-        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128)
-        .Build();
+                         .SetMaxSets(128)
+                         .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128)
+                         .Build();
     m_materialSetLayout = LveDescriptorSetLayout::Builder(*m_lveDevice)
-        .AddBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)
-        .Build();
+                              .AddBinding(0,
+                                          VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                          VK_SHADER_STAGE_FRAGMENT_BIT)
+                              .Build();
 
     /*创建采样器Sampler*/
-    VkSamplerCreateInfo sci{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-    sci.magFilter = VK_FILTER_LINEAR;   // 放大采用线性过滤
-    sci.minFilter = VK_FILTER_LINEAR;   // 缩小采用线性过滤
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = VK_FILTER_LINEAR;  // 放大采用线性过滤
+    sci.minFilter = VK_FILTER_LINEAR;  // 缩小采用线性过滤
     sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;    // 重复寻址，适合可平铺贴图
-    sci.anisotropyEnable = VK_TRUE; // 开启各向异性过滤
+    sci.addressModeU = sci.addressModeV = sci.addressModeW =
+        VK_SAMPLER_ADDRESS_MODE_REPEAT;  // 重复寻址，适合可平铺贴图
+    sci.anisotropyEnable = VK_TRUE;      // 开启各向异性过滤
     sci.maxAnisotropy = 16.0f;
-    sci.minLod = 0.0f; sci.maxLod = 100.0f; // 若你生成了 mipmap，这样才能访问所有 mip
-    if (vkCreateSampler(m_lveDevice->device(), &sci, nullptr, &m_sharedSampler) != VK_SUCCESS) {
+    sci.minLod = 0.0f;
+    sci.maxLod = 100.0f;  // 若你生成了 mipmap，这样才能访问所有 mip
+    if (vkCreateSampler(m_lveDevice->device(), &sci, nullptr, &m_sharedSampler) !=
+        VK_SUCCESS) {
         throw std::runtime_error("failed to create sampler!");
     }
 
-    m_textureManager = std::make_unique<LveTextureManager>(*m_lveDevice, m_sharedSampler, *m_materialSetLayout, *m_materialPool);
+    m_textureManager = std::make_unique<LveTextureManager>(*m_lveDevice,
+                                                           m_sharedSampler,
+                                                           *m_materialSetLayout,
+                                                           *m_materialPool);
 
     // 占位 set=1：随便复用一张已有纹理（或你做一张 1x1 白图）
     m_defaultTextureSet = m_textureManager->GetOrCreateMaterialSet(
-        "D:/Data/Study/vulkan/FirstApp/res/textures/white_1x1.png", true);
+        "D:/Data/Study/vulkan/FirstApp/res/textures/white_1x1.png",
+        true);
 
     // set = 2，材质参数UBO
     m_materialParamPool = lve::LveDescriptorPool::Builder(*m_lveDevice)
-        .SetMaxSets(128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
-        .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
-        .Build();
+                              .SetMaxSets(128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+                              .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                           128 * lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT)
+                              .Build();
 
-    m_materialParamSetLayout = lve::LveDescriptorSetLayout::Builder(*m_lveDevice)
-        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT) // 先指向 FS，可先不使用
-        .Build();
+    m_materialParamSetLayout =
+        lve::LveDescriptorSetLayout::Builder(*m_lveDevice)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        VK_SHADER_STAGE_FRAGMENT_BIT)  // 先指向 FS，可先不使用
+            .Build();
 
     MaterialUBO def{};
-    def.baseColorFactor = { 1,1,1,1 };
-    def.uvTilingOffset = { 1,1,0,0 };
-    def.pbrAoAlpha = { 0.0f, 0.5f, 1.0f, 0.0f };
-    def.flags = { 0u,0u,0u,0u };
+    def.baseColorFactor = {1, 1, 1, 1};
+    def.uvTilingOffset = {1, 1, 0, 0};
+    def.pbrAoAlpha = {0.0f, 0.5f, 1.0f, 0.0f};
+    def.flags = {0u, 0u, 0u, 0u};
 
     for (int i = 0; i < lve::LveSwapChain::MAX_FRAMES_IN_FLIGHT; ++i) {
         auto buf = std::make_unique<lve::LveBuffer>(
-            *m_lveDevice, sizeof(MaterialUBO), 1,
+            *m_lveDevice,
+            sizeof(MaterialUBO),
+            1,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        buf->Map(); buf->WriteToBuffer(&def);
+        buf->Map();
+        buf->WriteToBuffer(&def);
         VkDescriptorBufferInfo bi = buf->DescriptorInfo();
         lve::LveDescriptorWriter(*m_materialParamSetLayout, *m_materialParamPool)
             .WriteBuffer(0, &bi)
@@ -126,26 +147,27 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
     }
 
     m_renderSystem = std::make_unique<RenderSystem>(
-        *m_lveDevice, 
+        *m_lveDevice,
         m_lveRenderer->GetSwapChainRenderPass(),
         std::vector<VkDescriptorSetLayout>{
-            m_globalSetLayout->GetDescriptorSetLayout(),            // set = 0
-            m_materialSetLayout->GetDescriptorSetLayout(),          // set = 1
-            m_materialParamSetLayout->GetDescriptorSetLayout()});   // set = 2
+            m_globalSetLayout->GetDescriptorSetLayout(),           // set = 0
+            m_materialSetLayout->GetDescriptorSetLayout(),         // set = 1
+            m_materialParamSetLayout->GetDescriptorSetLayout()});  // set = 2
 
-    m_pointLightSystem = std::make_unique<PointLightSystem>(*m_lveDevice,
-        m_lveRenderer->GetSwapChainRenderPass(), m_globalSetLayout->GetDescriptorSetLayout());
+    m_pointLightSystem =
+        std::make_unique<PointLightSystem>(*m_lveDevice,
+                                           m_lveRenderer->GetSwapChainRenderPass(),
+                                           m_globalSetLayout->GetDescriptorSetLayout());
 
-    m_renderContext = std::make_unique<RenderContext>(
-        *m_lveDevice, 
-        m_submeshMatSets, 
-        m_submeshTextureSets, 
-        m_dummyMatSets, 
-        *m_textureManager,
-        *m_materialParamSetLayout,
-        *m_materialParamPool,
-        m_materialParamBuffers,
-        m_objectMaterialParams);
+    m_renderContext = std::make_unique<RenderContext>(*m_lveDevice,
+                                                      m_submeshMatSets,
+                                                      m_submeshTextureSets,
+                                                      m_dummyMatSets,
+                                                      *m_textureManager,
+                                                      *m_materialParamSetLayout,
+                                                      *m_materialParamPool,
+                                                      m_materialParamBuffers,
+                                                      m_objectMaterialParams);
 
     m_lastTick = std::chrono::high_resolution_clock::now();
 }
@@ -158,7 +180,9 @@ void FirstApp::RunFrame()
     }
 
     auto now = std::chrono::high_resolution_clock::now();
-    m_frameTimeSec = std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick).count();
+    m_frameTimeSec =
+        std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick)
+            .count();
     m_lastTick = now;
 
     VkCommandBuffer commandBuffer = m_lveRenderer->BeginFrame();
@@ -168,7 +192,7 @@ void FirstApp::RunFrame()
     }
 
     /*设置相机的视图与投影*/
-    float aspect = m_lveRenderer->GetAspectRatio(); // 宽高比
+    float aspect = m_lveRenderer->GetAspectRatio();  // 宽高比
     m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 10.f, 500.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
@@ -178,7 +202,7 @@ void FirstApp::RunFrame()
     std::unordered_map<uint32_t, std::vector<VkDescriptorSet>> submeshMatThisFrame;
     for (auto& kv : m_submeshMatSets) {
         uint32_t objId = kv.first;
-        auto& perSubmeshArray = kv.second; // vector<array<VkDescriptorSet, MAX_FRAMES>>
+        auto& perSubmeshArray = kv.second;  // vector<array<VkDescriptorSet, MAX_FRAMES>>
         std::vector<VkDescriptorSet> v(perSubmeshArray.size());
         for (size_t i = 0; i < perSubmeshArray.size(); ++i) {
             v[i] = perSubmeshArray[i][frameIndex];
@@ -186,24 +210,22 @@ void FirstApp::RunFrame()
         submeshMatThisFrame[objId] = std::move(v);
     }
 
-    FrameInfo frameInfo{
-        frameIndex,
-        m_frameTimeSec,
-        commandBuffer,
-        *m_lveCamera,
-        m_globalDescriptorSets[frameIndex],
-        m_objects
-    };
-    frameInfo.submeshTexSets = &m_submeshTextureSets;     // set=1
+    FrameInfo frameInfo{frameIndex,
+                        m_frameTimeSec,
+                        commandBuffer,
+                        *m_lveCamera,
+                        m_globalDescriptorSets[frameIndex],
+                        m_objects};
+    frameInfo.submeshTexSets = &m_submeshTextureSets;         // set=1
     frameInfo.submeshMatSetThisFrame = &submeshMatThisFrame;  // set=2（本帧）
     frameInfo.dummyTexSet = m_defaultTextureSet;
     frameInfo.dummyMatSet = m_dummyMatSets[frameIndex];
 
     //准备材质参数（set=2）“本帧映射”并赋给 frameInfo ---
     std::unordered_map<uint32_t, VkDescriptorSet> materialParamSetThisFrame;
-    for (auto& kv : m_objectMaterialParams) {        // 你给每个对象创建的MaterialGPU容器
+    for (auto& kv : m_objectMaterialParams) {  // 你给每个对象创建的MaterialGPU容器
         uint32_t objId = kv.first;
-        const auto& mgpu = kv.second;                // 包含每帧一个的 UBO 描述符
+        const auto& mgpu = kv.second;  // 包含每帧一个的 UBO 描述符
         materialParamSetThisFrame[objId] = mgpu.sets[frameIndex];
     }
     frameInfo.materialDescriptorSets = &m_objectMaterialSets;
@@ -251,10 +273,10 @@ void FirstApp::RunFrame()
     m_lveRenderer->EndFrame();
 }
 
-void FirstApp::LoadObjects() 
+void FirstApp::LoadObjects()
 {
     /*创建跟随相机的点光源*/
-    auto head = LveObject::MakePointLight(.5, 0.25, { 1.f, .86f, .55f });
+    auto head = LveObject::MakePointLight(.5, 0.25, {1.f, .86f, .55f});
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
     m_objects.emplace(head.getId(), std::move(head));
@@ -285,10 +307,21 @@ void FirstApp::CreateSunLight()
 
     const glm::vec3 dirs[] = {
         // 六主轴
-        { 1, 0, 0},{-1, 0, 0},{ 0, 1, 0},{ 0,-1, 0},{ 0, 0, 1},{ 0, 0,-1},
+        {1, 0, 0},
+        {-1, 0, 0},
+        {0, 1, 0},
+        {0, -1, 0},
+        {0, 0, 1},
+        {0, 0, -1},
         // 八个体对角（立方体顶点）
-        { 1, 1, 1},{ 1, 1,-1},{ 1,-1, 1},{ 1,-1,-1},
-        {-1, 1, 1},{-1, 1,-1},{-1,-1, 1},{-1,-1,-1},
+        {1, 1, 1},
+        {1, 1, -1},
+        {1, -1, 1},
+        {1, -1, -1},
+        {-1, 1, 1},
+        {-1, 1, -1},
+        {-1, -1, 1},
+        {-1, -1, -1},
     };
 
     int N = sizeof(dirs) / sizeof(dirs[0]);
@@ -307,7 +340,8 @@ void FirstApp::CreateSunLight()
     }
 }
 
-void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex, const MaterialUBO& data) 
+void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex,
+                                            const MaterialUBO& data)
 {
     auto it = m_objectMaterialParams.find(objId);
     if (it == m_objectMaterialParams.end()) return;
@@ -324,7 +358,6 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
         double ti = t1 + (t2 - t1) * alpha;
         lve::TransformComponent transform = m_grindingWheel->EvaluateAtTime(ti);
 
-
         InstanceData instanceData{};
         instanceData.modelMatrix = transform.mat4();
         // instanceData.modelMatrix = glm::mat4(1.0);
@@ -335,17 +368,21 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
     /*将实例数组上传GPU*/
     VkDeviceSize bufferSize = sizeof(InstanceData) * m_grndWheelInstances.size();
     m_grndWheelInstanceCount = static_cast<uint32_t>(m_grndWheelInstances.size());
-    if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceBuffer->GetBufferSize() < bufferSize) {
+    if (!m_grndWheelInstanceBuffer ||
+        m_grndWheelInstanceBuffer->GetBufferSize() < bufferSize) {
         /*重建buffer*/
-        std::cout << "rebuild grinding wheel instance buffer" << "\n";
-        m_grndWheelInstanceBuffer = std::make_unique<lve::LveBuffer>(*m_lveDevice, 
+        std::cout << "rebuild grinding wheel instance buffer"
+                  << "\n";
+        m_grndWheelInstanceBuffer = std::make_unique<lve::LveBuffer>(
+            *m_lveDevice,
             sizeof(InstanceData),
             m_grndWheelInstanceCount,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     }
 
-    lve::LveBuffer stagingBuffer(*m_lveDevice,
+    lve::LveBuffer stagingBuffer(
+        *m_lveDevice,
         sizeof(InstanceData),
         m_grndWheelInstanceCount,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -353,8 +390,9 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
     stagingBuffer.Map();
     stagingBuffer.WriteToBuffer(m_grndWheelInstances.data());
 
-    m_lveDevice->copyBuffer(stagingBuffer.GetBuffer(), m_grndWheelInstanceBuffer->GetBuffer(), bufferSize);
-
+    m_lveDevice->copyBuffer(stagingBuffer.GetBuffer(),
+                            m_grndWheelInstanceBuffer->GetBuffer(),
+                            bufferSize);
 }
 
 void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
@@ -378,7 +416,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     }
 
     lve::InstanceBatch batch{};
-    batch.model = it->second.model.get();   // 绑定砂轮模型(location = 0)
+    batch.model = it->second.model.get();  // 绑定砂轮模型(location = 0)
     batch.instanceBuffer = m_grndWheelInstanceBuffer->GetBuffer();
     batch.instanceCount = m_grndWheelInstanceCount;
     batch.instanceStride = sizeof(InstanceData);
@@ -404,15 +442,13 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
 }
 
 /*******************************************************interaction****************************************************************************/
-void FirstApp::UpdateCameraFromOrbit()  
+void FirstApp::UpdateCameraFromOrbit()
 {
-    const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
+    const float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
     const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
-    glm::vec3 offset(
-        m_orbit.distance *  cp * sy,
-        m_orbit.distance *  sp,
-        m_orbit.distance *  cp * cy
-    );
+    glm::vec3 offset(m_orbit.distance * cp * sy,
+                     m_orbit.distance * sp,
+                     m_orbit.distance * cp * cy);
     glm::vec3 camPos = m_orbit.target - offset;
     // 依你项目的 API 设置相机，这里用 setViewTarget 示例
     m_lveCamera->SetViewTarget(camPos, m_orbit.target);
@@ -421,43 +457,44 @@ void FirstApp::UpdateCameraFromOrbit()
 
 void FirstApp::Orbit(float dxPixels, float dyPixels)
 {
-    m_orbit.yaw   -= dxPixels * orbitCfg.rotateSpeedPerPixel;
+    m_orbit.yaw -= dxPixels * orbitCfg.rotateSpeedPerPixel;
     m_orbit.pitch -= dyPixels * orbitCfg.rotateSpeedPerPixel;
     // 俯仰夹取
     if (m_orbit.pitch > orbitCfg.maxPitch) m_orbit.pitch = orbitCfg.maxPitch;
     if (m_orbit.pitch < orbitCfg.minPitch) m_orbit.pitch = orbitCfg.minPitch;
     // 将 yaw 归一到 [-pi, pi]，避免数值漂移
-    if (m_orbit.yaw >  glm::pi<float>())  m_orbit.yaw -= glm::two_pi<float>();
-    if (m_orbit.yaw < -glm::pi<float>())  m_orbit.yaw += glm::two_pi<float>();
+    if (m_orbit.yaw > glm::pi<float>()) m_orbit.yaw -= glm::two_pi<float>();
+    if (m_orbit.yaw < -glm::pi<float>()) m_orbit.yaw += glm::two_pi<float>();
     UpdateCameraFromOrbit();
 }
 
 void FirstApp::Pan(float dxPixels, float dyPixels)
 {
     const float panScale = m_orbit.distance * orbitCfg.panBasePerPixel;
-    const float cy = std::cos(m_orbit.yaw),  sy = std::sin(m_orbit.yaw);
+    const float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
     const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
     // 朝向（从相机指向目标）
-    glm::vec3 forward = glm::normalize(glm::vec3(cp*sy, sp, cp*cy));
+    glm::vec3 forward = glm::normalize(glm::vec3(cp * sy, sp, cp * cy));
     glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
-    glm::vec3 right   = glm::normalize(glm::cross(forward, worldUp));
-    glm::vec3 up      = glm::normalize(glm::cross(right,   forward));
+    glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));
     // 屏幕像素位移 -> 世界位移（注意屏幕 y 向下为正）
     m_orbit.target += (-dxPixels * panScale) * right;
-    m_orbit.target += ( dyPixels * panScale) * up;
+    m_orbit.target += (dyPixels * panScale) * up;
     UpdateCameraFromOrbit();
 }
 
 void FirstApp::Dolly(float steps)
 {
-    const float k = std::exp(-steps * orbitCfg.dollySpeed); // steps>0 拉近
-    m_orbit.distance = glm::clamp(m_orbit.distance * k, orbitCfg.minDistance, orbitCfg.maxDistance);
+    const float k = std::exp(-steps * orbitCfg.dollySpeed);  // steps>0 拉近
+    m_orbit.distance =
+        glm::clamp(m_orbit.distance * k, orbitCfg.minDistance, orbitCfg.maxDistance);
     UpdateCameraFromOrbit();
 }
 
 void FirstApp::ResetView()
 {
-    m_orbit.target = { 0.f, 0.f, 2.5f };
+    m_orbit.target = {0.f, 0.f, 2.5f};
     m_orbit.distance = 5.0f;
     m_orbit.yaw = glm::pi<float>();
     m_orbit.pitch = 0.f;

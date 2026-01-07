@@ -43,3 +43,14 @@
 
 src/vendor/
 out/
+.vs/
+out/
+build/
+dependencies/
+res/shaders/common/
+res/shaders/spv/
+res/models/
+res/shaders/nvpro_core2/
+res/textures/
+res/shaders/*.slang
+res/shaders/*.shader

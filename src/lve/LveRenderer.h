@@ -13,7 +13,7 @@ namespace lve {
 	class LveRenderer {
 	public:
 
-		LveRenderer(LveWindow& window, LveDevice& device);
+		LveRenderer(LveWindow& window, LveDevice& device, VkSurfaceKHR surface);
 		~LveRenderer();
 
 		LveRenderer(const LveRenderer&) = delete;
@@ -57,6 +57,7 @@ namespace lve {
 		LveDevice& m_lveDevice;
 		std::unique_ptr<LveSwapChain> m_lveSwapChain; // 修改成窗口可调整大小，为什么要改成unique_ptr
 		std::vector<VkCommandBuffer> m_commandBuffers;
+		VkSurfaceKHR m_surface;
 
 		uint32_t m_currentImageIndex;	// 跟踪正在进行的当前帧状态
 		int m_currentFrameIndex{0};

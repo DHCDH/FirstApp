@@ -1,41 +1,120 @@
 ﻿#include "SliceView.h"
 
+#include <windows.h>
+#include <vulkan/vulkan_win32.h>
+
 using namespace lve;
 
 SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
-    void* nativeWindowHandle, void* nativeInstanceHandle, 
-    int w, int h, std::string name)
- : m_device(device), m_viewConfig(config)
+                     void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h,
+                     std::string name)
+    : m_device(device), m_viewConfig(config)
 {
-    m_window = std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
+    m_window =
+        std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
+
+    VkWin32SurfaceCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    createInfo.hinstance = static_cast<HINSTANCE>(nativeInstanceHandle);
+    createInfo.hwnd = static_cast<HWND>(nativeWindowHandle);
+    if (vkCreateWin32SurfaceKHR(m_device.getVkInstance(),
+                                &createInfo,
+                                nullptr,
+                                &m_surface) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create slice view surface!");
+    }
+
+    m_renderer = std::make_unique<LveRenderer>(*m_window, m_device, m_surface);
     m_camera = std::make_unique<LveCamera>();
-    m_cameraUboBuffer = std::make_unique<LveBuffer>(m_device,
+
+    InitOffscreenResources();
+    InitDisplayResources();
+    CreateContactMaskResources();
+    RecreateDisplayDescriptorSet();
+
+    m_sliceMaskRenderSystem =
+        std::make_unique<SliceMaskRenderSystem>(m_device,
+                                                m_maskRenderPass,
+                                                m_setLayout->GetDescriptorSetLayout());
+
+    m_lastTick = std::chrono::high_resolution_clock::now();
+}
+
+/*初始化离屏渲染*/
+void SliceView::InitOffscreenResources()
+{
+    m_cameraUboBuffer = std::make_unique<LveBuffer>(
+        m_device,
         sizeof(GlobalUbo),
         1,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     m_cameraUboBuffer->Map();
+
     m_setLayout = LveDescriptorSetLayout::Builder(m_device)
-        .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL_GRAPHICS)
-        .Build();
+                      .AddBinding(0,
+                                  VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                  VK_SHADER_STAGE_ALL_GRAPHICS)
+                      .Build();
     m_descriptorPool = LveDescriptorPool::Builder(m_device)
-        .SetMaxSets(1)
-        .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1)
-        .Build();
+                           .SetMaxSets(1)
+                           .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1)
+                           .Build();
     auto bufferInfo = m_cameraUboBuffer->DescriptorInfo();
     LveDescriptorWriter(*m_setLayout, *m_descriptorPool)
         .WriteBuffer(0, &bufferInfo)
         .Build(m_descriptorSet);
+}
 
-    CreateContactMaskResources();
-    CreateReadbackBuffer();
+void SliceView::InitDisplayResources()
+{
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.anisotropyEnable = VK_FALSE;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 
-    m_sliceMaskRenderSystem = std::make_unique<SliceMaskRenderSystem>(m_device,
-        m_maskRenderPass,
-        m_setLayout->GetDescriptorSetLayout()
-    );
+    if (vkCreateSampler(m_device.device(), &samplerInfo, nullptr, &m_displaySampler) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("failed to create display sampler!");
+    }
 
-    m_lastTick = std::chrono::high_resolution_clock::now();
+    m_displayPool = LveDescriptorPool::Builder(m_device)
+                        .SetMaxSets(10)
+                        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10)
+                        .Build();
+    m_displaySetLayout = LveDescriptorSetLayout::Builder(m_device)
+                             .AddBinding(0,
+                                         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                         VK_SHADER_STAGE_FRAGMENT_BIT)
+                             .Build();
+    m_displaySystem = std::make_unique<SliceDisplaySystem>(
+        m_device,
+        m_renderer->GetSwapChainRenderPass(),
+        m_displaySetLayout->GetDescriptorSetLayout());
+}
+
+/*关联PASS1的图像到PASS2的描述符*/
+void SliceView::RecreateDisplayDescriptorSet()
+{
+    if (m_blankMaskView == VK_NULL_HANDLE) {
+        throw std::runtime_error("Cannot create descriptor set: Mask view is null");
+    }
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = m_blankMaskView;
+    imageInfo.sampler = m_displaySampler;
+
+    lve::LveDescriptorWriter(*m_displaySetLayout, *m_displayPool)
+        .WriteImage(0, &imageInfo)
+        .Build(m_displayDescriptorSet);
 }
 
 void SliceView::RunFrame()
@@ -49,15 +128,19 @@ void SliceView::RunFrame()
     }
 
     auto now = std::chrono::high_resolution_clock::now();
-    m_frameTimeSec = std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick).count();
+    m_frameTimeSec =
+        std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick)
+            .count();
     m_lastTick = now;
 }
 
 void SliceView::CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
-    VkImageView& view, VkFramebuffer& framebuffer)
+                                         VkImageView& view, VkFramebuffer& framebuffer)
 {
-    assert(image == VK_NULL_HANDLE && "Image resource logic error: Old image not destroyed!");
-    assert(framebuffer == VK_NULL_HANDLE && "Framebuffer resource logic error: Old framebuffer not destroyed!");
+    assert(image == VK_NULL_HANDLE &&
+           "Image resource logic error: Old image not destroyed!");
+    assert(framebuffer == VK_NULL_HANDLE &&
+           "Framebuffer resource logic error: Old framebuffer not destroyed!");
 
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -70,9 +153,8 @@ void SliceView::CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | 
-                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | 
-                      VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (vkCreateImage(m_device.device(), &imageInfo, nullptr, &image) != VK_SUCCESS) {
@@ -85,8 +167,9 @@ void SliceView::CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = m_device.findMemoryType(memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    allocInfo.memoryTypeIndex =
+        m_device.findMemoryType(memRequirements.memoryTypeBits,
+                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (vkAllocateMemory(m_device.device(), &allocInfo, nullptr, &memory) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate mask image memory!");
     }
@@ -107,7 +190,7 @@ void SliceView::CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
     }
 
     /*创建Framebuffer*/
-    VkImageView attachments[] = { view };
+    VkImageView attachments[] = {view};
     VkFramebufferCreateInfo framebufferInfo{};
     framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     framebufferInfo.renderPass = m_maskRenderPass;
@@ -116,10 +199,10 @@ void SliceView::CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
     framebufferInfo.width = m_viewConfig.nX;
     framebufferInfo.height = m_viewConfig.nZ;
     framebufferInfo.layers = 1;
-    if (vkCreateFramebuffer(m_device.device(), &framebufferInfo, nullptr, &framebuffer) != VK_SUCCESS) {
+    if (vkCreateFramebuffer(m_device.device(), &framebufferInfo, nullptr, &framebuffer) !=
+        VK_SUCCESS) {
         throw std::runtime_error("failed to create mask framebuffer!");
     }
-
 }
 
 void SliceView::CreateContactMaskResources()
@@ -129,10 +212,11 @@ void SliceView::CreateContactMaskResources()
     /*创建共享RenderPass*/
     if (m_maskRenderPass == VK_NULL_HANDLE) {
         VkAttachmentDescription colorAttachment{};
-        colorAttachment.format = VK_FORMAT_R32_UINT; // 对应ContactMaskCode
+        colorAttachment.format = VK_FORMAT_R32_UINT;  // 对应ContactMaskCode
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // pass结束时，要把attachment的内容保存下来
+        colorAttachment.storeOp =
+            VK_ATTACHMENT_STORE_OP_STORE;  // pass结束时，要把attachment的内容保存下来
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -153,52 +237,42 @@ void SliceView::CreateContactMaskResources()
         renderPassInfo.pAttachments = &colorAttachment;
         renderPassInfo.subpassCount = 1;
         renderPassInfo.pSubpasses = &subpass;
-        if (vkCreateRenderPass(m_device.device(), &renderPassInfo, nullptr, &m_maskRenderPass) != VK_SUCCESS) {
+        if (vkCreateRenderPass(m_device.device(),
+                               &renderPassInfo,
+                               nullptr,
+                               &m_maskRenderPass) != VK_SUCCESS) {
             throw std::runtime_error("failed to create mask render pass!");
         }
     }
 
     /*棒料资源*/
-    CreateSingleMaskResource(m_blankMaskImage, m_blankMaskMemory, m_blankMaskView, m_blankMaskFramebuffer);
+    CreateSingleMaskResource(m_blankMaskImage,
+                             m_blankMaskMemory,
+                             m_blankMaskView,
+                             m_blankMaskFramebuffer);
     /*砂轮资源*/
-    CreateSingleMaskResource(m_grndWheelMaskImage, m_grndWheelMaskMemory, m_grndWheelMaskView, m_grndWheelMaskFramebuffer);
+    CreateSingleMaskResource(m_grndWheelMaskImage,
+                             m_grndWheelMaskMemory,
+                             m_grndWheelMaskView,
+                             m_grndWheelMaskFramebuffer);
     /*交集资源*/
-    CreateSingleMaskResource(m_contactMaskImage, m_contactMaskMemory, m_contactMaskView, m_contactMaskFramebuffer);
-}
-
-/*在GPU创建一块将contactMask图像拷贝到CPU的缓冲区*/
-void SliceView::CreateReadbackBuffer()
-{
-    VkDeviceSize size = m_viewConfig.nX * m_viewConfig.nZ * sizeof(uint32_t);
-
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    vkCreateBuffer(m_device.device(), &bufferInfo, nullptr, &m_readbackBuffer);
-
-    VkMemoryRequirements memoryRequirements;
-    vkGetBufferMemoryRequirements(m_device.device(), m_readbackBuffer, &memoryRequirements);
-
-    VkMemoryAllocateInfo allocateInfo{};
-    allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocateInfo.allocationSize = memoryRequirements.size;
-    allocateInfo.memoryTypeIndex = m_device.findMemoryType(memoryRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    vkAllocateMemory(m_device.device(), &allocateInfo, nullptr, &m_readbackMemory);
-    vkBindBufferMemory(m_device.device(), m_readbackBuffer, m_readbackMemory, 0);
-
+    CreateSingleMaskResource(m_contactMaskImage,
+                             m_contactMaskMemory,
+                             m_contactMaskView,
+                             m_contactMaskFramebuffer);
 }
 
 void SliceView::BuildContactMask(const SliceFrameData& frameData)
 {
+    if (m_window->WasWindowResized()) {
+        m_window->ResetWindowResizedFlag();
+        m_renderer->RecreateSwapChain();
+    }
+
     UpdateGrindingWheelInstanceBuffer(frameData.wheelModels);
 
     UpdateSliceCamera(frameData.yM);
-    std::cout << "------------------frameData.yM: " << frameData.yM << "\n";
+    //std::cout << "------------------frameData.yM: " << frameData.yM << "\n";
 
     VkCommandBuffer commandBuffer = m_device.beginSingleTimeCommands();
 
@@ -208,11 +282,9 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     renderPassInfo.renderPass = m_maskRenderPass;
     renderPassInfo.framebuffer = m_blankMaskFramebuffer;
 
-    std::cout << "---nX: " << m_viewConfig.nX << " nZ: " << m_viewConfig.nZ << "\n";
-
     /*设置渲染区域*/
-    renderPassInfo.renderArea.offset = { 0, 0 };
-    renderPassInfo.renderArea.extent = { m_viewConfig.nX, m_viewConfig.nZ };
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {m_viewConfig.nX, m_viewConfig.nZ};
 
     VkClearValue clearValue{};
     clearValue.color.uint32[0] = 0u;
@@ -224,7 +296,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     initBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     initBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     initBarrier.image = m_blankMaskImage;
-    initBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    initBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     initBarrier.srcAccessMask = 0;
     initBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
@@ -243,44 +315,36 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 
     /*设置裁剪矩形*/
     VkRect2D scissor{};
-    scissor.offset = { 0, 0 };
-    scissor.extent = { m_viewConfig.nX, m_viewConfig.nZ };
+    scissor.offset = {0, 0};
+    scissor.extent = {m_viewConfig.nX, m_viewConfig.nZ};
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
     if (m_blankModel && m_sliceMaskRenderSystem) {
-        SliceInfo info{
-            commandBuffer,
-            *m_blankModel,
-            frameData.blankModel,
-            m_descriptorSet,
-            frameData.yM,
-            frameData.thickness
-        };
+        SliceInfo info{commandBuffer,
+                       *m_blankModel,
+                       frameData.blankModel,
+                       m_descriptorSet,
+                       frameData.yM,
+                       frameData.thickness};
         m_sliceMaskRenderSystem->RenderBlank(info);
-    }
-    else {
+    } else {
         throw std::runtime_error("m_blankModel or m_sliceMaskRenderSystem is nullptr");
     }
 
     if (m_grndWheelModel && m_sliceMaskRenderSystem && m_grndWheelInstanceCount > 0) {
-        SliceInstancedInfo info{
-            commandBuffer,
-            *m_grndWheelModel,
-            m_grndWheelInstanceBuffer->GetBuffer(),
-            m_grndWheelInstanceCount,
-            m_descriptorSet,
-            frameData.yM,
-            frameData.thickness
-        };
+        SliceInstancedInfo info{commandBuffer,
+                                *m_grndWheelModel,
+                                m_grndWheelInstanceBuffer->GetBuffer(),
+                                m_grndWheelInstanceCount,
+                                m_descriptorSet,
+                                frameData.yM,
+                                frameData.thickness};
         m_sliceMaskRenderSystem->RenderGrindingWheelInstances(info);
-    }
-    else if (!m_grndWheelModel) {
+    } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
-    }
-    else if (!m_sliceMaskRenderSystem) {
+    } else if (!m_sliceMaskRenderSystem) {
         throw std::runtime_error("m_sliceMaskRenderSystem is nullptr");
-    }
-    else if (m_grndWheelInstanceCount == 0) {
+    } else if (m_grndWheelInstanceCount == 0) {
         throw std::runtime_error("m_grndWheelInstanceCount == 0");
     }
 
@@ -291,68 +355,32 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.image = m_blankMaskImage;
-    barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    VkBufferImageCopy region{};
-    region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-    region.imageExtent = { m_viewConfig.nX, m_viewConfig.nZ, 1 };
-    vkCmdCopyImageToBuffer(commandBuffer, m_blankMaskImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer, 1, &region);
-
-    // 恢复 Layout (可选，为了严谨)
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, 
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &barrier);
 
     //使用 m_device 提交
     m_device.endSingleTimeCommands(commandBuffer);
-}
 
-QImage SliceView::GetSerializedImage()
-{
-    void* data;
-    vkMapMemory(m_device.device(), m_readbackMemory, 0, VK_WHOLE_SIZE, 0, &data);
-
-    uint32_t* rawPixels = static_cast<uint32_t*>(data);
-    int w = m_viewConfig.nX;
-    int h = m_viewConfig.nZ;
-    QImage image(w, h, QImage::Format_ARGB32);
-
-    int noneZeroCount = 0;
-
-    for (int i = 0; i < w * h; ++i) {
-        uint32_t val = rawPixels[i];
-        QRgb color = qRgb(30, 30, 30); // 默认背景
-
-        if (val != 0) {
-            noneZeroCount++;
-            if (noneZeroCount < 5) {
-                std::cout << "Found non-zero pixel at index " << i << ": " << val << "\n";
-            }
-        }
-
-        if (val == 1u) color = qRgb(0, 255, 0); // 绿色棒料
-        if (val == 2u) color = qRgb(255, 0, 0); // 红色砂轮
-        if (val == 3u) color = qRgb(0, 0, 255); // 蓝色交集
-
-        // 简单的像素设置，可能有性能优化空间，但用于调试足够
-        int x = i % w;
-        int y = i / w;
-        image.setPixel(x, y, color);
+    /*屏上显示*/
+    if (auto drawCmd = m_renderer->BeginFrame()) {
+        m_renderer->BeginSwapChainRenderPass(drawCmd);
+        m_displaySystem->Render(drawCmd, m_displayDescriptorSet);
+        m_renderer->EndSwapChainRenderPass(drawCmd);
+        m_renderer->EndFrame();
     }
-
-    std::cout << "==== DEBUG: Total Non-Zero Pixels: " << noneZeroCount << " ====\n";
-
-    vkUnmapMemory(m_device.device(), m_readbackMemory);
-    return image;
 }
 
 void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& instances)
@@ -369,7 +397,8 @@ void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& 
     if (m_grndWheelInstanceBuffer == VK_NULL_HANDLE ||
         m_grndWheelInstanceBuffer->GetInstanceCount() < m_grndWheelInstanceCount) {
         /*现有缓冲过小，重建缓冲*/
-        m_grndWheelInstanceBuffer = std::make_unique<LveBuffer>(m_device,
+        m_grndWheelInstanceBuffer = std::make_unique<LveBuffer>(
+            m_device,
             instanceSize,
             m_grndWheelInstanceCount,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -377,7 +406,8 @@ void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& 
     }
 
     /*使用staging buffer提高性能*/
-    lve::LveBuffer stagingBuffer(m_device,
+    lve::LveBuffer stagingBuffer(
+        m_device,
         sizeof(InstanceData),
         m_grndWheelInstanceCount,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -392,7 +422,11 @@ void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& 
     copyRegion.srcOffset = 0;
     copyRegion.dstOffset = 0;
     copyRegion.size = bufferSize;
-    vkCmdCopyBuffer(copyCmd, stagingBuffer.GetBuffer(), m_grndWheelInstanceBuffer->GetBuffer(), 1, &copyRegion);
+    vkCmdCopyBuffer(copyCmd,
+                    stagingBuffer.GetBuffer(),
+                    m_grndWheelInstanceBuffer->GetBuffer(),
+                    1,
+                    &copyRegion);
 
     m_device.endSingleTimeCommands(copyCmd);
 }
@@ -400,30 +434,35 @@ void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& 
 void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
 {
     bool needRecreate = (config.nX != m_viewConfig.nX) || (config.nZ != m_viewConfig.nZ);
-    
+
     m_viewConfig = config;
 
     if (needRecreate) {
         vkDeviceWaitIdle(m_device.device());
 
         /*销毁旧资源*/
-        CleanupMaskResource(m_blankMaskImage, m_blankMaskView, m_blankMaskMemory, m_blankMaskFramebuffer);
-        CleanupMaskResource(m_grndWheelMaskImage, m_grndWheelMaskView, m_grndWheelMaskMemory, m_grndWheelMaskFramebuffer);
-        CleanupMaskResource(m_contactMaskImage, m_contactMaskView, m_contactMaskMemory, m_contactMaskFramebuffer);
-
-        /*销毁读回缓冲*/
-        CleanupReadbackResource();
+        CleanupMaskResource(m_blankMaskImage,
+                            m_blankMaskView,
+                            m_blankMaskMemory,
+                            m_blankMaskFramebuffer);
+        CleanupMaskResource(m_grndWheelMaskImage,
+                            m_grndWheelMaskView,
+                            m_grndWheelMaskMemory,
+                            m_grndWheelMaskFramebuffer);
+        CleanupMaskResource(m_contactMaskImage,
+                            m_contactMaskView,
+                            m_contactMaskMemory,
+                            m_contactMaskFramebuffer);
 
         /*重新创建资源*/
         CreateContactMaskResources();
 
-        /*重新创建读回缓存*/
-        CreateReadbackBuffer();
+        RecreateDisplayDescriptorSet();
     }
 }
 
-void SliceView::CleanupMaskResource(VkImage& image, VkImageView& view, 
-    VkDeviceMemory& memory, VkFramebuffer& framebuffer)
+void SliceView::CleanupMaskResource(VkImage& image, VkImageView& view,
+                                    VkDeviceMemory& memory, VkFramebuffer& framebuffer)
 {
     if (framebuffer != VK_NULL_HANDLE) {
         vkDestroyFramebuffer(m_device.device(), framebuffer, nullptr);
@@ -443,18 +482,6 @@ void SliceView::CleanupMaskResource(VkImage& image, VkImageView& view,
     }
 }
 
-void SliceView::CleanupReadbackResource()
-{
-    if (m_readbackBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device.device(), m_readbackBuffer, nullptr);
-        m_readbackBuffer = VK_NULL_HANDLE;
-    }
-    if (m_readbackMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device.device(), m_readbackMemory, nullptr);
-        m_readbackMemory = VK_NULL_HANDLE;
-    }
-}
-
 void SliceView::UpdateSliceCamera(const float& sliceHeight)
 {
     const auto& p = m_viewConfig;
@@ -462,19 +489,24 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
     float centralX = 0.5f * (p.xMin + p.xMax);
     float centralZ = 0.5f * (p.zMin + p.zMax);
 
-    float cameraHeight = 100.f; //相机在Y轴高度
-    glm::vec3 cameraPos{ centralX, sliceHeight + cameraHeight, centralZ };
+    float cameraHeight = 100.f;  //相机在Y轴高度
+    glm::vec3 cameraPos{centralX, sliceHeight + cameraHeight, centralZ};
     glm::vec3 target{centralX, sliceHeight, centralZ};
     glm::vec3 up{0.f, 0.f, 1.f};
 
     m_camera->SetViewTarget(cameraPos, target, up);
-    m_camera->SetOrthographicProjection(p.xMin, p.xMax, p.zMax, p.zMin, 0.01f, cameraHeight + 100.f);
+    m_camera->SetOrthographicProjection(p.xMin,
+                                        p.xMax,
+                                        p.zMax,
+                                        p.zMin,
+                                        0.01f,
+                                        cameraHeight + 100.f);
 
     GlobalUbo ubo{};
     ubo.projection = m_camera->GetProjection();
     ubo.view = m_camera->GetView();
     ubo.inverseView = m_camera->GetInverseView();
-    ubo.ambientLightColor = glm::vec4{ 0.f };
+    ubo.ambientLightColor = glm::vec4{0.f};
 
     m_cameraUboBuffer->WriteToBuffer(&ubo);
     m_cameraUboBuffer->Flush();
@@ -488,15 +520,27 @@ void SliceView::WaitIdle()
 SliceView::~SliceView()
 {
     WaitIdle();
-    CleanupReadbackResource();
 
     if (m_maskRenderPass != VK_NULL_HANDLE) {
         vkDestroyRenderPass(m_device.device(), m_maskRenderPass, nullptr);
         m_maskRenderPass = VK_NULL_HANDLE;
     }
 
-    CleanupMaskResource(m_blankMaskImage, m_blankMaskView, m_blankMaskMemory, m_blankMaskFramebuffer);
-    CleanupMaskResource(m_grndWheelMaskImage, m_grndWheelMaskView, m_grndWheelMaskMemory, m_grndWheelMaskFramebuffer);
-    CleanupMaskResource(m_contactMaskImage, m_contactMaskView, m_contactMaskMemory, m_contactMaskFramebuffer);
+    CleanupMaskResource(m_blankMaskImage,
+                        m_blankMaskView,
+                        m_blankMaskMemory,
+                        m_blankMaskFramebuffer);
+    CleanupMaskResource(m_grndWheelMaskImage,
+                        m_grndWheelMaskView,
+                        m_grndWheelMaskMemory,
+                        m_grndWheelMaskFramebuffer);
+    CleanupMaskResource(m_contactMaskImage,
+                        m_contactMaskView,
+                        m_contactMaskMemory,
+                        m_contactMaskFramebuffer);
 
+    if (m_surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(m_device.getVkInstance(), m_surface, nullptr);
+        m_surface = VK_NULL_HANDLE;
+    }
 }

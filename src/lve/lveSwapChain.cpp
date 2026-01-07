@@ -12,14 +12,14 @@
 
 namespace lve {
 
-LveSwapChain::LveSwapChain(LveDevice &deviceRef, VkExtent2D extent)
-    : m_device{deviceRef}, m_windowExtent{extent}
+LveSwapChain::LveSwapChain(LveDevice &deviceRef, VkExtent2D extent, VkSurfaceKHR surface)
+    : m_device{deviceRef}, m_windowExtent{extent}, m_surface{surface}
 {
     Init();
 }
 
 LveSwapChain::LveSwapChain(LveDevice& deviceRef, VkExtent2D extent, std::shared_ptr<LveSwapChain> previous)
-    : m_device{ deviceRef }, m_windowExtent{ extent }, m_oldSwapChain{ previous }
+    : m_device{deviceRef}, m_windowExtent{extent}, m_oldSwapChain{previous}, m_surface{previous->m_surface}
 {
     Init();
 
@@ -160,7 +160,7 @@ VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer *buffers, uint
 
 void LveSwapChain::CreateSwapChain() 
 {
-    SwapChainSupportDetails swapChainSupport = m_device.getSwapChainSupport();
+    SwapChainSupportDetails swapChainSupport = m_device.getSwapChainSupport(m_surface);
 
     VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.formats);
     VkPresentModeKHR presentMode = ChooseSwapPresentMode(swapChainSupport.presentModes);
@@ -174,7 +174,7 @@ void LveSwapChain::CreateSwapChain()
 
     VkSwapchainCreateInfoKHR createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = m_device.surface();
+    createInfo.surface = m_surface;
 
     createInfo.minImageCount = ImageCount;
     createInfo.imageFormat = surfaceFormat.format;
@@ -205,6 +205,8 @@ void LveSwapChain::CreateSwapChain()
     createInfo.oldSwapchain = m_oldSwapChain == nullptr ? VK_NULL_HANDLE : m_oldSwapChain->m_swapChain;
 
     if (vkCreateSwapchainKHR(m_device.device(), &createInfo, nullptr, &m_swapChain) != VK_SUCCESS) {
+        std::cout << "ImageExtent: " << createInfo.imageExtent.width << " x "
+                  << createInfo.imageExtent.height << std::endl;
         throw std::runtime_error("failed to create swap chain!");
     }
 

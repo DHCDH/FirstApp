@@ -10,8 +10,8 @@
 
 namespace lve {
 
-LveRenderer::LveRenderer(LveWindow& window, LveDevice& device)
-    : m_lveWindow(window), m_lveDevice(device)
+LveRenderer::LveRenderer(LveWindow& window, LveDevice& device, VkSurfaceKHR surface)
+    : m_lveWindow(window), m_lveDevice(device), m_surface(surface)
 {
     RecreateSwapChain();
     CreateCommandBuffers(); // 为每个SwapChain图像创建并录制一份命令缓冲
@@ -37,10 +37,11 @@ void LveRenderer::RecreateSwapChain()
 
     //lveSwapChain.reset();
     if (m_lveSwapChain == nullptr) {
-        m_lveSwapChain = std::make_unique<LveSwapChain>(m_lveDevice, extent);
+        m_lveSwapChain = std::make_unique<LveSwapChain>(m_lveDevice, extent, m_surface);
     }
     else {
         std::shared_ptr<LveSwapChain> oldSwapChain = std::move(m_lveSwapChain);
+        /*新的SwapChain从oldSwapChain直接继承surface*/
         m_lveSwapChain = std::make_unique<LveSwapChain>(m_lveDevice, extent, oldSwapChain);
 
         if (!oldSwapChain->CompareSwapFormats(*m_lveSwapChain.get())) {
