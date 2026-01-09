@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <filesystem>
 
 #include "Global.h"
 #include "LveCamera.h"
@@ -54,6 +55,8 @@ public:
     {
         m_isInstancesShown = shown;
     }
+
+    int ReadToolPath(std::filesystem::path path);
 
     /*实例化*/
     void BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount);
@@ -153,6 +156,9 @@ private:
 private:
     /*开关*/
     bool m_isInstancesShown = false;
+
+    /*刀轨*/
+    std::vector<ToolPath> toolpaths;
 
 private:
     /*objects*/

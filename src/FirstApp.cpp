@@ -4,6 +4,7 @@
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
+#include <fstream>
 
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
@@ -399,7 +400,8 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
 {
     frameInfo.instanceBatches.clear();
 
-    BuildGrindingWheelTrackInstances(0., 100., 1);
+    /*设置砂轮实例个数*/
+    BuildGrindingWheelTrackInstances(0., 10., 100);
 
     if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
         return;
@@ -439,6 +441,81 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
 
     frameInfo.instanceBatches.push_back(batch);
     m_renderSystem->RenderInstances(frameInfo, m_isInstancesShown);
+}
+
+int FirstApp::ReadToolPath(std::filesystem::path path)
+{
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in) {
+        std::cerr << "Failed to open file: " << path.string() << "\n";
+        return -1;
+    }
+
+    toolpaths.clear();
+
+    ToolPath current;
+    bool inSeg = false;  // 读取到new seg才开始收集
+
+    auto flushSeg = [&]() {
+        if (!current.points.empty() || !current.normals.empty()) {
+            if (current.points.size() != current.normals.size()) {
+                std::cerr << "points/normals size mismatch in a segment"
+                          << "\n";
+                current = ToolPath{};
+                return;
+            }
+            toolpaths.emplace_back(current);
+            current = ToolPath();
+        }
+        return;
+    };
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        if (line.empty()) continue;
+
+        if (line == "new seg") {
+            flushSeg();
+            inSeg = true;
+            continue;
+        }
+
+        if (!inSeg) continue;
+
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream iss(line);
+
+        float x, y, z, nx, ny, nz;
+        if (!(iss >> x >> y >> z >> nx >> ny >> nz)) {
+            std::cerr << "Warning: bad data line (skip): " << line << "\n";
+            continue;  // 或者 return -2;
+        }
+
+        current.points.push_back({x, y, z});
+        current.normals.push_back({nx, ny, nz});
+    }
+
+    flushSeg();
+
+    std::cout << "toolpaths size =  " << toolpaths.size() << "\n";
+
+    for (int i = 0; i < toolpaths.size(); i++) {
+        std::vector<std::array<float, 3>> points = toolpaths[i].points;
+        std::vector<std::array<float, 3>> normals = toolpaths[i].normals;
+
+        std::cout << "toolpath[" << i << "]:"
+                  << "\n";
+        for (int j = 0; j < points.size(); j++) {
+            std::cout << "points[" << j << "] (" << points[j][0] << ", " << points[j][1] << ", " << points[j][2] << ")"
+                      << "\n";
+            std::cout << "normals[" << j << "] (" << normals[j][0] << ", " << normals[j][1] << ", " << normals[j][2] << ")"
+                      << "\n";
+        }
+    }
+
+    return 0;
 }
 
 /*******************************************************interaction****************************************************************************/

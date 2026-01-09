@@ -51,6 +51,8 @@ private:
     void UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& instances);
     void RecreateDisplayDescriptorSet();
 
+    VkFormat FindDepthStencilFormat();
+
 private:
     lve::LveDevice& m_device;
     std::unique_ptr<lve::LveWindow> m_window;
@@ -75,6 +77,11 @@ private:
 
     float m_frameTimeSec = 0.f;
     std::chrono::high_resolution_clock::time_point m_lastTick{};
+
+    /*深度/模板缓冲资源*/
+    VkImage m_depthStencilImage = VK_NULL_HANDLE;
+    VkImageView m_depthStencilView = VK_NULL_HANDLE;
+    VkDeviceMemory m_depthStencilMemory = VK_NULL_HANDLE;
 
 private:
     lve::LveModel* m_blankModel = nullptr;

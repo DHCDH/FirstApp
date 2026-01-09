@@ -3,6 +3,8 @@
 #include <QHBoxLayout>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QPushButton>
+#include <QVBoxLayout>
 
 #include "SliceView.h"
 
@@ -12,11 +14,16 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     this->setWindowTitle("2D Simulation");
     this->resize(720, 480);
 
-    QHBoxLayout* mainLayout = new QHBoxLayout(this);
+    QHBoxLayout* mainLayout = new QHBoxLayout();
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     m_renderWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     mainLayout->addWidget(m_renderWidget);
+
+    QVBoxLayout* controlLayout = new QVBoxLayout();
+    mainLayout->addLayout(controlLayout);
+    QPushButton* btnWireFrame = new QPushButton("Wire Frame");
+    controlLayout->addWidget(btnWireFrame);
 
     /*初始化防抖定时器*/
     m_resizeTimer = new QTimer(this);
@@ -29,9 +36,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_renderWidget->winId();
     void* hwnd = reinterpret_cast<void*>(m_renderWidget->winId());
     void* hinstance = GetModuleHandle(nullptr);
-
-    std::cout << "DEBUG: m_renderWidget size before Init: " << m_renderWidget->width() << "x"
-              << m_renderWidget->height() << "\n";
 
     InitSliceView(device, hwnd, hinstance);
 
@@ -82,7 +86,7 @@ void Simulation2DDialog::BuildContactMask()
 
     /*准备帧数据*/
     SliceFrameData frameData{};
-    frameData.yM = 100.f;
+    frameData.yM = 1.f;
     frameData.thickness = 1.f;
     frameData.blankModel = glm::mat4(1.f);
     frameData.wheelModels.reserve(m_grndWheelInstances.size());

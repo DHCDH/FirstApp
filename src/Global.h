@@ -70,6 +70,11 @@ enum class SliceDisplayMode : uint32_t {
 	INTERSECTION_ONLY = 3
 };
 
+struct ToolPath {
+    std::vector<std::array<float, 3>> points;
+    std::vector<std::array<float, 3>> normals;
+};
+
 inline void PrintMat4(const glm::mat4& M, const std::string& name = "")
 {
 	std::cout << name << ": " << "\n";
