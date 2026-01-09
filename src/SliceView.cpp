@@ -112,9 +112,15 @@ void SliceView::RecreateDisplayDescriptorSet()
     imageInfo.imageView = m_blankMaskView;
     imageInfo.sampler = m_displaySampler;
 
-    lve::LveDescriptorWriter(*m_displaySetLayout, *m_displayPool)
-        .WriteImage(0, &imageInfo)
-        .Build(m_displayDescriptorSet);
+    lve::LveDescriptorWriter writer(*m_displaySetLayout, *m_displayPool);
+    writer.WriteImage(0, &imageInfo);
+
+    /*判断是否存在DescriptorSet*/
+    if (m_displayDescriptorSet != VK_NULL_HANDLE) {
+        writer.Overwrite(m_displayDescriptorSet);
+    } else {
+        writer.Build(m_displayDescriptorSet);
+    }
 }
 
 void SliceView::RunFrame()
@@ -579,19 +585,41 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
 {
     const auto& p = m_viewConfig;
 
+    VkExtent2D extent = m_window->GetExtent();
+
+    float aspectRatio = 1.f;
+    if (extent.height > 0) {
+        aspectRatio =
+            static_cast<float>(extent.width) / static_cast<float>(extent.height);
+    }
+
+    /* 根据宽高比调整水平视野范围
+     * 保持垂直范围不变，根据宽高比推算X轴范围
+     * 这样窗口变化时，物体不会被压扁
+    */
+    float physicalHeight = p.zMax - p.zMin;
+    float physicalWidth = physicalHeight * aspectRatio;
+
     float centralX = 0.5f * (p.xMin + p.xMax);
     float centralZ = 0.5f * (p.zMin + p.zMax);
+
+    /*计算新的X边界*/
+    float adjustedXMin = centralX - physicalWidth * 0.5f;
+    float adjustedXMax = centralX + physicalWidth * 0.5f;
 
     float safeCeiling = 1000.f;  // 假设棒料最长不超过1000
     glm::vec3 cameraPos{centralX, safeCeiling, centralZ};
     glm::vec3 target{centralX, 0.f, centralZ};
     glm::vec3 up{0.f, 0.f, 1.f};
 
-    float farPlaneDist = safeCeiling - sliceHeight;
+    /*添加微小偏移，防止yM为物体底面时因为浮点误差导致底面闪烁*/
+    float epsilon = 0.001f;
+
+    float farPlaneDist = safeCeiling - sliceHeight + epsilon;
     if (farPlaneDist < 0.1f) farPlaneDist = 0.1f;  // 防止yM高于相机高度
     m_camera->SetViewTarget(cameraPos, target, up);
     m_camera
-        ->SetOrthographicProjection(p.xMin, p.xMax, p.zMax, p.zMin, 0.01f, farPlaneDist);
+        ->SetOrthographicProjection(adjustedXMin, adjustedXMax, p.zMax, p.zMin, 0.01f, farPlaneDist);
 
     GlobalUbo ubo{};
     ubo.projection = m_camera->GetProjection();

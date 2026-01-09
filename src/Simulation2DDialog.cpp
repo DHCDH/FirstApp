@@ -14,23 +14,24 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     this->setWindowTitle("2D Simulation");
     this->resize(720, 480);
 
-    QHBoxLayout* mainLayout = new QHBoxLayout();
+    QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     m_renderWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    mainLayout->addWidget(m_renderWidget);
+    mainLayout->addWidget(m_renderWidget, 1);
 
     QVBoxLayout* controlLayout = new QVBoxLayout();
+    controlLayout->setContentsMargins(5, 5, 5, 5);
     mainLayout->addLayout(controlLayout);
-    QPushButton* btnWireFrame = new QPushButton("Wire Frame");
-    controlLayout->addWidget(btnWireFrame);
+    QPushButton* btnDisplayMode = new QPushButton("WireFrame/Shaded");
+    controlLayout->addWidget(btnDisplayMode);
 
     /*初始化防抖定时器*/
     m_resizeTimer = new QTimer(this);
     m_resizeTimer->setSingleShot(true);  // 只触发一次
     m_resizeTimer->setInterval(100);     // 延迟100ms
 
-    m_renderWidget->resize(720, 480);
+    //m_renderWidget->resize(720, 480);
     m_renderWidget->setAttribute(Qt::WA_PaintOnScreen);
     m_renderWidget->setAttribute(Qt::WA_NativeWindow);
     m_renderWidget->winId();
@@ -135,7 +136,8 @@ void Simulation2DDialog::resizeEvent(QResizeEvent* event)
     m_resizeTimer->start();
 
     if (m_sliceView) {
-        m_sliceView->GetWindow()->NotifyResized(this->width(), this->height());
+        m_sliceView->GetWindow()->NotifyResized(m_renderWidget->width(),
+                                                m_renderWidget->height());
     }
 }
 

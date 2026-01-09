@@ -69,7 +69,7 @@ private:
     std::unique_ptr<lve::SliceDisplaySystem> m_displaySystem;
     std::unique_ptr<lve::LveDescriptorPool> m_displayPool;
     std::unique_ptr<lve::LveDescriptorSetLayout> m_displaySetLayout;
-    VkDescriptorSet m_displayDescriptorSet;
+    VkDescriptorSet m_displayDescriptorSet = VK_NULL_HANDLE;
     VkSampler m_displaySampler;
     VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 
