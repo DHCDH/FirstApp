@@ -23,11 +23,17 @@ public:
 
     void RenderBlank(const SliceInfo& sliceMaskInfo);
     void RenderGrindingWheelInstances(const SliceInstancedInfo& info);
+    void RenderPlaneInjection(VkCommandBuffer commandBuffer,
+                              VkDescriptorSet globalDescriptorSet, float yM);
 
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);
     void BindBlankColorPipeline(VkCommandBuffer commandBuffer);
-    void BindGrindingWheelStencilPipeline(VkCommandBuffer commandBuffer);
-    void BindGrindingWheelColorPipeline(VkCommandBuffer commandBuffer);
+    void BindGrindingWheelStencilFrontPipeline(VkCommandBuffer commandBuffer);
+    void BindGrindingWheelStencilBackPipeline(VkCommandBuffer commandBuffer);
+    void BindGrindingWheelWireframePipeline(VkCommandBuffer commandBuffer);
+    void BindBlankDepthPipeline(VkCommandBuffer commandBuffer);
+    
+    void BindPlaneInjectionPipeline(VkCommandBuffer commandBuffer);
 
 private:
     void CreatePipelineLayout(const VkDescriptorSetLayout& setLayout);
@@ -37,8 +43,12 @@ private:
 
     void CreateBlankStencilPipeline(VkRenderPass renderPass);
     void CreateBlankColorPipeline(VkRenderPass renderPass);
-    void CreateWheelStencilPipeline(VkRenderPass renderPass);
-    void CreateWheelColorPipeline(VkRenderPass renderPass);
+    void CreateGrindingWheelStencilFrontPipeline(VkRenderPass renderPass);
+    void CreateGrindingWheelStencilBackPipeline(VkRenderPass renderPass);
+    void CreateGrindingWheelWireframePipeline(VkRenderPass renderPass);
+    void CreateBlankDepthPipeline(VkRenderPass renderPass);
+
+    void CreatePlaneInjectionPipeline(VkRenderPass renderPass);
 
 private:
     LveDevice& m_lveDevice;
@@ -49,8 +59,15 @@ private:
     std::unique_ptr<LvePipeline> m_blankColorPipeline;  
 
     // 砂轮 (Wheel) - 实例管线
-    std::unique_ptr<LvePipeline> m_grndWheelStencilPipeline;
-    std::unique_ptr<LvePipeline> m_grndWheelColorPipeline;  
+    std::unique_ptr<LvePipeline> m_grndWheelStencilFrontPipeline;
+    std::unique_ptr<LvePipeline> m_grndWheelStencilBackPipeline;
+
+    // 砂轮 (Wheel) - 线框管线
+    std::unique_ptr<LvePipeline> m_grndWheelWireframePipeline;
+
+    std::unique_ptr<LvePipeline> m_blankDepthPipeline;
+
+    std::unique_ptr<LvePipeline> m_planeInjectionPipeline;
 };
 
 }  // namespace lve

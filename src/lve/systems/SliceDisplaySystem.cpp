@@ -25,6 +25,11 @@ SliceDisplaySystem::~SliceDisplaySystem()
 
 void SliceDisplaySystem::CreatePipelineLayout(VkDescriptorSetLayout displaySetLayout)
 {
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(SliceDisplayPushConstants);
+
     const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts{displaySetLayout};
 
     /*描述符集*/
@@ -35,6 +40,9 @@ void SliceDisplaySystem::CreatePipelineLayout(VkDescriptorSetLayout displaySetLa
     pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();  // 指向布局数组的指针
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
     /*创建管线布局对象*/
     if (vkCreatePipelineLayout(m_lveDevice.device(),
@@ -71,7 +79,8 @@ void SliceDisplaySystem::CreatePipeline(VkRenderPass renderPass)
 }
 
 void SliceDisplaySystem::Render(VkCommandBuffer commandBuffer,
-    VkDescriptorSet displayDescriptorSet)
+                                VkDescriptorSet displayDescriptorSet, uint32_t width,
+                                uint32_t height, bool isWireframe)
 {
     m_lvePipeline->Bind(commandBuffer);
 
@@ -83,6 +92,21 @@ void SliceDisplaySystem::Render(VkCommandBuffer commandBuffer,
                             &displayDescriptorSet,
                             0,
                             nullptr);
+
+    SliceDisplayPushConstants push{};
+    if (isWireframe)
+        push.showMode = 1;
+    else
+        push.showMode = 0;
+    float w = (width > 0) ? static_cast<float>(width) : 1.0f;
+    float h = (height > 0) ? static_cast<float>(height) : 1.0f;
+    push.texelSize = {1.0f / w, 1.0f / h};
+    vkCmdPushConstants(commandBuffer,
+                       m_pipelineLayout,
+                       VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0,
+                       sizeof(SliceDisplayPushConstants), &push);
+
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 }
 

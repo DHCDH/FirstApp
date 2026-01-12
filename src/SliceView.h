@@ -84,6 +84,8 @@ private:
     VkDeviceMemory m_depthStencilMemory = VK_NULL_HANDLE;
 
 private:
+    bool m_isWireFrame = true;
+
     lve::LveModel* m_blankModel = nullptr;
     lve::LveModel* m_grndWheelModel = nullptr;
     std::unique_ptr<lve::LveBuffer> m_grndWheelInstanceBuffer;
@@ -109,4 +111,7 @@ private:
 
     /*共享通用render pass，只有一个color attachment*/
     VkRenderPass m_maskRenderPass = VK_NULL_HANDLE;
+
+    /*专门用于采样的模板视图*/
+    VkImageView m_stencilSampleView = VK_NULL_HANDLE;
 };

@@ -11,9 +11,8 @@ layout(push_constant) uniform Push {
 } push;
 
 void main() {
-    // float dy = abs(vWorldPos.y - push.yM);
-    // if(dy > push.thickness * 0.5) {
-    //     discard;
-    // }
+    if (vWorldPos.y < push.yM) {
+        discard;
+    }
     outMask = 1u;
 }

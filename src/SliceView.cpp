@@ -103,13 +103,13 @@ void SliceView::InitDisplayResources()
 /*关联PASS1的图像到PASS2的描述符*/
 void SliceView::RecreateDisplayDescriptorSet()
 {
-    if (m_blankMaskView == VK_NULL_HANDLE) {
+    if (m_stencilSampleView == VK_NULL_HANDLE) {
         throw std::runtime_error("Cannot create descriptor set: Mask view is null");
     }
 
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = m_blankMaskView;
+    imageInfo.imageView = m_stencilSampleView;
     imageInfo.sampler = m_displaySampler;
 
     lve::LveDescriptorWriter writer(*m_displaySetLayout, *m_displayPool);
@@ -216,6 +216,14 @@ void SliceView::CreateContactMaskResources()
     std::cout << "Enter function: " << __FUNCTION__ << "\n";
     std::cout << "----nX: " << m_viewConfig.nX << " nZ: " << m_viewConfig.nZ << "\n";
 
+    if (m_depthStencilImage != VK_NULL_HANDLE) {
+        std::cout << "WARNING: m_depthStencilImage is NOT NULL initially! It is: "
+                  << m_depthStencilImage << "\n";
+    } else {
+        std::cout << "WARNING: m_depthStencilImage is NULL initially!"
+                  << "\n";
+    }
+
     /*创建深度/模板缓冲图像*/
     if (m_depthStencilImage == VK_NULL_HANDLE) {
         VkFormat depthFormat = FindDepthStencilFormat();
@@ -231,7 +239,10 @@ void SliceView::CreateContactMaskResources()
         imageInfo.format = depthFormat;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;  // 该image不存储颜色，而是挂载到RenderPass上作为深度测试和模板测试的工作区
+
+        imageInfo.usage =
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT;  // 该image不存储颜色，而是挂载到RenderPass上作为深度测试和模板测试的工作区
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -258,6 +269,16 @@ void SliceView::CreateContactMaskResources()
                               nullptr,
                               &m_depthStencilView) != VK_SUCCESS) {
             throw std::runtime_error("failed to create depth stencil view!");
+        }
+
+        VkImageViewCreateInfo stencilViewInfo = viewInfo;
+        stencilViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+
+        if (vkCreateImageView(m_device.device(),
+                              &stencilViewInfo,
+                              nullptr,
+                              &m_stencilSampleView) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create depth stencil sample view!");
         }
     }
 
@@ -287,7 +308,7 @@ void SliceView::CreateContactMaskResources()
         depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.stencilLoadOp =
             VK_ATTACHMENT_LOAD_OP_CLEAR;  // Stencil Clear (关键：每帧清零)
-        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
@@ -312,7 +333,8 @@ void SliceView::CreateContactMaskResources()
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+        std::array<VkAttachmentDescription, 2> attachments = {colorAttachment,
+                                                              depthAttachment};
 
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -339,7 +361,7 @@ void SliceView::CreateContactMaskResources()
     CreateSingleMaskResource(m_grndWheelMaskImage,
                              m_grndWheelMaskMemory,
                              m_grndWheelMaskView,
-                             m_grndWheelMaskFramebuffer); 
+                             m_grndWheelMaskFramebuffer);
     /*交集资源*/
     CreateSingleMaskResource(m_contactMaskImage,
                              m_contactMaskMemory,
@@ -376,15 +398,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
     renderPassInfo.pClearValues = clearValues.data();
 
-    VkImageMemoryBarrier initBarrier{};
-    initBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    initBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    initBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    initBarrier.image = m_blankMaskImage;
-    initBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    initBarrier.srcAccessMask = 0;
-    initBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
     /*执行渲染*/
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -404,50 +417,41 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     scissor.extent = {m_viewConfig.nX, m_viewConfig.nZ};
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    if (m_blankModel && m_sliceMaskRenderSystem) {
+    // 绘制全屏三角形，强制将深度缓冲写入y=yM平面的深度值
+    if (m_sliceMaskRenderSystem) {
+        m_sliceMaskRenderSystem->BindPlaneInjectionPipeline(commandBuffer);
+        m_sliceMaskRenderSystem->RenderPlaneInjection(commandBuffer,
+                                                      m_descriptorSet,
+                                                      frameData.yM);
+    }
+
+    if (m_blankModel) {
+        m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
         SliceInfo info{commandBuffer,
                        *m_blankModel,
                        frameData.blankModel,
                        m_descriptorSet,
                        frameData.yM,
-                       frameData.thickness};
-
-        /*计数*/
-        m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
+                       0.f};
         m_sliceMaskRenderSystem->RenderBlank(info);
-
-        /*上色*/
-        m_sliceMaskRenderSystem->BindBlankColorPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderBlank(info);
-
-        /*擦除模板*/
-        m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderBlank(info);
-    } else {
-        throw std::runtime_error("m_blankModel or m_sliceMaskRenderSystem is nullptr");
     }
 
-    if (m_grndWheelModel && m_grndWheelInstanceCount > 0 && m_sliceMaskRenderSystem) {
-        SliceInstancedInfo info{commandBuffer,
-                                *m_grndWheelModel,
-                                m_grndWheelInstanceBuffer->GetBuffer(),
-                                m_grndWheelInstanceCount,
-                                m_descriptorSet,
-                                frameData.yM,
-                                frameData.thickness};
-        
-        /*计数*/
-        m_sliceMaskRenderSystem->BindGrindingWheelStencilPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(info);
+    if (m_grndWheelModel && m_grndWheelInstanceCount > 0) {
+        SliceInstancedInfo instInfo{commandBuffer,
+                                    *m_grndWheelModel,
+                                    m_grndWheelInstanceBuffer->GetBuffer(),
+                                    m_grndWheelInstanceCount,
+                                    m_descriptorSet,
+                                    frameData.yM,
+                                    0.};
 
-        /*上色*/
-        m_sliceMaskRenderSystem->BindGrindingWheelColorPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(info);
+        /*绘制砂轮前表面*/
+        m_sliceMaskRenderSystem->BindGrindingWheelStencilFrontPipeline(commandBuffer);
+        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
 
-        /*擦除模板*/
-        m_sliceMaskRenderSystem->BindGrindingWheelStencilPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(info);
-
+        /*绘制砂轮后表面*/
+        m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
+        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
     } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
     } else if (!m_sliceMaskRenderSystem) {
@@ -456,28 +460,30 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         throw std::runtime_error("m_grndWheelInstanceCount == 0");
     }
 
+
     /*结束RenderPass*/
     vkCmdEndRenderPass(commandBuffer);
 
-    /*拷贝图像*/
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.image = m_blankMaskImage;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &barrier);
+    VkImageMemoryBarrier stencilBarrier{};
+    stencilBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    stencilBarrier.image = m_depthStencilImage;
+    stencilBarrier.subresourceRange =
+        {VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1};
+    stencilBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    stencilBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    stencilBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    stencilBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,    
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,
+        &stencilBarrier);
 
     //使用 m_device 提交
     m_device.endSingleTimeCommands(commandBuffer);
@@ -485,7 +491,11 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     /*屏上显示*/
     if (auto drawCmd = m_renderer->BeginFrame()) {
         m_renderer->BeginSwapChainRenderPass(drawCmd);
-        m_displaySystem->Render(drawCmd, m_displayDescriptorSet);
+        m_displaySystem->Render(drawCmd,
+                                m_displayDescriptorSet,
+                                m_viewConfig.nX,
+                                m_viewConfig.nZ,
+                                m_isWireFrame);
         m_renderer->EndSwapChainRenderPass(drawCmd);
         m_renderer->EndFrame();
     }
@@ -567,6 +577,10 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
             vkDestroyImageView(m_device.device(), m_depthStencilView, nullptr);
             m_depthStencilView = VK_NULL_HANDLE;
         }
+        if (m_stencilSampleView != VK_NULL_HANDLE) {
+            vkDestroyImageView(m_device.device(), m_stencilSampleView, nullptr);
+            m_stencilSampleView = VK_NULL_HANDLE;
+        }
         if (m_depthStencilImage != VK_NULL_HANDLE) {
             vkDestroyImage(m_device.device(), m_depthStencilImage, nullptr);
             m_depthStencilImage = VK_NULL_HANDLE;
@@ -596,7 +610,7 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
     /* 根据宽高比调整水平视野范围
      * 保持垂直范围不变，根据宽高比推算X轴范围
      * 这样窗口变化时，物体不会被压扁
-    */
+     */
     float physicalHeight = p.zMax - p.zMin;
     float physicalWidth = physicalHeight * aspectRatio;
 
@@ -615,11 +629,14 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
     /*添加微小偏移，防止yM为物体底面时因为浮点误差导致底面闪烁*/
     float epsilon = 0.001f;
 
-    float farPlaneDist = safeCeiling - sliceHeight + epsilon;
-    if (farPlaneDist < 0.1f) farPlaneDist = 0.1f;  // 防止yM高于相机高度
+    float farPlaneDist = 2000.f;
     m_camera->SetViewTarget(cameraPos, target, up);
-    m_camera
-        ->SetOrthographicProjection(adjustedXMin, adjustedXMax, p.zMax, p.zMin, 0.01f, farPlaneDist);
+    m_camera->SetOrthographicProjection(adjustedXMin,
+                                        adjustedXMax,
+                                        p.zMax,
+                                        p.zMin,
+                                        0.01f,
+                                        farPlaneDist);
 
     GlobalUbo ubo{};
     ubo.projection = m_camera->GetProjection();
@@ -690,6 +707,9 @@ SliceView::~SliceView()
 
     if (m_depthStencilView != VK_NULL_HANDLE) {
         vkDestroyImageView(m_device.device(), m_depthStencilView, nullptr);
+    }
+    if (m_stencilSampleView != VK_NULL_HANDLE) {
+        vkDestroyImageView(m_device.device(), m_stencilSampleView, nullptr);
     }
     if (m_depthStencilImage != VK_NULL_HANDLE) {
         vkDestroyImage(m_device.device(), m_depthStencilImage, nullptr);
