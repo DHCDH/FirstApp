@@ -12,8 +12,10 @@ lve::LveObject GrindingWheel::CreateObject()
 	p_model = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
 	auto grindingWheel = lve::LveObject::CreateObject();
 	grindingWheel.model = p_model;
-	// grindingWheel.transform.translation = { -45.9003f, 13.0961f , 16.0312f };
-	// grindingWheel.transform.rotation = {-0.949079, 0.014354, 0.027942 };
+
+	//grindingWheel.transform.translation = { -45.9003f, 13.0961f , 16.0312f };
+	//grindingWheel.transform.rotation = {-0.949079, 0.014354, 0.027942 };
+
 	grindingWheel.transform.translation = { 0.f, 0.f, 0.f };
 	grindingWheel.transform.rotation = {0.f, 0.f, 0.f};
 

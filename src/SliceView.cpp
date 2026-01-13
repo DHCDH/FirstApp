@@ -87,10 +87,13 @@ void SliceView::InitDisplayResources()
 
     m_displayPool = LveDescriptorPool::Builder(m_device)
                         .SetMaxSets(10)
-                        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10)
+                        .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 20)
                         .Build();
     m_displaySetLayout = LveDescriptorSetLayout::Builder(m_device)
                              .AddBinding(0,
+                                         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                         VK_SHADER_STAGE_FRAGMENT_BIT)
+                             .AddBinding(1,
                                          VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                          VK_SHADER_STAGE_FRAGMENT_BIT)
                              .Build();
@@ -112,8 +115,15 @@ void SliceView::RecreateDisplayDescriptorSet()
     imageInfo.imageView = m_stencilSampleView;
     imageInfo.sampler = m_displaySampler;
 
+    // 处理边缘纹理信息
+    VkDescriptorImageInfo imageInfoEdge{};
+    imageInfoEdge.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfoEdge.imageView = m_blankMaskView;  // ?
+    imageInfoEdge.sampler = m_displaySampler;
+
     lve::LveDescriptorWriter writer(*m_displaySetLayout, *m_displayPool);
     writer.WriteImage(0, &imageInfo);
+    writer.WriteImage(1, &imageInfoEdge);
 
     /*判断是否存在DescriptorSet*/
     if (m_displayDescriptorSet != VK_NULL_HANDLE) {
@@ -452,6 +462,11 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         /*绘制砂轮后表面*/
         m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
         m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
+
+        if (m_isWireFrame && m_grndWheelModel) {
+            m_sliceMaskRenderSystem->BindGrindingWheelEdgePipeline(commandBuffer);
+            m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
+        }
     } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
     } else if (!m_sliceMaskRenderSystem) {
@@ -464,6 +479,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     /*结束RenderPass*/
     vkCmdEndRenderPass(commandBuffer);
 
+    std::vector<VkImageMemoryBarrier> barriers;
+
     VkImageMemoryBarrier stencilBarrier{};
     stencilBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     stencilBarrier.image = m_depthStencilImage;
@@ -473,8 +490,25 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     stencilBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     stencilBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     stencilBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barriers.push_back(stencilBarrier);
+
+    if (m_blankMaskImage != VK_NULL_HANDLE) {
+        VkImageMemoryBarrier colorBarrier{};
+        colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        colorBarrier.image = m_blankMaskImage;  // 这是 Attachment 0
+        colorBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        // RenderPass 结束时，由于 finalLayout 设置，它已经是 COLOR_ATTACHMENT_OPTIMAL
+        colorBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        // Display Shader 需要 SHADER_READ_ONLY_OPTIMAL
+        colorBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        colorBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        colorBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers.push_back(colorBarrier);
+    }
+
     vkCmdPipelineBarrier(
         commandBuffer,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
         VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,    
         0,
@@ -482,8 +516,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         nullptr,
         0,
         nullptr,
-        1,
-        &stencilBarrier);
+        static_cast<uint32_t>(barriers.size()),
+        barriers.data());
 
     //使用 m_device 提交
     m_device.endSingleTimeCommands(commandBuffer);

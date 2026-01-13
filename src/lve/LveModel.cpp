@@ -225,6 +225,7 @@ void LveModel::Builder::LoadModel(const std::string& filepath)
 		sm.materialId = materialId;
 		submeshes.push_back(sm);
 	}
+
 }
 
 void LveModel::DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const {

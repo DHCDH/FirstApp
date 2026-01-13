@@ -34,6 +34,7 @@ public:
     void BindBlankDepthPipeline(VkCommandBuffer commandBuffer);
     
     void BindPlaneInjectionPipeline(VkCommandBuffer commandBuffer);
+    void BindGrindingWheelEdgePipeline(VkCommandBuffer commandBuffer);
 
 private:
     void CreatePipelineLayout(const VkDescriptorSetLayout& setLayout);
@@ -49,6 +50,7 @@ private:
     void CreateBlankDepthPipeline(VkRenderPass renderPass);
 
     void CreatePlaneInjectionPipeline(VkRenderPass renderPass);
+    void CreateGrindingWheelEdgePipeline(VkRenderPass renderPass);
 
 private:
     LveDevice& m_lveDevice;
@@ -68,6 +70,8 @@ private:
     std::unique_ptr<LvePipeline> m_blankDepthPipeline;
 
     std::unique_ptr<LvePipeline> m_planeInjectionPipeline;
+
+    std::unique_ptr<LvePipeline> m_grndWheelEdgePipeline;
 };
 
 }  // namespace lve

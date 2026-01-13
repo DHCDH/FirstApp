@@ -75,6 +75,7 @@ void SliceMaskRenderSystem::CreatePipelines(VkRenderPass renderPass)
     CreateGrindingWheelWireframePipeline(renderPass);
 
     CreatePlaneInjectionPipeline(renderPass);
+    CreateGrindingWheelEdgePipeline(renderPass);
 }
 
 void SliceMaskRenderSystem::CreateBlankStencilPipeline(VkRenderPass renderPass)
@@ -417,6 +418,54 @@ void SliceMaskRenderSystem::CreatePlaneInjectionPipeline(VkRenderPass renderPass
         config);
 }
 
+void SliceMaskRenderSystem::CreateGrindingWheelEdgePipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_pipelineLayout;
+
+    auto bindingDescs = LveModel::Vertex::GetBindingDescriptions();
+    auto attributeDescs = LveModel::Vertex::GetAttributeDescriptions();
+    std::vector<VkVertexInputAttributeDescription> posAttr;
+    posAttr.push_back(attributeDescs[0]);
+    attributeDescs = posAttr;
+
+    VkVertexInputBindingDescription instanceBinding{};
+    instanceBinding.binding = 1;
+    instanceBinding.stride = sizeof(glm::mat4);
+    instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    bindingDescs.push_back(instanceBinding);
+
+    for (uint32_t i = 0; i < 4; i++) {
+        VkVertexInputAttributeDescription attribute{};
+        attribute.binding = 1;
+        attribute.location = i + 4;
+        attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attribute.offset = sizeof(glm::vec4) * i;
+        attributeDescs.push_back(attribute);
+    }
+    config.bindingDescriptions = bindingDescs;
+    config.attributeDescriptions = attributeDescs;
+
+    // 光栅化：关闭剔除，需要看到所有面的截线
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+
+    // 颜色写入：开启，写入到Attachment0
+    config.colorBlendAttachment.blendEnable = VK_FALSE;
+    config.colorBlendAttachment.colorWriteMask = 0xF;
+
+    config.depthStencilInfo.depthTestEnable = VK_TRUE;
+    config.depthStencilInfo.depthWriteEnable = VK_TRUE;
+    config.depthStencilInfo.stencilTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    m_grndWheelEdgePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_slice_instanced.vert.spv",
+        "../../../res/shaders/spv/shader_slice_edge.frag.spv",
+        config);
+}
+
 void SliceMaskRenderSystem::BindBlankDepthPipeline(VkCommandBuffer commandBuffer)
 {
     m_blankDepthPipeline->Bind(commandBuffer);
@@ -450,6 +499,11 @@ void SliceMaskRenderSystem::BindPlaneInjectionPipeline(
     VkCommandBuffer commandBuffer)
 {
     m_planeInjectionPipeline->Bind(commandBuffer);
+}
+
+void SliceMaskRenderSystem::BindGrindingWheelEdgePipeline(VkCommandBuffer commandBuffer)
+{
+    m_grndWheelEdgePipeline->Bind(commandBuffer);
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
