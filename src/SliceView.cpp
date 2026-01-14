@@ -664,16 +664,16 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
     float physicalWidth = physicalHeight * aspectRatio;
 
     float centralX = 0.5f * (p.xMin + p.xMax);
-    float centralZ = 0.5f * (p.zMin + p.zMax);
+    float centralY = 0.5f * (p.zMin + p.zMax);
 
     /*计算新的X边界*/
     float adjustedXMin = centralX - physicalWidth * 0.5f;
     float adjustedXMax = centralX + physicalWidth * 0.5f;
 
     float safeCeiling = 1000.f;  // 假设棒料最长不超过1000
-    glm::vec3 cameraPos{centralX, safeCeiling, centralZ};
-    glm::vec3 target{centralX, 0.f, centralZ};
-    glm::vec3 up{0.f, 0.f, 1.f};
+    glm::vec3 cameraPos{centralX, centralY, safeCeiling};
+    glm::vec3 target{centralX, centralY, 0.f};
+    glm::vec3 up{0.f, 1.f, 0.f};
 
     /*添加微小偏移，防止yM为物体底面时因为浮点误差导致底面闪烁*/
     float epsilon = 0.001f;
