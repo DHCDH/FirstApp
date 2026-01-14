@@ -158,7 +158,7 @@ private:
     bool m_isInstancesShown = false;
 
     /*刀轨*/
-    std::vector<ToolPath> toolpaths;
+    std::vector<ToolPath> m_toolpaths;
 
 private:
     /*objects*/

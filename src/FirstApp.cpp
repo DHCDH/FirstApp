@@ -1,10 +1,10 @@
 ﻿#include "FirstApp.h"
 
 #include <array>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
-#include <fstream>
 
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
@@ -36,7 +36,8 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
     m_lveWindow =
         std::make_unique<LveWindow>(nativeWindowHandle, nativeInstanceHandle, w, h, name);
     m_lveDevice = std::make_unique<LveDevice>(*m_lveWindow);
-    m_lveRenderer = std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice, m_lveDevice->surface());
+    m_lveRenderer =
+        std::make_unique<LveRenderer>(*m_lveWindow, *m_lveDevice, m_lveDevice->surface());
     m_lveCamera = std::make_unique<LveCamera>();
     m_texture = std::make_unique<LveTexture>(*m_lveDevice,
                                              "D:/Data/Study/vulkan/FirstApp/res/textures/"
@@ -351,20 +352,14 @@ void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex,
 
 void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount)
 {
-    m_grndWheelInstances.clear();
-    m_grndWheelInstances.reserve(sampleCount);
-
-    for (int i = 0; i < sampleCount; i++) {
-        double alpha = (sampleCount == 1) ? 0. : double(i) / double(sampleCount - 1);
-        double ti = t1 + (t2 - t1) * alpha;
-        lve::TransformComponent transform = m_grindingWheel->EvaluateAtTime(ti);
-
-        InstanceData instanceData{};
-        instanceData.modelMatrix = transform.mat4();
-        // instanceData.modelMatrix = glm::mat4(1.0);
-
-        m_grndWheelInstances.push_back(instanceData);
+    if (m_toolpaths.empty()) {
+        //std::cerr << "toolpath is empty!"
+        //          << "\n";
+        return;
     }
+
+    m_grndWheelInstances.clear();
+    m_grindingWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, m_toolpaths);
 
     /*将实例数组上传GPU*/
     VkDeviceSize bufferSize = sizeof(InstanceData) * m_grndWheelInstances.size();
@@ -451,7 +446,7 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
         return -1;
     }
 
-    toolpaths.clear();
+    m_toolpaths.clear();
 
     ToolPath current;
     bool inSeg = false;  // 读取到new seg才开始收集
@@ -464,7 +459,8 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
                 current = ToolPath{};
                 return;
             }
-            toolpaths.emplace_back(current);
+            current.size = current.points.size();
+            m_toolpaths.emplace_back(current);
             current = ToolPath();
         }
         return;
@@ -499,18 +495,18 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
 
     flushSeg();
 
-    std::cout << "toolpaths size =  " << toolpaths.size() << "\n";
-
-    for (int i = 0; i < toolpaths.size(); i++) {
-        std::vector<std::array<float, 3>> points = toolpaths[i].points;
-        std::vector<std::array<float, 3>> normals = toolpaths[i].normals;
+    for (int i = 0; i < m_toolpaths.size(); i++) {
+        std::vector<glm::vec3> points = m_toolpaths[i].points;
+        std::vector<glm::vec3> normals = m_toolpaths[i].normals;
 
         std::cout << "toolpath[" << i << "]:"
                   << "\n";
         for (int j = 0; j < points.size(); j++) {
-            std::cout << "points[" << j << "] (" << points[j][0] << ", " << points[j][1] << ", " << points[j][2] << ")"
+            std::cout << "points[" << j << "] (" << points[j][0] << ", " << points[j][1]
+                      << ", " << points[j][2] << ")"
                       << "\n";
-            std::cout << "normals[" << j << "] (" << normals[j][0] << ", " << normals[j][1] << ", " << normals[j][2] << ")"
+            std::cout << "normals[" << j << "] (" << normals[j][0] << ", "
+                      << normals[j][1] << ", " << normals[j][2] << ")"
                       << "\n";
         }
     }

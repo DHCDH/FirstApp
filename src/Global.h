@@ -71,8 +71,9 @@ enum class SliceDisplayMode : uint32_t {
 };
 
 struct ToolPath {
-    std::vector<std::array<float, 3>> points;
-    std::vector<std::array<float, 3>> normals;
+    size_t size{};
+    std::vector<glm::vec3> points;
+    std::vector<glm::vec3> normals;
 };
 
 inline void PrintMat4(const glm::mat4& M, const std::string& name = "")
