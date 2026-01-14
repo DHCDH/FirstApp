@@ -6,12 +6,12 @@ layout(location = 0) out uint outMask;
 
 layout(push_constant) uniform Push {
     mat4 model;
-    float yM;
+    float xM;
     float thickness;
 } push;
 
 void main() {
-    if (vWorldPos.y < push.yM) {
+    if (vWorldPos.x < push.xM) {
         discard;
     }
     outMask = 1u;

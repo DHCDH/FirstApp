@@ -14,29 +14,29 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(push_constant) uniform Push {
     mat4 unused;
-    float yM;
+    float xM;
     float thickness;
 } push;
 
 // 辅助函数：计算两点与平面交点的线性插值
 vec3 intersect(vec3 p1, vec3 p2, float h)
 {
-    float t = (h - p1.y) / (p2.y - p1.y);
+    float t = (h - p1.x) / (p2.x - p1.x);
     // 线性插值
     return mix(p1, p2, t);
 }
 
 void main()
 {
-    float h = push.yM;
+    float h = push.xM;
 
-    float y0 = inWorldPos[0].y;
-    float y1 = inWorldPos[1].y;
-    float y2 = inWorldPos[2].y;
+    float x0 = inWorldPos[0].x;
+    float x1 = inWorldPos[1].x;
+    float x2 = inWorldPos[2].x;
 
-    bool b0 = y0 > h;
-    bool b1 = y1 > h;
-    bool b2 = y2 > h;
+    bool b0 = x0 > h;
+    bool b1 = x1 > h;
+    bool b2 = x2 > h;
 
     // 统计三角形有多少点在切面上方
     int count = int(b0) + int(b1) + int(b2);

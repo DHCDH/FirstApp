@@ -648,40 +648,30 @@ void SliceView::UpdateSliceCamera(const float& sliceHeight)
 {
     const auto& p = m_viewConfig;
 
-    VkExtent2D extent = m_window->GetExtent();
+    float centralHoriz = 0.5f * (p.xMin + p.xMax);  // 对应 World Z 中心
+    float centralVert = 0.5f * (p.zMin + p.zMax);   // 对应 World Y 中心
 
-    float aspectRatio = 1.f;
-    if (extent.height > 0) {
-        aspectRatio =
-            static_cast<float>(extent.width) / static_cast<float>(extent.height);
-    }
-
-    /* 根据宽高比调整水平视野范围
-     * 保持垂直范围不变，根据宽高比推算X轴范围
-     * 这样窗口变化时，物体不会被压扁
-     */
     float physicalHeight = p.zMax - p.zMin;
+    VkExtent2D extent = m_window->GetExtent();
+    float aspectRatio =
+        (extent.height > 0) ? (float)extent.width / (float)extent.height : 1.0f;
     float physicalWidth = physicalHeight * aspectRatio;
 
-    float centralX = 0.5f * (p.xMin + p.xMax);
-    float centralY = 0.5f * (p.zMin + p.zMax);
+    float adjustedHorizMin = centralHoriz - physicalWidth * 0.5f;
+    float adjustedHorizMax = centralHoriz + physicalWidth * 0.5f;
 
-    /*计算新的X边界*/
-    float adjustedXMin = centralX - physicalWidth * 0.5f;
-    float adjustedXMax = centralX + physicalWidth * 0.5f;
-
-    float safeCeiling = 1000.f;  // 假设棒料最长不超过1000
-    glm::vec3 cameraPos{centralX, centralY, safeCeiling};
-    glm::vec3 target{centralX, centralY, 0.f};
+    float safeCeiling = 2000.f;  // 假设棒料最长不超过2000
+    glm::vec3 cameraPos{safeCeiling, centralVert, centralHoriz};
+    glm::vec3 target{0.f, centralVert, centralHoriz};
     glm::vec3 up{0.f, 1.f, 0.f};
 
     /*添加微小偏移，防止yM为物体底面时因为浮点误差导致底面闪烁*/
     float epsilon = 0.001f;
 
-    float farPlaneDist = 2000.f;
+    float farPlaneDist = 4000.f;
     m_camera->SetViewTarget(cameraPos, target, up);
-    m_camera->SetOrthographicProjection(adjustedXMin,
-                                        adjustedXMax,
+    m_camera->SetOrthographicProjection(adjustedHorizMin,
+                                        adjustedHorizMax,
                                         p.zMax,
                                         p.zMin,
                                         0.01f,

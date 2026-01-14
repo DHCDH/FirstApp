@@ -9,7 +9,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(push_constant) uniform Push {
     mat4 model; // 占位，不使用
-    float yM;   // 【核心】我们需要构建的数学平面的高度
+    float xM;   // 【核心】我们需要构建的数学平面的高度
     float pad;
 } push;
 
@@ -22,7 +22,7 @@ void main()
     gl_Position = pos;
 
     // 构造一个位于yM高度的世界坐标点
-    vec4 worldPosOnPlane = vec4(0., push.yM, 0., 1.);
+    vec4 worldPosOnPlane = vec4(push.xM, 0., 0., 1.);
 
     // 计算点在裁剪空间的坐标
     vClipPos = ubo.projection * ubo.view * worldPosOnPlane;
