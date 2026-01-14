@@ -736,6 +736,15 @@ SliceView::~SliceView()
 {
     WaitIdle();
 
+    m_sliceMaskRenderSystem.reset();
+    m_displaySystem.reset();
+    m_renderer.reset();
+
+    if (m_displaySampler != VK_NULL_HANDLE) {
+        vkDestroySampler(m_device.device(), m_displaySampler, nullptr);
+        m_displaySampler = VK_NULL_HANDLE;
+    }
+
     if (m_maskRenderPass != VK_NULL_HANDLE) {
         vkDestroyRenderPass(m_device.device(), m_maskRenderPass, nullptr);
         m_maskRenderPass = VK_NULL_HANDLE;

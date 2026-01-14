@@ -109,9 +109,11 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
+    // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
+    constexpr float renderScale = 2.f;
     /*分辨率 pixels*/
-    config.nX = static_cast<uint32_t>(w);
-    config.nZ = static_cast<uint32_t>(h);
+    config.nX = static_cast<uint32_t>(w * renderScale);
+    config.nZ = static_cast<uint32_t>(h * renderScale);
 
     /*根据比例修正视野范围*/
     if (aspectRatio > 1.f) {
