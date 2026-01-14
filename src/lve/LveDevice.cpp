@@ -159,6 +159,9 @@ void LveDevice::createLogicalDevice()
     deviceFeatures.fillModeNonSolid = VK_TRUE;
     deviceFeatures.wideLines = VK_TRUE;
     deviceFeatures.logicOp = VK_TRUE;
+    // 开启几何着色器
+    deviceFeatures.geometryShader = VK_TRUE;
+
 
     VkDeviceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

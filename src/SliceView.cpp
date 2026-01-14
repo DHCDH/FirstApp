@@ -37,6 +37,9 @@ SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
                                                 m_maskRenderPass,
                                                 m_setLayout->GetDescriptorSetLayout());
 
+    m_sliceMaskRenderSystem->CreateSliceContourPipeline(
+        m_renderer->GetSwapChainRenderPass());
+
     m_lastTick = std::chrono::high_resolution_clock::now();
 }
 
@@ -463,10 +466,10 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
         m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
 
-        if (m_isWireFrame && m_grndWheelModel) {
-            m_sliceMaskRenderSystem->BindGrindingWheelEdgePipeline(commandBuffer);
-            m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
-        }
+        //if (m_isWireFrame && m_grndWheelModel) {
+        //    m_sliceMaskRenderSystem->BindSliceContourPipeline(commandBuffer);
+        //    m_sliceMaskRenderSystem->RenderSliceContour(instInfo);
+        //}
     } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
     } else if (!m_sliceMaskRenderSystem) {
@@ -474,7 +477,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     } else if (m_grndWheelInstanceCount == 0) {
         throw std::runtime_error("m_grndWheelInstanceCount == 0");
     }
-
 
     /*结束RenderPass*/
     vkCmdEndRenderPass(commandBuffer);
@@ -530,6 +532,19 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                 m_viewConfig.nX,
                                 m_viewConfig.nZ,
                                 m_isWireFrame);
+
+        if (m_isWireFrame && m_grndWheelModel && m_grndWheelInstanceCount > 0) {
+            SliceInstancedInfo onscreenInstInfo{drawCmd,
+                                                *m_grndWheelModel,
+                                                m_grndWheelInstanceBuffer->GetBuffer(),
+                                                m_grndWheelInstanceCount,
+                                                m_descriptorSet,
+                                                frameData.yM,
+                                                0.};
+            m_sliceMaskRenderSystem->BindSliceContourPipeline(drawCmd);
+            m_sliceMaskRenderSystem->RenderSliceContour(onscreenInstInfo);
+        }
+
         m_renderer->EndSwapChainRenderPass(drawCmd);
         m_renderer->EndFrame();
     }

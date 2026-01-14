@@ -401,7 +401,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     frameInfo.instanceBatches.clear();
 
     /*设置砂轮实例个数*/
-    BuildGrindingWheelTrackInstances(0., 5., 4);
+    BuildGrindingWheelTrackInstances(0., 30, 1000);
 
     if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
         return;

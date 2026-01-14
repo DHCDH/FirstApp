@@ -25,6 +25,7 @@ public:
     void RenderGrindingWheelInstances(const SliceInstancedInfo& info);
     void RenderPlaneInjection(VkCommandBuffer commandBuffer,
                               VkDescriptorSet globalDescriptorSet, float yM);
+    void RenderSliceContour(const SliceInstancedInfo& info);
 
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);
     void BindBlankColorPipeline(VkCommandBuffer commandBuffer);
@@ -35,6 +36,8 @@ public:
     
     void BindPlaneInjectionPipeline(VkCommandBuffer commandBuffer);
     void BindGrindingWheelEdgePipeline(VkCommandBuffer commandBuffer);
+
+    void BindSliceContourPipeline(VkCommandBuffer commandBuffer);
 
 private:
     void CreatePipelineLayout(const VkDescriptorSetLayout& setLayout);
@@ -51,6 +54,10 @@ private:
 
     void CreatePlaneInjectionPipeline(VkRenderPass renderPass);
     void CreateGrindingWheelEdgePipeline(VkRenderPass renderPass);
+
+public:
+    // 计算砂轮截形外轮廓的几何着色器管线
+    void CreateSliceContourPipeline(VkRenderPass renderPass);
 
 private:
     LveDevice& m_lveDevice;
@@ -72,6 +79,9 @@ private:
     std::unique_ptr<LvePipeline> m_planeInjectionPipeline;
 
     std::unique_ptr<LvePipeline> m_grndWheelEdgePipeline;
+
+    // 计算轮廓几何着色器管线
+    std::unique_ptr<LvePipeline> m_sliceContourPipeline;
 };
 
 }  // namespace lve

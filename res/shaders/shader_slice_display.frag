@@ -5,6 +5,7 @@ layout(location = 0) out vec4 outColor;
 
 // inputMask 现在读取的是 Stencil 值 (uint 类型)
 layout(binding = 0) uniform usampler2D inputMask;
+layout(binding = 1) uniform usampler2D inputEdge;
 
 layout(push_constant) uniform Push {
     int showMode;       // 0: Solid, 1: Wireframe
@@ -49,34 +50,22 @@ void main()
     } else {
         /* ========= 线框模式 (Edge Detection) ========= */
         
-        // 采样右边和上边的像素
-        uint mask_right = texture(inputMask, inUV + vec2(push.texelSize.x, 0.0)).r;
-        uint mask_up    = texture(inputMask, inUV + vec2(0.0, push.texelSize.y)).r;
+        // 获取背景信息
+        uint mask_center = texture(inputMask, inUV).r;
+        bool c_Blank = (mask_center & 1u) != 0u;
 
-        // 解析邻域状态
-        bool r_Blank, r_Wheel, r_Inter;
-        parseMask(mask_right, r_Blank, r_Wheel, r_Inter);
-
-        bool u_Blank, u_Wheel, u_Inter;
-        parseMask(mask_up, u_Blank, u_Wheel, u_Inter);
-
-        // 1. 设置底色 (有棒料的地方显示深绿，其他地方背景色)
-        vec4 baseColor = vec4(0.0); // 透明/黑
-        if (c_Blank) {
-             baseColor = vec4(0.0, 0.3, 0.0, 1.0); // 深绿背景
+        vec4 baseColor = vec4(0.);
+        if(c_Blank) {
+            baseColor = vec4(0., 0.3, 0., 1.);
         }
 
-        // 2. 检测边缘 (只要状态发生跳变，就是边缘)
-        
-        // A. 切割线: "是否是交集"的状态发生改变 (蓝/绿分界线)
-        bool isCutEdge = (c_Inter != r_Inter) || (c_Inter != u_Inter);
+        // 获取前景轮廓
+        uint edgeVal = texture(inputEdge, inUV).r;
+        bool isExplicitEdge = (edgeVal > 0u);
 
-        // B. 轮廓线: "是否是砂轮截面"的状态发生改变 (红/空分界线)
-        bool isWheelEdge = (c_Wheel != r_Wheel) || (c_Wheel != u_Wheel);
-
-        // 合并绘制：只要是任意一种边缘，都画红线
-        if (isCutEdge || isWheelEdge) {
-            outColor = vec4(1.0, 0.0, 0.0, 1.0); 
+        // 合并绘制
+        if (isExplicitEdge) {
+            outColor = vec4(1.0, 0.0, 0.0, 1.0); // 直接画红线
         } else {
             outColor = baseColor;
         }
