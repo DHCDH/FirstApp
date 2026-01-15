@@ -14,14 +14,13 @@ layout(push_constant) uniform Push {
 
 // 辅助函数：解析当前像素的掩码状态
 void parseMask(uint mask, out bool hasBlank, out bool isWheelSection, out bool isIntersection) {
-    // 1. 棒料存在：Bit 0 为 1
-    hasBlank = (mask & 1u) != 0u;
+    // CreateBlankStencilPipeline中使用writeMask = 0x80(bit7)
+    // 此处也应该检测bit7
+    hasBlank = (mask & 0x80u) != 0u;
     
-    // 2. 砂轮截面存在：Bit 1 (前) 和 Bit 2 (后) 同时为 1
-    // 隐式计算核心：只有既在前投影里，又在后投影里，才是实体截面
-    bool hasFront = (mask & 2u) != 0u;
-    bool hasBack  = (mask & 4u) != 0u;
-    isWheelSection = hasFront && hasBack;
+    // 使用Bit 0-6(0x7F)进行计数
+    // 如果净计数值>0，说明平面位于物体内部
+    isWheelSection = (mask & 0x7Fu) > 0u;
 
     // 3. 交集存在：既是棒料又是砂轮截面
     isIntersection = hasBlank && isWheelSection;
@@ -39,24 +38,24 @@ void main()
     if(push.showMode == 0) {
         /* ========= 实心模式 (Solid) ========= */
         if (c_Inter) {
-            outColor = vec4(0., 0., 1., 1.);       // 交集蓝
+            outColor = vec4(1., 1., 0., 1.);       // 交集蓝
         } else if (c_Blank) {
             outColor = vec4(0., 1., 0., 1.);       // 棒料绿
         } else if (c_Wheel) {
             outColor = vec4(1., 0., 0., 1.);       // 砂轮红
         } else {
-            outColor = vec4(0.12, 0.12, 0.12, 1.); // 背景灰
+            outColor = vec4(0., 0., 0., 1.); // 背景黑
         }
     } else {
         /* ========= 线框模式 (Edge Detection) ========= */
         
         // 获取背景信息
         uint mask_center = texture(inputMask, inUV).r;
-        bool c_Blank = (mask_center & 1u) != 0u;
+        bool c_Blank = (mask_center & 0x80u) != 0u;
 
         vec4 baseColor = vec4(0.);
         if(c_Blank) {
-            baseColor = vec4(0., 0.3, 0., 1.);
+            baseColor = vec4(0., 0., 0., 1.); // 背景黑
         }
 
         // 获取前景轮廓

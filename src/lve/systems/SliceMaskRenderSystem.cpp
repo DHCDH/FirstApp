@@ -107,8 +107,8 @@ void SliceMaskRenderSystem::CreateBlankStencilPipeline(VkRenderPass renderPass)
     config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_ALWAYS;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.writeMask = 0x01;
-    config.depthStencilInfo.front.compareMask = 0xFF;
+    config.depthStencilInfo.front.writeMask = 0x80;
+    config.depthStencilInfo.front.compareMask = 0x80;
     config.depthStencilInfo.back.writeMask = 1;
     config.depthStencilInfo.back.compareMask = 1;
 
@@ -202,20 +202,20 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
     config.bindingDescriptions = bindingDescs;
     config.attributeDescriptions = attributeDescs;
 
-    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
     config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
 
     config.depthStencilInfo.depthTestEnable = VK_TRUE;
     config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.writeMask = 0x02;
-    config.depthStencilInfo.front.compareMask = 0xFF;
-    config.depthStencilInfo.front.reference = 0x02;
+    config.depthStencilInfo.front.writeMask = 0x7F;
+    config.depthStencilInfo.front.compareMask = 0x7F;
+    //config.depthStencilInfo.front.reference = 0x02;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
-    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_REPLACE;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
 
@@ -261,20 +261,20 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilBackPipeline(
     config.bindingDescriptions = bindingDescs;
     config.attributeDescriptions = attributeDescs;
 
-    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT;
     config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
 
     config.depthStencilInfo.depthTestEnable = VK_TRUE;
     config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.writeMask = 0x04;
-    config.depthStencilInfo.front.compareMask = 0xFF;
-    config.depthStencilInfo.front.reference = 0x04;
+    config.depthStencilInfo.front.writeMask = 0x7F;
+    config.depthStencilInfo.front.compareMask = 0x7F;
+    //config.depthStencilInfo.front.reference = 0x04;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
-    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_REPLACE;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
 

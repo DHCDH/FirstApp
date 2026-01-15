@@ -84,7 +84,7 @@ private:
     VkDeviceMemory m_depthStencilMemory = VK_NULL_HANDLE;
 
 private:
-    bool m_isWireFrame = false;
+    bool m_isWireFrame = true;
 
     lve::LveModel* m_blankModel = nullptr;
     lve::LveModel* m_grndWheelModel = nullptr;
