@@ -533,7 +533,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                 m_viewConfig.nZ,
                                 m_isWireFrame);
 
-        if (m_isWireFrame && m_grndWheelModel && m_grndWheelInstanceCount > 0) {
+        //if (m_isWireFrame && m_grndWheelModel && m_grndWheelInstanceCount > 0) {
+        if (m_grndWheelModel && m_grndWheelInstanceCount > 0) {
             SliceInstancedInfo onscreenInstInfo{drawCmd,
                                                 *m_grndWheelModel,
                                                 m_grndWheelInstanceBuffer->GetBuffer(),

@@ -12,7 +12,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
 {
     this->setWindowTitle("2D Simulation");
-    this->resize(720, 480);
+    this->resize(1920, 1080);
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);

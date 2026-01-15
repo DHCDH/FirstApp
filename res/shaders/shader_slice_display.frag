@@ -38,35 +38,26 @@ void main()
     if(push.showMode == 0) {
         /* ========= 实心模式 (Solid) ========= */
         if (c_Inter) {
-            outColor = vec4(1., 1., 0., 1.);       // 交集蓝
+            outColor = vec4(1.0, 0.6, 0.0, 1.0);       // 交集
         } else if (c_Blank) {
-            outColor = vec4(0., 1., 0., 1.);       // 棒料绿
+            outColor = vec4(0.10, 0.40, 0.70, 1.0);       // 棒料
         } else if (c_Wheel) {
-            outColor = vec4(1., 0., 0., 1.);       // 砂轮红
+            outColor = vec4(0.90, 0.20, 0.15, 1.0);       // 砂轮
         } else {
-            outColor = vec4(0., 0., 0., 1.); // 背景黑
-        }
-    } else {
-        /* ========= 线框模式 (Edge Detection) ========= */
-        
-        // 获取背景信息
-        uint mask_center = texture(inputMask, inUV).r;
-        bool c_Blank = (mask_center & 0x80u) != 0u;
-
-        vec4 baseColor = vec4(0.);
-        if(c_Blank) {
-            baseColor = vec4(0., 0., 0., 1.); // 背景黑
-        }
-
-        // 获取前景轮廓
-        uint edgeVal = texture(inputEdge, inUV).r;
-        bool isExplicitEdge = (edgeVal > 0u);
-
-        // 合并绘制
-        if (isExplicitEdge) {
-            outColor = vec4(1.0, 0.0, 0.0, 1.0); // 直接画红线
-        } else {
-            outColor = baseColor;
+            outColor = vec4(0.05, 0.05, 0.08, 1.0); // 背景
         }
     }
+    // } else {
+    //     /* ========= 线框模式 (Edge Detection) ========= */
+        
+    //     // 获取背景信息
+    //     uint mask_center = texture(inputMask, inUV).r;
+    //     bool c_Blank = (mask_center & 0x80u) != 0u;
+
+    //     vec4 baseColor = vec4(0.);
+    //     if(c_Blank) {
+    //         baseColor = vec4(0.25, 0.35, 0.45, 1.); // 绿色棒料
+    //     }
+    //     outColor = baseColor;
+    // }
 }
