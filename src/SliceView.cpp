@@ -391,7 +391,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 
     UpdateGrindingWheelInstanceBuffer(frameData.wheelModels);
 
-    UpdateSliceCamera(frameData.yM);
+    UpdateSliceCamera(frameData.xM);
 
     VkCommandBuffer commandBuffer = m_device.beginSingleTimeCommands();
 
@@ -435,7 +435,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         m_sliceMaskRenderSystem->BindPlaneInjectionPipeline(commandBuffer);
         m_sliceMaskRenderSystem->RenderPlaneInjection(commandBuffer,
                                                       m_descriptorSet,
-                                                      frameData.yM);
+                                                      frameData.xM);
     }
 
     if (m_blankModel) {
@@ -444,7 +444,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                        *m_blankModel,
                        frameData.blankModel,
                        m_descriptorSet,
-                       frameData.yM,
+                       frameData.xM,
                        0.f};
         m_sliceMaskRenderSystem->RenderBlank(info);
     }
@@ -455,7 +455,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                     m_grndWheelInstanceBuffer->GetBuffer(),
                                     m_grndWheelInstanceCount,
                                     m_descriptorSet,
-                                    frameData.yM,
+                                    frameData.xM,
                                     0.};
 
         /*绘制砂轮前表面*/
@@ -539,7 +539,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                                 m_grndWheelInstanceBuffer->GetBuffer(),
                                                 m_grndWheelInstanceCount,
                                                 m_descriptorSet,
-                                                frameData.yM,
+                                                frameData.xM,
                                                 0.};
             m_sliceMaskRenderSystem->BindSliceContourPipeline(drawCmd);
             m_sliceMaskRenderSystem->RenderSliceContour(onscreenInstInfo);

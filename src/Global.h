@@ -23,7 +23,7 @@ struct SliceInfo {
 	lve::LveModel& model;
 	const glm::mat4& modelMatrix;
 	VkDescriptorSet globalDescriptorSet;
-	float yM;
+	float xM;
 	float thickness;
 };
 
@@ -33,12 +33,12 @@ struct SliceInstancedInfo {
 	VkBuffer instanceBuffer;
 	uint32_t instanceCount;
 	VkDescriptorSet globalDescriptorSet;
-	float yM;
+	float xM;
 	float thickness;
 };
 
 struct SliceFrameData {
-	float yM;			// 截平面位置
+	float xM;			// 截平面位置
 	float thickness;	// 厚度，越小越好
 
 	glm::vec2 worldXRange;
@@ -49,7 +49,7 @@ struct SliceFrameData {
 };
 
 struct SliceViewConfig {
-	float yM;			// 截平面位置
+	float xM;			// 截平面位置
 	float thickness;	// 厚度，越小越好
 	float xMin, xMax;	// 世界坐标X范围
 	float zMin, zMax;	// 世界坐标Z范围

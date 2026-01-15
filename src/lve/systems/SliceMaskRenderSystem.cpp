@@ -13,7 +13,7 @@ namespace lve
 {
 struct SlicePushConstants {
     glm::mat4 modelMatrix;
-    float yM;
+    float xM;
     float thickness;
 };
 
@@ -590,7 +590,7 @@ void SliceMaskRenderSystem::RenderBlank(const SliceInfo& sliceMaskInfo)
 
     SlicePushConstants push{};
     push.modelMatrix = sliceMaskInfo.modelMatrix;
-    push.yM = sliceMaskInfo.yM;
+    push.xM = sliceMaskInfo.xM;
     push.thickness = sliceMaskInfo.thickness;
 
     vkCmdPushConstants(sliceMaskInfo.commandBuffer,
@@ -624,7 +624,7 @@ void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInf
 
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);  // 占位
-    push.yM = info.yM;
+    push.xM = info.xM;
     push.thickness = info.thickness;
     vkCmdPushConstants(info.commandBuffer,
                        m_pipelineLayout,
@@ -648,7 +648,7 @@ void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInf
 
 void SliceMaskRenderSystem::RenderPlaneInjection(VkCommandBuffer commandBuffer,
                                                  VkDescriptorSet globalDescriptorSet,
-                                                 float yM)
+                                                 float xM)
 {
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -661,7 +661,7 @@ void SliceMaskRenderSystem::RenderPlaneInjection(VkCommandBuffer commandBuffer,
 
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);  // 占位
-    push.yM = yM;
+    push.xM = xM;
     push.thickness = 0.f;
     vkCmdPushConstants(commandBuffer,
                        m_pipelineLayout,
@@ -694,7 +694,7 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
     // 推送常量
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);
-    push.yM = info.yM;
+    push.xM = info.xM;
     push.thickness = info.thickness;
     vkCmdPushConstants(info.commandBuffer,
                        m_pipelineLayout,

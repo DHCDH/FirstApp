@@ -87,7 +87,7 @@ void Simulation2DDialog::BuildContactMask()
 
     /*准备帧数据*/
     SliceFrameData frameData{};
-    frameData.yM = 1.f;
+    frameData.xM = 1.f;
     frameData.thickness = 1.f;
     frameData.blankModel = glm::mat4(1.f);
     frameData.wheelModels.reserve(m_grndWheelInstances.size());
