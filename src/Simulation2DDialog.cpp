@@ -82,13 +82,13 @@ void Simulation2DDialog::BuildContactMask()
     m_sliceView->SetGrindingWheelModel(m_grndWheel->GetModel());
 
     if (m_grndWheelInstances.empty()) {
-        throw std::runtime_error("Grinding wheel instances are empty.");
+        emit OpenToolPathSignal();
     }
 
     /*准备帧数据*/
     SliceFrameData frameData{};
-    frameData.xM = 1.f;
-    frameData.thickness = 1.f;
+    frameData.normal = {0.f, 1.f, 0.f};
+    frameData.point = {0.f, 0.f, 0.f};
     frameData.blankModel = glm::mat4(1.f);
     frameData.wheelModels.reserve(m_grndWheelInstances.size());
     for (const auto& instance : m_grndWheelInstances) {

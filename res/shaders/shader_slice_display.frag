@@ -61,3 +61,5 @@ void main()
     //     outColor = baseColor;
     // }
 }
+//机床正解、逆解
+// 将轨迹连成b样条做插值

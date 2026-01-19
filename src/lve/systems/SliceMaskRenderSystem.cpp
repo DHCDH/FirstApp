@@ -13,8 +13,8 @@ namespace lve
 {
 struct SlicePushConstants {
     glm::mat4 modelMatrix;
-    float xM;
-    float thickness;
+    alignas(16) glm::vec3 normal;
+    alignas(16) glm::vec3 point;
 };
 
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
@@ -576,24 +576,24 @@ void SliceMaskRenderSystem::BindSliceContourPipeline(VkCommandBuffer commandBuff
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
-void SliceMaskRenderSystem::RenderBlank(const SliceInfo& sliceMaskInfo)
+void SliceMaskRenderSystem::RenderBlank(const SliceDrawInfo& sliceDrawInfo)
 {
     // 先绑定 set=0（全局 UBO），每帧一次
-    vkCmdBindDescriptorSets(sliceMaskInfo.commandBuffer,
+    vkCmdBindDescriptorSets(sliceDrawInfo.commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_pipelineLayout,
                             0,
                             1,
-                            &sliceMaskInfo.globalDescriptorSet,
+                            &sliceDrawInfo.globalDescriptorSet,
                             0,
                             nullptr);
 
     SlicePushConstants push{};
-    push.modelMatrix = sliceMaskInfo.modelMatrix;
-    push.xM = sliceMaskInfo.xM;
-    push.thickness = sliceMaskInfo.thickness;
+    push.modelMatrix = sliceDrawInfo.modelMatrix;
+    push.normal = sliceDrawInfo.normal;
+    push.point = sliceDrawInfo.point;
 
-    vkCmdPushConstants(sliceMaskInfo.commandBuffer,
+    vkCmdPushConstants(sliceDrawInfo.commandBuffer,
                        m_pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
                            VK_SHADER_STAGE_GEOMETRY_BIT,
@@ -601,8 +601,8 @@ void SliceMaskRenderSystem::RenderBlank(const SliceInfo& sliceMaskInfo)
                        sizeof(SlicePushConstants),
                        &push);
 
-    sliceMaskInfo.model.Bind(sliceMaskInfo.commandBuffer);
-    sliceMaskInfo.model.Draw(sliceMaskInfo.commandBuffer);
+    sliceDrawInfo.model.Bind(sliceDrawInfo.commandBuffer);
+    sliceDrawInfo.model.Draw(sliceDrawInfo.commandBuffer);
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
@@ -624,8 +624,9 @@ void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInf
 
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);  // 占位
-    push.xM = info.xM;
-    push.thickness = info.thickness;
+    push.normal = info.normal;
+    push.point = info.point;
+
     vkCmdPushConstants(info.commandBuffer,
                        m_pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
@@ -646,24 +647,23 @@ void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInf
     info.model.DrawInstanced(info.commandBuffer, info.instanceCount);
 }
 
-void SliceMaskRenderSystem::RenderPlaneInjection(VkCommandBuffer commandBuffer,
-                                                 VkDescriptorSet globalDescriptorSet,
-                                                 float xM)
+void SliceMaskRenderSystem::RenderPlaneInjection(const SlicePlaneInfo& info)
 {
-    vkCmdBindDescriptorSets(commandBuffer,
+    vkCmdBindDescriptorSets(info.commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_pipelineLayout,
                             0,
                             1,
-                            &globalDescriptorSet,
+                            &info.globalDescriptorSet,
                             0,
                             nullptr);
 
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);  // 占位
-    push.xM = xM;
-    push.thickness = 0.f;
-    vkCmdPushConstants(commandBuffer,
+    push.normal = info.normal;
+    push.point = info.point;
+
+    vkCmdPushConstants(info.commandBuffer,
                        m_pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
                            VK_SHADER_STAGE_GEOMETRY_BIT,
@@ -672,7 +672,7 @@ void SliceMaskRenderSystem::RenderPlaneInjection(VkCommandBuffer commandBuffer,
                        &push);
 
     // 绘制全屏三角形
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(info.commandBuffer, 3, 1, 0, 0);
 }
 
 void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
@@ -694,8 +694,8 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
     // 推送常量
     SlicePushConstants push{};
     push.modelMatrix = glm::mat4(1.0);
-    push.xM = info.xM;
-    push.thickness = info.thickness;
+    push.normal = info.normal;
+    push.point = info.point;
     vkCmdPushConstants(info.commandBuffer,
                        m_pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |

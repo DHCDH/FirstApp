@@ -15,9 +15,9 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 } ubo;
 
 layout(push_constant) uniform Push {
-    mat4 unused;    // 占位
-    float yM;
-    float thickness;
+    mat4 unused;
+    layout(offset = 64) vec3 normal;
+    layout(offset = 80) vec3 point;
 } push;
 
 void main() {

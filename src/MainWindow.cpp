@@ -11,6 +11,8 @@
 #include <QVBoxLayout>
 #include <iostream>
 #include <QMessageBox>
+#include <QLineEdit>
+#include <QLabel>
 
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
@@ -62,18 +64,26 @@ void MainWindow::InitUI()
 {
     QVBoxLayout* buttonLayout = new QVBoxLayout(m_buttonWidget);
     QPushButton* btnToolPath = new QPushButton("Tool Path", m_buttonWidget);
+    QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
+    QLabel* labelPoint = new QLabel("Point", m_buttonWidget);
+    m_editPoint = new QLineEdit("0,0,0", m_buttonWidget);
+    QLabel* labelNormal = new QLabel("Normal", m_buttonWidget);
+    m_editNormal = new QLineEdit("1,0,0", m_buttonWidget);
     QPushButton* btnStart = new QPushButton("Start", m_buttonWidget);
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
     QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
-    QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
+    buttonLayout->addWidget(labelPoint);
+    buttonLayout->addWidget(m_editPoint);
+    buttonLayout->addWidget(labelNormal);
+    buttonLayout->addWidget(m_editNormal);
+    buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
     buttonLayout->addWidget(btnInstanced);
-    buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addStretch();  // 让按钮靠上排列
     buttonLayout->addWidget(btnQuit);
 

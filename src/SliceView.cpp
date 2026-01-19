@@ -391,7 +391,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 
     UpdateGrindingWheelInstanceBuffer(frameData.wheelModels);
 
-    UpdateSliceCamera(frameData.xM);
+    UpdateSliceCamera(frameData.normal, frameData.point);
 
     VkCommandBuffer commandBuffer = m_device.beginSingleTimeCommands();
 
@@ -432,20 +432,22 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 
     // 绘制全屏三角形，强制将深度缓冲写入y=yM平面的深度值
     if (m_sliceMaskRenderSystem) {
+        SlicePlaneInfo info{commandBuffer,
+                            m_descriptorSet,
+                            frameData.normal,
+                            frameData.point};
         m_sliceMaskRenderSystem->BindPlaneInjectionPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderPlaneInjection(commandBuffer,
-                                                      m_descriptorSet,
-                                                      frameData.xM);
+        m_sliceMaskRenderSystem->RenderPlaneInjection(info);
     }
 
     if (m_blankModel) {
+        SliceDrawInfo info{commandBuffer,
+                           *m_blankModel,
+                           frameData.blankModel,
+                           m_descriptorSet,
+                           frameData.normal,
+                           frameData.point};
         m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
-        SliceInfo info{commandBuffer,
-                       *m_blankModel,
-                       frameData.blankModel,
-                       m_descriptorSet,
-                       frameData.xM,
-                       0.f};
         m_sliceMaskRenderSystem->RenderBlank(info);
     }
 
@@ -455,8 +457,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                     m_grndWheelInstanceBuffer->GetBuffer(),
                                     m_grndWheelInstanceCount,
                                     m_descriptorSet,
-                                    frameData.xM,
-                                    0.};
+                                    frameData.normal,
+                                    frameData.point};
 
         /*绘制砂轮前表面*/
         m_sliceMaskRenderSystem->BindGrindingWheelStencilFrontPipeline(commandBuffer);
@@ -465,11 +467,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         /*绘制砂轮后表面*/
         m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
         m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
-
-        //if (m_isWireFrame && m_grndWheelModel) {
-        //    m_sliceMaskRenderSystem->BindSliceContourPipeline(commandBuffer);
-        //    m_sliceMaskRenderSystem->RenderSliceContour(instInfo);
-        //}
     } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
     } else if (!m_sliceMaskRenderSystem) {
@@ -533,15 +530,14 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                 m_viewConfig.nZ,
                                 m_isWireFrame);
 
-        //if (m_isWireFrame && m_grndWheelModel && m_grndWheelInstanceCount > 0) {
         if (m_grndWheelModel && m_grndWheelInstanceCount > 0) {
             SliceInstancedInfo onscreenInstInfo{drawCmd,
                                                 *m_grndWheelModel,
                                                 m_grndWheelInstanceBuffer->GetBuffer(),
                                                 m_grndWheelInstanceCount,
                                                 m_descriptorSet,
-                                                frameData.xM,
-                                                0.};
+                                                frameData.normal,
+                                                frameData.point};
             m_sliceMaskRenderSystem->BindSliceContourPipeline(drawCmd);
             m_sliceMaskRenderSystem->RenderSliceContour(onscreenInstInfo);
         }
@@ -645,37 +641,30 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
     }
 }
 
-void SliceView::UpdateSliceCamera(const float& sliceHeight)
+void SliceView::UpdateSliceCamera(const glm::vec3& normal, const glm::vec3& point)
 {
+    glm::vec3 target = point;
+    glm::vec3 w = glm::normalize(normal);
+    float dist = 2000.f;
+    glm::vec3 cameraPos = target + w * dist;
+
+    // 构建标准正交基
+    glm::vec3 hintUp = glm::vec3{0.f, 1.f, 0.f};
+    if (std::abs(glm::dot(w, hintUp)) > 0.99f) {
+        hintUp = glm::vec3(0.f, 0.f, 1.f);
+    }
+    glm::vec3 u = glm::normalize(glm::cross(hintUp, w));
+    glm::vec3 v = glm::cross(w, u);
+
+    m_camera->SetViewTarget(cameraPos, target, v);
+
     const auto& p = m_viewConfig;
-
-    float centralHoriz = 0.5f * (p.xMin + p.xMax);  // 对应 World Z 中心
-    float centralVert = 0.5f * (p.zMin + p.zMax);   // 对应 World Y 中心
-
-    float physicalHeight = p.zMax - p.zMin;
-    VkExtent2D extent = m_window->GetExtent();
-    float aspectRatio =
-        (extent.height > 0) ? (float)extent.width / (float)extent.height : 1.0f;
-    float physicalWidth = physicalHeight * aspectRatio;
-
-    float adjustedHorizMin = centralHoriz - physicalWidth * 0.5f;
-    float adjustedHorizMax = centralHoriz + physicalWidth * 0.5f;
-
-    float safeCeiling = 2000.f;  // 假设棒料最长不超过2000
-    glm::vec3 cameraPos{safeCeiling, centralVert, centralHoriz};
-    glm::vec3 target{0.f, centralVert, centralHoriz};
-    glm::vec3 up{0.f, 1.f, 0.f};
-
-    /*添加微小偏移，防止yM为物体底面时因为浮点误差导致底面闪烁*/
-    float epsilon = 0.001f;
-
     float farPlaneDist = 4000.f;
-    m_camera->SetViewTarget(cameraPos, target, up);
-    m_camera->SetOrthographicProjection(adjustedHorizMin,
-                                        adjustedHorizMax,
+    m_camera->SetOrthographicProjection(p.xMin,
+                                        p.xMax,
                                         p.zMax,
                                         p.zMin,
-                                        0.01f,
+                                        -farPlaneDist,
                                         farPlaneDist);
 
     GlobalUbo ubo{};

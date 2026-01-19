@@ -2,8 +2,10 @@
 
 #include <QtWidgets/QMainWindow>
 #include <QDialog>
+#include <QLineEdit>
 
 #include <memory>
+#include <array>
 
 class VulkanWindow;
 class QTimer;
@@ -30,6 +32,8 @@ private:
     std::unique_ptr<FirstApp> m_vulkanApp = nullptr;
     Simulation2DDialog* m_2DSimDialog = nullptr;
 
+    std::array<double, 3> m_normal{1., 0., 0.};
+
     /*窗口交互转台*/
     QPoint m_lastPos;
     bool m_leftDown = false;
@@ -39,6 +43,10 @@ private:
     /*开关*/
     bool m_instancedShown = false;
     bool m_is2DSimulationActive = false;
+
+    /*控件*/
+    QLineEdit* m_editPoint;
+    QLineEdit* m_editNormal;
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

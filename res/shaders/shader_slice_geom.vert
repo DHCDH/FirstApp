@@ -11,8 +11,8 @@ layout(location = 0) out vec3 vWorldPos;
 
 layout(push_constant) uniform Push {
     mat4 unused;
-    float yM;
-    float thickness;
+    layout(offset = 64) vec3 normal;
+    layout(offset = 80) vec3 point;
 } push;
 
 void main() {

@@ -21,10 +21,9 @@ public:
     SliceMaskRenderSystem(const SliceMaskRenderSystem&) = delete;
     SliceMaskRenderSystem& operator=(const SliceMaskRenderSystem&) = delete;
 
-    void RenderBlank(const SliceInfo& sliceMaskInfo);
+    void RenderBlank(const SliceDrawInfo& sliceMaskInfo);
     void RenderGrindingWheelInstances(const SliceInstancedInfo& info);
-    void RenderPlaneInjection(VkCommandBuffer commandBuffer,
-                              VkDescriptorSet globalDescriptorSet, float yM);
+    void RenderPlaneInjection(const SlicePlaneInfo& info);
     void RenderSliceContour(const SliceInstancedInfo& info);
 
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);

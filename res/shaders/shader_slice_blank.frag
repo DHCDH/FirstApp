@@ -6,12 +6,13 @@ layout(location = 0) out uint outMask;
 
 layout(push_constant) uniform Push {
     mat4 model;
-    float xM;
-    float thickness;
+    layout(offset = 64) vec3 normal;
+    layout(offset = 80) vec3 point;
 } push;
 
 void main() {
-    if (vWorldPos.x < push.xM) {
+    float dis = dot(vWorldPos - push.point, push.normal);
+    if(dis > 0.) {
         discard;
     }
     outMask = 1u;

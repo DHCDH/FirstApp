@@ -37,6 +37,8 @@ private:
 
     double m_viewHalfSize{ 70. };
 
+    glm::vec3 m_normal{ 1., 0., 0. };   // 截平面的法向
+
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
@@ -45,4 +47,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* e) override;
     void wheelEvent(QWheelEvent* event) override;
+
+signals:
+    void OpenToolPathSignal();
 };

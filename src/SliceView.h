@@ -46,9 +46,10 @@ private:
     void CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
                                   VkImageView& view, VkFramebuffer& framebuffer);
     void CreateContactMaskResources();
-    void UpdateSliceCamera(const float& sliceHeight);
+    void UpdateSliceCamera(const glm::vec3& normal, const glm::vec3& point);
     void CleanupMaskResource(VkImage&, VkImageView&, VkDeviceMemory&, VkFramebuffer&);
     void UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& instances);
+
     void RecreateDisplayDescriptorSet();
 
     VkFormat FindDepthStencilFormat();
