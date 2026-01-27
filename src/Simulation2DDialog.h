@@ -39,6 +39,11 @@ private:
 
     glm::vec3 m_normal{ 1., 0., 0. };   // 截平面的法向
 
+    // 视角控制变量
+    glm::vec2 m_viewCenter = {0.0f, 0.0f};  // 当前视角的中心点 (World Space)
+    QPoint m_lastMousePos;                  // 上一次鼠标位置 (Screen Space)
+    bool m_isDragging = false;              // 是否正在拖拽
+
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
@@ -47,6 +52,9 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* e) override;
     void wheelEvent(QWheelEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
 signals:
     void OpenToolPathSignal();

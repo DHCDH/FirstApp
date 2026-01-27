@@ -5,6 +5,7 @@
 #include <QWheelEvent>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QMouseEvent>
 
 #include "SliceView.h"
 
@@ -113,18 +114,22 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
 
+    float xHalf, zHalf;
+
     /*根据比例修正视野范围*/
     if (aspectRatio > 1.f) {
-        config.zMin = -m_viewHalfSize;
-        config.zMax = m_viewHalfSize;
-        config.xMin = -m_viewHalfSize * aspectRatio;
-        config.xMax = m_viewHalfSize * aspectRatio;
+        zHalf = m_viewHalfSize;
+        xHalf = m_viewHalfSize * aspectRatio;
     } else {
-        config.xMin = -m_viewHalfSize;
-        config.xMax = m_viewHalfSize;
-        config.zMin = -m_viewHalfSize / aspectRatio;
-        config.zMax = m_viewHalfSize / aspectRatio;
+        xHalf = m_viewHalfSize;
+        zHalf = m_viewHalfSize / aspectRatio;
     }
+
+    // 【修改点】应用 m_viewCenter 偏移
+    config.xMin = m_viewCenter.x - xHalf;
+    config.xMax = m_viewCenter.x + xHalf;
+    config.zMin = m_viewCenter.y - zHalf;
+    config.zMax = m_viewCenter.y + zHalf;
 
     return config;
 }
@@ -173,8 +178,79 @@ void Simulation2DDialog::wheelEvent(QWheelEvent* event)
     if (m_viewHalfSize > 500.0f) m_viewHalfSize = 500.0f;
 
     if (m_grndWheel && m_blank && !m_grndWheelInstances.empty()) {
-        m_resizeTimer->start();
+        // m_resizeTimer->start();
+        BuildContactMask();
     }
+}
+
+void Simulation2DDialog::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
+        m_isDragging = true;
+        m_lastMousePos = event->pos();
+        setCursor(Qt::ClosedHandCursor);  // 改变光标形状提示用户
+    }
+    QDialog::mousePressEvent(event);
+}
+
+// 实现鼠标移动事件 (核心逻辑)
+void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
+{
+    if (!m_isDragging) {
+        QDialog::mouseMoveEvent(event);
+        return;
+    }
+
+    QPoint delta = event->pos() - m_lastMousePos;
+    m_lastMousePos = event->pos();
+
+    // --- 计算 像素 -> 世界坐标 的缩放比例 ---
+    // 这必须与 UpdateView 中的逻辑一致
+    float aspectRatio = static_cast<float>(width()) / static_cast<float>(height());
+    float pixelToWorldScale = 0.0f;
+
+    // 根据 UpdateView 的逻辑：
+    // 如果宽 > 高 (aspect > 1)，m_viewHalfSize 对应高度的一半 (Z轴)
+    // 如果宽 < 高 (aspect < 1)，m_viewHalfSize 对应宽度的一半 (X轴)
+    if (aspectRatio > 1.0f) {
+        // 高度对应 2 * m_viewHalfSize
+        pixelToWorldScale = (m_viewHalfSize * 2.0f) / static_cast<float>(height());
+    } else {
+        // 宽度对应 2 * m_viewHalfSize
+        pixelToWorldScale = (m_viewHalfSize * 2.0f) / static_cast<float>(width());
+    }
+
+    // --- 更新视图中心 ---
+    // 注意方向：鼠标向右移(x+)，我们要看左边的物体，相当于摄像机向左移(center x-)
+    // 或者理解为：拖动纸张。鼠标向右，视野中心向左。
+    // 通常符合直觉的是：鼠标向右，画面向右平移 -> 摄像机向左移。
+    // 这里的符号取决于你的坐标系定义。
+    // 假设：X轴向右为正，Z轴(或Y)向上为正。
+    // Qt屏幕坐标：X向右，Y向下。
+
+    m_viewCenter.x -= delta.x() * pixelToWorldScale;
+
+    // Qt Y向下，世界 Y(Z) 向上。
+    // 鼠标向下(dy > 0)，希望画面往下移(看上面的物体)，摄像机向上移(center y+)
+    m_viewCenter.y += delta.y() * pixelToWorldScale;
+
+    // 触发更新
+    if (m_grndWheel && m_blank) {
+        // 使用防抖 timer 或者直接调用 BuildContactMask
+        // 为了流畅度，拖拽时建议直接调用，或者使用极短的timer
+        // 这里直接复用 resizeTimer 的逻辑，或者直接调用 BuildContactMask()
+        BuildContactMask();
+    }
+}
+
+// 实现鼠标释放事件
+void Simulation2DDialog::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
+        m_isDragging = false;
+        setCursor(Qt::ArrowCursor);  // 恢复光标
+    }
+    QDialog::mouseReleaseEvent(event);
 }
 
 Simulation2DDialog::~Simulation2DDialog()
