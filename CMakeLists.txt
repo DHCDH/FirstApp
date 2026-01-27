@@ -6,6 +6,10 @@ include(qt.cmake)
 
 add_compile_options(/utf-8)
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -24,9 +28,9 @@ file(GLOB_RECURSE LVE_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE ENTITIES_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/entities/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/entities/*.h")
-file(GLOB_RECURSE ECS_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/*.h")
+file(GLOB_RECURSE ALGORITHM_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -44,6 +48,7 @@ set(PROJECT_SOURCES
     ${LVE_SOURCES}
     ${ENTITIES_SOURCES}
     ${ECS_SOURCES}
+    ${ALGORITHM_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -73,6 +78,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${VENDOR}/tiny_object_loader
     ${VENDOR}/stb_image
     ${VENDOR}/entt
+    ${VENDOR}/tinynurbs
     ${LVE}
 )
 

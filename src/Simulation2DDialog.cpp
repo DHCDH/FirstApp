@@ -65,11 +65,9 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
-    const GrindingWheel& grndWheel, const Blank& blank,
+    const GrindingWheel& grndWheel, const Blank& blank, 
     const std::vector<lve::InstanceData>& grndWheelInstances)
 {
-    std::cout << "-----Update entities data."
-              << "\n";
     m_grndWheel = &grndWheel;
     m_blank = &blank;
     m_grndWheelInstances = grndWheelInstances;
@@ -87,7 +85,7 @@ void Simulation2DDialog::BuildContactMask()
 
     /*准备帧数据*/
     SliceFrameData frameData{};
-    frameData.normal = {0.f, 1.f, 0.f};
+    frameData.normal = {1.f, 0.f, 0.f};
     frameData.point = {0.f, 0.f, 0.f};
     frameData.blankModel = glm::mat4(1.f);
     frameData.wheelModels.reserve(m_grndWheelInstances.size());

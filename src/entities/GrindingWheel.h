@@ -39,7 +39,7 @@ public:
 
 private:
     std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1_D120_W10.obj"};
+        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1_D125_W10.obj"};
     bool m_motionEnabled = false;
     uint32_t m_id{114514};
     HelixMotion m_helixMotion;

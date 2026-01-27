@@ -9,6 +9,7 @@
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
 #include "lve/LveBuffer.h"
+#include "algorithm/DualNURBSCurveInterpolator.h"
 
 using namespace lve;
 
@@ -459,6 +460,7 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
                 current = ToolPath{};
                 return;
             }
+            
             current.size = current.points.size();
             m_toolpaths.emplace_back(current);
             current = ToolPath();
@@ -495,20 +497,14 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
 
     flushSeg();
 
+    // 插值
     for (int i = 0; i < m_toolpaths.size(); i++) {
         std::vector<glm::vec3> points = m_toolpaths[i].points;
         std::vector<glm::vec3> normals = m_toolpaths[i].normals;
 
-        std::cout << "toolpath[" << i << "]:"
-                  << "\n";
-        for (int j = 0; j < points.size(); j++) {
-            std::cout << "points[" << j << "] (" << points[j][0] << ", " << points[j][1]
-                      << ", " << points[j][2] << ")"
-                      << "\n";
-            std::cout << "normals[" << j << "] (" << normals[j][0] << ", "
-                      << normals[j][1] << ", " << normals[j][2] << ")"
-                      << "\n";
-        }
+        m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.5);
+
+        std::cout << "toolpath[" << i << "].size: " << m_toolpaths[i].size << " \n";
     }
 
     return 0;
