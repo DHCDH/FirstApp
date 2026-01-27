@@ -78,7 +78,8 @@ void SliceMaskRenderSystem::CreatePipelines(VkRenderPass renderPass)
     CreatePlaneInjectionPipeline(renderPass);
     CreateGrindingWheelEdgePipeline(renderPass);
 
-    // CreateSliceContourPipeline(renderPass);
+    CreateStencilResolvePipeline(renderPass);
+    CreateStencilClearPipeline(renderPass);
 }
 
 void SliceMaskRenderSystem::CreateBlankStencilPipeline(VkRenderPass renderPass)
@@ -151,15 +152,18 @@ void SliceMaskRenderSystem::CreateBlankColorPipeline(VkRenderPass renderPass)
     config.colorBlendInfo.logicOp = VK_LOGIC_OP_OR;
 
     /*深度 / 模版：只在 Stencil == 1 处绘制*/
-    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthTestEnable = VK_TRUE;
     config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.compareMask = 1;
-    config.depthStencilInfo.back.compareMask = 1;
+    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_ALWAYS;
 
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+    config.depthStencilInfo.front.compareMask = 0x80;
+    config.depthStencilInfo.front.reference = 0X80;
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_EQUAL;
-    config.depthStencilInfo.front.reference = 1;  // 必须是 1 (实心)
+    
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.back = config.depthStencilInfo.front;
 
     m_blankColorPipeline = std::make_unique<LvePipeline>(
@@ -364,9 +368,8 @@ void SliceMaskRenderSystem::CreateBlankDepthPipeline(VkRenderPass renderPass)
     config.colorBlendAttachment.blendEnable = VK_FALSE;
     config.colorBlendAttachment.colorWriteMask = 0;
 
-    // 【关键差异】：开启深度写入，但模版操作全为 KEEP
     config.depthStencilInfo.depthTestEnable = VK_TRUE;
-    config.depthStencilInfo.depthWriteEnable = VK_TRUE;
+    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
     config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS;  // 与 BlankStencil 一致
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
@@ -531,6 +534,83 @@ void SliceMaskRenderSystem::CreateSliceContourPipeline(VkRenderPass renderPass)
         "../../../res/shaders/spv/shader_slice_geom.geom.spv");
 }
 
+void SliceMaskRenderSystem::CreateStencilResolvePipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_pipelineLayout;
+
+    // 无顶点输入 (全屏三角形由 Vertex Shader 生成)
+    config.attributeDescriptions.clear();
+    config.bindingDescriptions.clear();
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+
+    // 模板测试：只检测低 7 位 (0x7F) 是否非零
+    // 逻辑：如果 (Stencil & 0x7F) != 0，则通过测试，执行 Fragment Shader
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+    config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+    config.depthStencilInfo.front.reference = 0;
+    config.depthStencilInfo.front.compareMask = 0x7F;  // 只读取砂轮的计数位
+    config.depthStencilInfo.front.writeMask = 0;       // 只读，不写 Stencil
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.back = config.depthStencilInfo.front;
+
+    // 颜色混合：开启 LogicOp OR
+    // 目的：如果像素已经被标记为 2 (例如之前的批次)，再次写入 2 结果还是 2。
+    // 如果之前是 0，写入 2 变成 2。如果是 1 (毛坯)， 1 | 2 = 3 (交叉区域)。
+    // 假设 Format 是 R32_UINT，LogicOp 是处理整数附件的最佳方式。
+    config.colorBlendAttachment.blendEnable = VK_FALSE;
+    config.colorBlendInfo.logicOpEnable = VK_TRUE;
+    config.colorBlendInfo.logicOp = VK_LOGIC_OP_OR;
+    config.colorBlendAttachment.colorWriteMask = 0xF;
+
+    m_stencilResolvePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_slice_plane.vert.spv",  // 复用现有的全屏 VS
+        "../../../res/shaders/spv/shader_slice_resolve.frag.spv",  // 新建的 FS
+        config);
+}
+
+void SliceMaskRenderSystem::CreateStencilClearPipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_pipelineLayout;
+
+    config.attributeDescriptions.clear();
+    config.bindingDescriptions.clear();
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+
+    // 关闭深度、关闭颜色写入
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+    config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
+
+    // 模板操作：Always Pass，然后 Replace 为 0
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+    config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
+    config.depthStencilInfo.front.reference = 0;  // 目标值 0
+    config.depthStencilInfo.front.compareMask = 0xFF;  // 比较掩码无所谓，因为是 Always
+    config.depthStencilInfo.front.writeMask = 0x7F;  // 关键：只允许修改低 7 位，保留 Bit 7 (毛坯)
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_REPLACE;  // 替换为 reference (0)
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_REPLACE;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_REPLACE;
+    config.depthStencilInfo.back = config.depthStencilInfo.front;
+
+    m_stencilClearPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_slice_plane.vert.spv",  // 复用全屏 VS
+        "../../../res/shaders/spv/shader_slice_empty.frag.spv",  // 新建的空 FS
+        config);
+}
+
 void SliceMaskRenderSystem::BindBlankDepthPipeline(VkCommandBuffer commandBuffer)
 {
     m_blankDepthPipeline->Bind(commandBuffer);
@@ -540,20 +620,24 @@ void SliceMaskRenderSystem::BindBlankStencilPipeline(VkCommandBuffer commandBuff
 {
     m_blankStencilPipeline->Bind(commandBuffer);
 }
+
 void SliceMaskRenderSystem::BindBlankColorPipeline(VkCommandBuffer commandBuffer)
 {
     m_blankColorPipeline->Bind(commandBuffer);
 }
+
 void SliceMaskRenderSystem::BindGrindingWheelStencilFrontPipeline(
     VkCommandBuffer commandBuffer)
 {
     m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
 }
+
 void SliceMaskRenderSystem::BindGrindingWheelStencilBackPipeline(
     VkCommandBuffer commandBuffer)
 {
     m_grndWheelStencilBackPipeline->Bind(commandBuffer);
 }
+
 void SliceMaskRenderSystem::BindGrindingWheelWireframePipeline(
     VkCommandBuffer commandBuffer)
 {
@@ -573,6 +657,16 @@ void SliceMaskRenderSystem::BindGrindingWheelEdgePipeline(VkCommandBuffer comman
 void SliceMaskRenderSystem::BindSliceContourPipeline(VkCommandBuffer commandBuffer)
 {
     m_sliceContourPipeline->Bind(commandBuffer);
+}
+
+void SliceMaskRenderSystem::BindStencilResolvePipeline(VkCommandBuffer commandBuffer)
+{
+    m_stencilResolvePipeline->Bind(commandBuffer);
+}
+
+void SliceMaskRenderSystem::BindStencilClearPipeline(VkCommandBuffer commandBuffer)
+{
+    m_stencilClearPipeline->Bind(commandBuffer);
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
@@ -606,7 +700,7 @@ void SliceMaskRenderSystem::RenderBlank(const SliceDrawInfo& sliceDrawInfo)
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
-void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInfo& info)
+void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInfo& info, uint32_t firstInstance)
 {
     if (info.instanceCount == 0) {
         std::cout << "No grinding wheel instances to render!" << std::endl;
@@ -644,7 +738,7 @@ void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInf
     vkCmdBindVertexBuffers(info.commandBuffer, 1, 1, instanceBuffers, offsets);
 
     /*draw*/
-    info.model.DrawInstanced(info.commandBuffer, info.instanceCount);
+    info.model.DrawInstanced(info.commandBuffer, info.instanceCount, firstInstance);
 }
 
 void SliceMaskRenderSystem::RenderPlaneInjection(const SlicePlaneInfo& info)

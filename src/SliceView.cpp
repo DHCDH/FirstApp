@@ -115,7 +115,7 @@ void SliceView::RecreateDisplayDescriptorSet()
 
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = m_stencilSampleView;
+    imageInfo.imageView = m_blankMaskView;
     imageInfo.sampler = m_displaySampler;
 
     // 处理边缘纹理信息
@@ -447,7 +447,15 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                            m_descriptorSet,
                            frameData.normal,
                            frameData.point};
+        // 先开启深度写入
+        //m_sliceMaskRenderSystem->BindBlankDepthPipeline(commandBuffer);
+        //m_sliceMaskRenderSystem->RenderBlank(info);
+
+        // 写入Stencil
         m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
+        m_sliceMaskRenderSystem->RenderBlank(info);
+
+        m_sliceMaskRenderSystem->BindBlankColorPipeline(commandBuffer);
         m_sliceMaskRenderSystem->RenderBlank(info);
     }
 
@@ -460,13 +468,26 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                     frameData.normal,
                                     frameData.point};
 
-        /*绘制砂轮前表面*/
-        m_sliceMaskRenderSystem->BindGrindingWheelStencilFrontPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
+        const uint32_t BATCH_SIZE = 100;
+        for (uint32_t i = 0; i < m_grndWheelInstanceCount; i += BATCH_SIZE) {
+            // 计算当前批次大小
+            uint32_t curCount = BATCH_SIZE < m_grndWheelInstanceCount - i ? BATCH_SIZE : m_grndWheelInstanceCount - i;
+            instInfo.instanceCount = curCount;
 
-        /*绘制砂轮后表面*/
-        m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
-        m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo);
+            /*绘制砂轮前表面*/
+            m_sliceMaskRenderSystem->BindGrindingWheelStencilFrontPipeline(commandBuffer);
+            m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo, i);
+
+            /*绘制砂轮后表面*/
+            m_sliceMaskRenderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
+            m_sliceMaskRenderSystem->RenderGrindingWheelInstances(instInfo, i);
+
+            m_sliceMaskRenderSystem->BindStencilResolvePipeline(commandBuffer);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+            m_sliceMaskRenderSystem->BindStencilClearPipeline(commandBuffer);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        }
     } else if (!m_grndWheelModel) {
         throw std::runtime_error("m_grndWheelModel is nullptr");
     } else if (!m_sliceMaskRenderSystem) {
@@ -508,7 +529,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     vkCmdPipelineBarrier(
         commandBuffer,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,    
         0,
         0,

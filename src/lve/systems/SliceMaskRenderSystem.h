@@ -22,7 +22,7 @@ public:
     SliceMaskRenderSystem& operator=(const SliceMaskRenderSystem&) = delete;
 
     void RenderBlank(const SliceDrawInfo& sliceMaskInfo);
-    void RenderGrindingWheelInstances(const SliceInstancedInfo& info);
+    void RenderGrindingWheelInstances(const SliceInstancedInfo& info, uint32_t firstInstance = 0);
     void RenderPlaneInjection(const SlicePlaneInfo& info);
     void RenderSliceContour(const SliceInstancedInfo& info);
 
@@ -32,6 +32,8 @@ public:
     void BindGrindingWheelStencilBackPipeline(VkCommandBuffer commandBuffer);
     void BindGrindingWheelWireframePipeline(VkCommandBuffer commandBuffer);
     void BindBlankDepthPipeline(VkCommandBuffer commandBuffer);
+    void BindStencilResolvePipeline(VkCommandBuffer commandBuffer);
+    void BindStencilClearPipeline(VkCommandBuffer commandBuffer);
     
     void BindPlaneInjectionPipeline(VkCommandBuffer commandBuffer);
     void BindGrindingWheelEdgePipeline(VkCommandBuffer commandBuffer);
@@ -54,6 +56,9 @@ private:
     void CreatePlaneInjectionPipeline(VkRenderPass renderPass);
     void CreateGrindingWheelEdgePipeline(VkRenderPass renderPass);
 
+    void CreateStencilResolvePipeline(VkRenderPass renderPass);
+    void CreateStencilClearPipeline(VkRenderPass renderPass);
+
 public:
     // 计算砂轮截形外轮廓的几何着色器管线
     void CreateSliceContourPipeline(VkRenderPass renderPass);
@@ -64,7 +69,8 @@ private:
 
     // 棒料 (Blank) - 普通管线
     std::unique_ptr<LvePipeline> m_blankStencilPipeline;
-    std::unique_ptr<LvePipeline> m_blankColorPipeline;  
+    std::unique_ptr<LvePipeline> m_blankColorPipeline;
+    std::unique_ptr<LvePipeline> m_blankDepthPipeline;
 
     // 砂轮 (Wheel) - 实例管线
     std::unique_ptr<LvePipeline> m_grndWheelStencilFrontPipeline;
@@ -73,14 +79,15 @@ private:
     // 砂轮 (Wheel) - 线框管线
     std::unique_ptr<LvePipeline> m_grndWheelWireframePipeline;
 
-    std::unique_ptr<LvePipeline> m_blankDepthPipeline;
-
     std::unique_ptr<LvePipeline> m_planeInjectionPipeline;
 
     std::unique_ptr<LvePipeline> m_grndWheelEdgePipeline;
 
     // 计算轮廓几何着色器管线
     std::unique_ptr<LvePipeline> m_sliceContourPipeline;
+
+    std::unique_ptr<LvePipeline> m_stencilResolvePipeline;  // 固化Stencil到Color
+    std::unique_ptr<LvePipeline> m_stencilClearPipeline;    // 清空Stencil
 };
 
 }  // namespace lve

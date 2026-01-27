@@ -14,16 +14,12 @@ layout(push_constant) uniform Push {
 
 // 辅助函数：解析当前像素的掩码状态
 void parseMask(uint mask, out bool hasBlank, out bool isWheelSection, out bool isIntersection) {
-    // CreateBlankStencilPipeline中使用writeMask = 0x80(bit7)
-    // 此处也应该检测bit7
-    hasBlank = (mask & 0x80u) != 0u;
-    
-    // 使用Bit 0-6(0x7F)进行计数
-    // 如果净计数值>0，说明平面位于物体内部
-    isWheelSection = (mask & 0x7Fu) > 0u;
-
-    // 3. 交集存在：既是棒料又是砂轮截面
-    isIntersection = hasBlank && isWheelSection;
+    // 棒料 ID = 1 (二进制 01)
+    // 砂轮 ID = 2 (二进制 10)
+    // 交集 ID = 3 (二进制 11)
+    hasBlank = (mask & 1u) != 0u;
+    isWheelSection = (mask &2u) != 0u;
+    isIntersection = (mask == 3u);
 }
 
 void main()
