@@ -502,7 +502,7 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
         std::vector<glm::vec3> points = m_toolpaths[i].points;
         std::vector<glm::vec3> normals = m_toolpaths[i].normals;
 
-        m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.5);
+        m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
 
         std::cout << "toolpath[" << i << "].size: " << m_toolpaths[i].size << " \n";
     }

@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QMouseEvent>
+#include <QCheckBox>
 
 #include "SliceView.h"
 
@@ -24,8 +25,11 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QVBoxLayout* controlLayout = new QVBoxLayout();
     controlLayout->setContentsMargins(5, 5, 5, 5);
     mainLayout->addLayout(controlLayout);
-    QPushButton* btnDisplayMode = new QPushButton("WireFrame/Shaded");
-    controlLayout->addWidget(btnDisplayMode);
+    QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
+    checkDisplayWireframe->setChecked(true);
+    QPushButton* btnFetchContour = new QPushButton("Fetch Contour", this);
+    controlLayout->addWidget(checkDisplayWireframe);
+    controlLayout->addWidget(btnFetchContour);
 
     /*初始化防抖定时器*/
     m_resizeTimer = new QTimer(this);
@@ -48,6 +52,19 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         if (m_grndWheel && m_blank) {
             BuildContactMask();
         }
+    });
+
+    connect(checkDisplayWireframe, &QCheckBox::stateChanged, this, [this](int state) {
+        if (state == Qt::Checked) {
+            m_sliceView->SetDisplayWireframe(true);
+        } else {
+            m_sliceView->SetDisplayWireframe(false);
+        }
+    });
+
+    connect(btnFetchContour, &QPushButton::clicked, this, [this]() {
+        m_sliceView->SetFetchContour();
+        BuildContactMask();
     });
 }
 
@@ -80,6 +97,14 @@ void Simulation2DDialog::BuildContactMask()
     m_sliceView->SetBlankModel(m_blank->GetModel());
     m_sliceView->SetGrindingWheelModel(m_grndWheel->GetModel());
 
+    // 将分辨率和点数实时显示在标题栏
+    SliceViewConfig currentConfig = UpdateView();
+    QString title =
+        QString("2D Simulation | Res: %1x%2")
+            .arg(currentConfig.nX)
+            .arg(currentConfig.nZ);  // 假设你给 SliceView 加了获取点数的接口
+    this->setWindowTitle(title);
+
     if (m_grndWheelInstances.empty()) {
         emit OpenToolPathSignal();
     }
@@ -108,11 +133,18 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
+    #if 0
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 2.f;
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
+    #else
+    // 固定分辨率
+    const uint32_t FIXED_RES = 4096u;
+    config.nX = FIXED_RES;
+    config.nZ = FIXED_RES;
+    #endif
 
     float xHalf, zHalf;
 
@@ -208,7 +240,7 @@ void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
     // 这必须与 UpdateView 中的逻辑一致
     float aspectRatio = static_cast<float>(width()) / static_cast<float>(height());
     float pixelToWorldScale = 0.0f;
-
+    
     // 根据 UpdateView 的逻辑：
     // 如果宽 > 高 (aspect > 1)，m_viewHalfSize 对应高度的一半 (Z轴)
     // 如果宽 < 高 (aspect < 1)，m_viewHalfSize 对应宽度的一半 (X轴)

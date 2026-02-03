@@ -50,8 +50,22 @@ struct SlicePlaneInfo {
     glm::vec3 point{0.f, 0.f, 0.f};
 };
 
+// 用于计算
+struct SliceComputeInfo {
+    VkCommandBuffer commandBuffer;
+    VkDescriptorSet descriptorSet;
+    uint32_t width;
+    uint32_t height;
+    uint32_t maxPoints{50000};
+    glm::vec3 normal{1.f, 0.f, 0.f};
+    glm::vec3 point{0.f, 0.f, 0.f};
+    glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz。用于将像素坐标转换为世界坐标
+};
+
 // 定义每一帧的仿真物理状态
 struct SliceFrameData {
+    bool displayWireframe{true};
+
     glm::vec3 normal;   // 截平面法向
     glm::vec3 point;    // 截平面点
 

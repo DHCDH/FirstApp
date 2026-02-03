@@ -14,9 +14,9 @@ public:
     lve::LveObject CreateObject() override;
 
 private:
-    //std::string m_filepath{
-    //    "D:/Data/Study/vulkan/FirstApp/res/models/blanks/blank_flat_D10_L70.obj"};
     std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/blanks/blank_ball_D10.obj"};
+        "D:/Data/Study/vulkan/FirstApp/res/models/blanks/blank_flat_D10_L70.obj"};
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/blanks/blank_ball_D10.obj"};
     uint32_t m_id{114514};
 };

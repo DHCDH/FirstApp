@@ -10,6 +10,7 @@
 
 namespace lve
 {
+// 图形管线
 LvePipeline::LvePipeline(LveDevice& device, const std::string& vertFilepath,
                          const std::string& fragFilepath,
                          const PipelineConfigInfo& configInfo,
@@ -22,6 +23,17 @@ LvePipeline::LvePipeline(LveDevice& device, const std::string& vertFilepath,
     std::cout << "fragFilepath: " << fragFilepath << "\n";
     std::cout << "geomFilepath: " << geomFilepath << "\n";
     CreateGraphicsPipeline(vertFilepath, fragFilepath, configInfo, geomFilepath);
+}
+
+// 计算管线
+LvePipeline::LvePipeline(LveDevice& device, const std::string& computeFilepath,
+    const PipelineConfigInfo& configInfo)
+    : m_lveDevice{device}
+{
+    std::cout << "Construct LvePipeline"
+              << "\n";
+    std::cout << "computeFilepath: " << computeFilepath << "\n";
+    CreateComputePipeline(computeFilepath, configInfo);
 }
 
 LvePipeline::~LvePipeline()
@@ -169,6 +181,38 @@ void LvePipeline::CreateGraphicsPipeline(const std::string& vertFilepath,
     }
 }
 
+// 创建计算管线
+void LvePipeline::CreateComputePipeline(const std::string& computeFilepath,
+    const PipelineConfigInfo& configInfo)
+{
+    assert(configInfo.pipelineLayout != VK_NULL_HANDLE &&
+           "Cannot create graphics pipeline: no pipelineLayout provided in configInfo");
+
+    auto computeCode = ReadFile(computeFilepath);
+    VkShaderModule computeModule;
+    CreateShaderModule(computeCode, &computeModule);
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfo.stage.module = computeModule;
+    pipelineInfo.stage.pName = "main";
+    pipelineInfo.layout = configInfo.pipelineLayout;
+
+    if (vkCreateComputePipelines(m_lveDevice.device(),
+                                 VK_NULL_HANDLE,
+                                 1,
+                                 &pipelineInfo,
+                                 nullptr,
+                                 &m_graphicsPipeline) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create compute pipeline!");
+    }
+
+    // 创建后立即销毁模块
+    vkDestroyShaderModule(m_lveDevice.device(), computeModule, nullptr);
+}
+
 void LvePipeline::CreateShaderModule(const std::vector<char>& code,
                                      VkShaderModule* shaderModule)
 {
@@ -183,9 +227,10 @@ void LvePipeline::CreateShaderModule(const std::vector<char>& code,
     }
 }
 
-void LvePipeline::Bind(VkCommandBuffer commandBuffer)
+void LvePipeline::Bind(VkCommandBuffer commandBuffer,
+    VkPipelineBindPoint bindPoint)
 {
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+    vkCmdBindPipeline(commandBuffer, bindPoint, m_graphicsPipeline);
 }
 
 void LvePipeline::DefaultPipelineConfigInfo(PipelineConfigInfo& configInfo)

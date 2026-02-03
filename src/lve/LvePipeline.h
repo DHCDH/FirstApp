@@ -32,16 +32,22 @@ struct PipelineConfigInfo {
 class LvePipeline
 {
 public:
+    // 图形管线
     LvePipeline(LveDevice& device, const std::string& vertFilepath,
                 const std::string& fragFilepath, const PipelineConfigInfo& configInfo,
                 const std::string& geomFilepath = "");
+    // 计算管线
+    LvePipeline(LveDevice& device, const std::string& computeFilepath,
+                const PipelineConfigInfo& configInfo);
 
     ~LvePipeline();
 
     LvePipeline(const LvePipeline&) = delete;
     LvePipeline& operator=(const LvePipeline&) = delete;
 
-    void Bind(VkCommandBuffer commandBuffer);
+    // 管线绑定
+    void Bind(VkCommandBuffer commandBuffer,
+              VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS);
 
     /*创建默认管道配置的公共函数*/
     static void DefaultPipelineConfigInfo(PipelineConfigInfo& configInfo);
@@ -54,11 +60,13 @@ private:
                                 const std::string& fragFilepath,
                                 const PipelineConfigInfo& configInfo,
                                 const std::string& geomFilepath = "");
+    void CreateComputePipeline(const std::string& computeFilepath,
+                               const PipelineConfigInfo& configInfo);
 
     void CreateShaderModule(const std::vector<char>& code, VkShaderModule* shaderModule);
 
     LveDevice& m_lveDevice;
-    VkPipeline m_graphicsPipeline;                       // Vulkan管道对象的句柄
+    VkPipeline m_graphicsPipeline;      // Vulkan管道对象的句柄
     VkShaderModule m_vertShaderModule;  // Vulkan着色器模块的句柄
     VkShaderModule m_fragShaderModule;
     VkShaderModule m_geomShaderModule = VK_NULL_HANDLE;

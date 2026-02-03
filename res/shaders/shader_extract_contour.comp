@@ -1,0 +1,251 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// 绑定0：Stencil纹理
+layout(binding = 0) uniform usampler2D inputMask;
+
+// 绑定1：存储坐标的Buffer
+layout(std430, binding = 1) buffer OutPoints{
+    vec2 points[];
+};
+
+// 绑定2：原子计数器
+layout(std430, binding = 2) buffer Counter {
+    uint count;
+};
+
+// 绑定3：存储计算结果
+layout(std430, set = 0, binding = 3) buffer OutputBuffer {
+    uint coreRadiusSqBits;    // 芯厚半径平方
+
+    // --- System A：标准坐标系 ---
+    int minAngleA;             // 容屑槽最小角度
+    int maxAngleA;             // 容屑槽最大角度
+
+    // --- System B：移位坐标系 ---
+    int minAngleB;
+    int maxAngleB;
+
+    vec2 coreRadiusPoint;
+    vec2 minAnglePointA;
+    vec2 maxAnglePointA;
+    vec2 minAnglePointB;
+    vec2 maxAnglePointB;
+}outputBuffer;
+
+layout(push_constant) uniform Push{
+    uint maxPoints;
+    vec3 normal;
+    vec3 point;
+    vec4 mapInfo;
+}push;
+
+// 读取原始二值(1.0 == 交集， 0.0 == 砂轮/棒料/背景)
+float getRawVal(ivec2 p) {
+    // 掩码中3u代表交集
+    return (texelFetch(inputMask, p, 0).r == 3u) ? 1. : 0.;
+}
+
+// 5x5融合算子
+// 直接对原始二值数据操作，一次性完成“模糊+求导”
+vec3 getFusedGradient(ivec2 center) {
+    // 5x5 Sobel X 核 (自带高斯平滑效果)
+    //  1  2  0  -2  -1
+    //  4  8  0  -8  -4
+    //  6 12  0 -12  -6
+    //  4  8  0  -8  -4
+    //  1  2  0  -2  -1
+
+    float Gx = 0.0;
+    float Gy = 0.0;
+
+    // 循环展开或使用循环处理 5x5 区域
+    // 这里的权重是标准 5x5 Sobel，也可以视为 Sigma≈1.4 的高斯导数
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            // 获取原始二值 (0.0 或 1.0)
+            float val = getRawVal(center + ivec2(x, y));
+            
+            if (val == 0.0) continue; // 稀疏优化：背景点不贡献梯度
+
+            // --- X 方向权重 ---
+            float wX = 0.0;
+            // 列加权 (1, 4, 6, 4, 1) * 行差分 (1, 2, 0, -2, -1)
+            if (x == -2) wX = 1.0; else if (x == -1) wX = 2.0;
+            else if (x == 1) wX = -2.0; else if (x == 2) wX = -1.0;
+            
+            if (wX != 0.0) {
+                // 叠加 Y 方向的高斯平滑权重
+                float smoothY = 0.0;
+                if (abs(y) == 2) smoothY = 1.0;
+                else if (abs(y) == 1) smoothY = 4.0;
+                else if (y == 0) smoothY = 6.0;
+                
+                Gx += val * wX * smoothY;
+            }
+
+            // --- Y 方向权重 (逻辑与 X 对称) ---
+            float wY = 0.0;
+            if (y == -2) wY = 1.0; else if (y == -1) wY = 2.0;
+            else if (y == 1) wY = -2.0; else if (y == 2) wY = -1.0;
+
+            if (wY != 0.0) {
+                float smoothX = 0.0;
+                if (abs(x) == 2) smoothX = 1.0;
+                else if (abs(x) == 1) smoothX = 4.0;
+                else if (x == 0) smoothX = 6.0;
+                
+                Gy += val * wY * smoothX;
+            }
+        }
+    }
+
+    float mag = sqrt(Gx*Gx + Gy*Gy);
+
+    return vec3(Gx, Gy, mag);
+}
+
+
+void main()
+{
+    // 获取当前像素坐标(u, v)
+    ivec2 texSize = textureSize(inputMask, 0);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    // 边界剔除
+    // 由于使用5x5核（半径=2），必须留出2个像素的边框
+    if (pos.x < 2 || pos.y < 2 || pos.x >= texSize.x - 2 || pos.y >= texSize.y - 2) 
+        return;
+
+    // 快速粗筛
+    // 只有在交集(3u)和其他(0u)交界的地方才有梯度
+    // 检查中心点及其4邻域，如果全为0或全为1，说明在平坦区域，直接跳过
+    float c = getRawVal(pos);
+    float l = getRawVal(pos + ivec2(-1, 0));
+    float r = getRawVal(pos + ivec2( 1, 0));
+    float u = getRawVal(pos + ivec2( 0,-1));
+    float d = getRawVal(pos + ivec2( 0, 1));
+    float sum = c + l + r + u + d;
+    if(sum == 0. || sum == 5.) 
+        return;
+
+    // 计算当前点的平滑梯度
+    vec3 gradB = getFusedGradient(pos);
+    float gB = gradB.z;
+
+    // 阈值过滤
+    // 过滤掉微小的噪声梯度
+    if (gB < 10.)
+        return;
+
+    // 确定梯度主方向
+    ivec2 dir;
+    if (abs(gradB.x) > abs(gradB.y)) {
+        dir = ivec2(sign(gradB.x), 0); // 水平梯度主导 -> 边缘是垂直的 -> 沿水平寻找峰值
+    } else {
+        dir = ivec2(0, sign(gradB.y)); // 垂直梯度主导
+    }
+
+    // 获取梯度方向的邻居梯度
+    float gA = getFusedGradient(pos - dir).z;
+    float gC = getFusedGradient(pos + dir).z;
+
+    // 非极大值抑制 (Non-Maximum Suppression)
+    // 只有当 B 点的梯度大于等于两侧邻居时，才说明 B 是边缘的“山峰”
+    // 注意：二值图像经过平滑后，峰值可能横跨两个像素，这里用 >= 保证不漏点
+    if (gB < gA || gB <= gC) return;
+
+    // Devernay亚像素校正
+    float denom = gA + gC - 2.0 * gB;
+    float eta = 0.0;
+    // 修改为重心法
+    // 公式： ( -1*gA + 0*gB + 1*gC ) / ( gA + gB + gC )
+    float sumG = gA + gB + gC;
+    if (sumG > 0.001) {
+        eta = (gC - gA) / sumG; 
+    }
+    // 限制偏移量在 [-0.5, 0.5] 之间，防止跑偏
+    eta = clamp(eta, -0.5, 0.5);
+
+    // 输出最终亚像素坐标
+    vec2 finalPos = vec2(pos) + vec2(dir) * eta;
+    float worldX = push.mapInfo.x + finalPos.x * push.mapInfo.z;
+    float worldY = push.mapInfo.y + finalPos.y * push.mapInfo.w;
+    vec2 worldPos = vec2(worldX, worldY);
+
+    uint index = atomicAdd(count, 1);
+    if (index < push.maxPoints) {
+        points[index] = worldPos;
+    }
+
+    // 计算并原子更新芯厚点
+    float distSq = dot(worldPos, worldPos);
+    uint distUint = floatBitsToUint(distSq);
+    while (true) {
+        // 读取当前的全局最小值
+        uint oldDistBits = outputBuffer.coreRadiusSqBits;
+        if (distUint >= oldDistBits) {
+            break;
+        }
+
+        uint prev = atomicCompSwap(outputBuffer.coreRadiusSqBits, oldDistBits, distUint);
+
+        if (prev == oldDistBits) {
+            // 只有成功更新了距离的线程，才有资格更新坐标点
+            outputBuffer.coreRadiusPoint = worldPos;
+            break; // 任务完成，退出循环
+        }
+    }
+
+    // --- 双相角度计算 ---
+    
+    // 计算System A
+    float angleA = degrees(atan(worldPos.y, worldPos.x));
+    // 计算System B
+    float angleB = (angleA < 0.) ? (angleA + 360.) : angleA;
+
+    int angleIntA = int(angleA * 100000.);
+    int angleIntB = int(angleB * 100000.);
+
+    // 原子更新System A
+    while (true) {
+        int oldMin = outputBuffer.minAngleA;
+        if (angleIntA >= oldMin) {
+            break;
+        }
+        if (atomicCompSwap(outputBuffer.minAngleA, oldMin, angleIntA) == oldMin) {
+            outputBuffer.minAnglePointA = worldPos;
+            break;
+        }
+    }
+    while (true) {
+        int oldMax = outputBuffer.maxAngleA;
+        if (angleIntA <= oldMax) {
+            break;
+        }
+        if (atomicCompSwap(outputBuffer.maxAngleA, oldMax, angleIntA) == oldMax) {
+            outputBuffer.maxAnglePointA = worldPos;
+            break;
+        }
+    }
+
+    // 原子更新System B
+    while (true) {
+        int oldMin = outputBuffer.minAngleB;
+        if (angleIntB >= oldMin) break;
+        if (atomicCompSwap(outputBuffer.minAngleB, oldMin, angleIntB) == oldMin) {
+            outputBuffer.minAnglePointB = worldPos;
+            break;
+        }
+    }
+    while (true) {
+        int oldMax = outputBuffer.maxAngleB;
+        if (angleIntB <= oldMax) break;
+        if (atomicCompSwap(outputBuffer.maxAngleB, oldMax, angleIntB) == oldMax) {
+            outputBuffer.maxAnglePointB = worldPos;
+            break;
+        }
+    }
+
+}

@@ -35,7 +35,7 @@ private:
     const GrindingWheel* m_grndWheel = nullptr;
     std::vector<lve::InstanceData> m_grndWheelInstances;
 
-    double m_viewHalfSize{ 70. };
+    double m_viewHalfSize{ 8. };
 
     glm::vec3 m_normal{ 1., 0., 0. };   // 截平面的法向
 

@@ -31,7 +31,24 @@ void main()
     bool c_Blank, c_Wheel, c_Inter;
     parseMask(mask_center, c_Blank, c_Wheel, c_Inter);
 
-    if(push.showMode == 0) {
+    bool isContour = false;
+    if(c_Inter) {
+        // 采样4邻域
+        uint mU = textureOffset(inputMask, inUV, ivec2(0, 1)).r;
+        uint mD = textureOffset(inputMask, inUV, ivec2(0, -1)).r;
+        uint mL = textureOffset(inputMask, inUV, ivec2(-1, 0)).r;
+        uint mR = textureOffset(inputMask, inUV, ivec2(1, 0)).r;
+
+        // 如果邻域中有一个不是3u，则为棒料与砂轮交集的边缘
+        if(mU != 3u || mD != 3u || mL != 3u || mR != 3u) {
+            isContour = true;
+        }
+    }
+
+    if(isContour) {
+        // 高亮外轮廓
+        outColor = vec4(0., 1., 0., 1.);
+    } else if(push.showMode == 0) {
         /* ========= 实心模式 (Solid) ========= */
         if (c_Inter) {
             outColor = vec4(1.0, 0.6, 0.0, 1.0);       // 交集
@@ -57,5 +74,3 @@ void main()
     //     outColor = baseColor;
     // }
 }
-//机床正解、逆解
-// 将轨迹连成b样条做插值

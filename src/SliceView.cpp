@@ -3,7 +3,28 @@
 #include <windows.h>
 #include <vulkan/vulkan_win32.h>
 
+#include <fstream>
+#include <iostream>
+#include <limits>
+
 using namespace lve;
+struct ResultData {
+    uint32_t coreRadiusSqBits{std::numeric_limits<uint32_t>::max()};  // 芯厚半径平方的位数据，设为float的最大值位表示
+
+    // --- System A: 标准坐标系 ---
+    int32_t minAngleA{std::numeric_limits<int32_t>::max()};            // 容屑槽最小角度（Deg）
+    int32_t maxAngleA{std::numeric_limits<int32_t>::lowest()};         // 容屑槽最大角度（Deg）
+
+    // --- System B: 移位坐标系 ---
+    int32_t minAngleB{std::numeric_limits<int32_t>::max()};
+    int32_t maxAngleB{std::numeric_limits<int32_t>::lowest()};
+
+    alignas(8) glm::vec2 coreRadiusPoint{0.f};
+    alignas(8) glm::vec2 minAnglePointA{0.f};
+    alignas(8) glm::vec2 maxAnglePointA{0.f};
+    alignas(8) glm::vec2 minAnglePointB{0.f};
+    alignas(8) glm::vec2 maxAnglePointB{0.f};
+};
 
 SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
                      void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h,
@@ -30,12 +51,14 @@ SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
     InitOffscreenResources();
     InitDisplayResources();
     CreateContactMaskResources();
+    InitComputeResources();
     RecreateDisplayDescriptorSet();
 
-    m_sliceMaskRenderSystem =
-        std::make_unique<SliceMaskRenderSystem>(m_device,
-                                                m_maskRenderPass,
-                                                m_setLayout->GetDescriptorSetLayout());
+    m_sliceMaskRenderSystem = std::make_unique<SliceMaskRenderSystem>(
+        m_device,
+        m_maskRenderPass,
+        m_setLayout->GetDescriptorSetLayout(),
+        m_contourComputeSetLayout->GetDescriptorSetLayout());
 
     m_sliceMaskRenderSystem->CreateSliceContourPipeline(
         m_renderer->GetSwapChainRenderPass());
@@ -104,6 +127,69 @@ void SliceView::InitDisplayResources()
         m_device,
         m_renderer->GetSwapChainRenderPass(),
         m_displaySetLayout->GetDescriptorSetLayout());
+}
+
+void SliceView::InitComputeResources()
+{
+    // 创建坐标存储buffer
+    m_contourPointsBuffer = std::make_unique<LveBuffer>(
+        m_device,
+        sizeof(glm::vec2),
+        m_maxPoints,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // 创建计数器
+    m_counterBuffer = std::make_unique<LveBuffer>(m_device,
+                                                  sizeof(uint32_t),
+                                                  1,
+                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // GPU计算结果buffer
+    m_resultBuffer = std::make_unique<LveBuffer>(
+        m_device,
+        sizeof(ResultData),
+        1,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    // 创建计算描述符集布局
+    m_contourComputeSetLayout =
+        LveDescriptorSetLayout::Builder(m_device)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+
+    // 更新描述符池
+    m_computeDescriptorPool =
+        LveDescriptorPool::Builder(m_device)
+            .SetMaxSets(1)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3)
+            .Build();
+
+    // 绑定资源并构建 Descriptor Set
+    auto imageInfo = VkDescriptorImageInfo{m_displaySampler,
+                                           m_blankMaskView,
+                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    auto pointsInfo = m_contourPointsBuffer->DescriptorInfo();
+    auto counterInfo = m_counterBuffer->DescriptorInfo();
+    auto resultBufferInfo = m_resultBuffer->DescriptorInfo();
+
+    LveDescriptorWriter(*m_contourComputeSetLayout, *m_computeDescriptorPool)
+        .WriteImage(0, &imageInfo)
+        .WriteBuffer(1, &pointsInfo)
+        .WriteBuffer(2, &counterInfo)
+        .WriteBuffer(3, &resultBufferInfo)
+        .Build(m_contourDescriptorSet);
 }
 
 /*关联PASS1的图像到PASS2的描述符*/
@@ -447,9 +533,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                            m_descriptorSet,
                            frameData.normal,
                            frameData.point};
-        // 先开启深度写入
-        //m_sliceMaskRenderSystem->BindBlankDepthPipeline(commandBuffer);
-        //m_sliceMaskRenderSystem->RenderBlank(info);
 
         // 写入Stencil
         m_sliceMaskRenderSystem->BindBlankStencilPipeline(commandBuffer);
@@ -471,7 +554,9 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         const uint32_t BATCH_SIZE = 100;
         for (uint32_t i = 0; i < m_grndWheelInstanceCount; i += BATCH_SIZE) {
             // 计算当前批次大小
-            uint32_t curCount = BATCH_SIZE < m_grndWheelInstanceCount - i ? BATCH_SIZE : m_grndWheelInstanceCount - i;
+            uint32_t curCount = BATCH_SIZE < m_grndWheelInstanceCount - i
+                                    ? BATCH_SIZE
+                                    : m_grndWheelInstanceCount - i;
             instInfo.instanceCount = curCount;
 
             /*绘制砂轮前表面*/
@@ -495,6 +580,13 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     } else if (m_grndWheelInstanceCount == 0) {
         throw std::runtime_error("m_grndWheelInstanceCount == 0");
     }
+
+    // 调试：在派发计算前，强制重新更新一次计算描述符集
+    auto imageInfo = VkDescriptorImageInfo{m_displaySampler,
+                                           m_blankMaskView,
+                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    auto pointsInfo = m_contourPointsBuffer->DescriptorInfo();
+    auto counterInfo = m_counterBuffer->DescriptorInfo();
 
     /*结束RenderPass*/
     vkCmdEndRenderPass(commandBuffer);
@@ -529,9 +621,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     vkCmdPipelineBarrier(
         commandBuffer,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,    
+            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         0,
         0,
         nullptr,
@@ -539,6 +630,78 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         nullptr,
         static_cast<uint32_t>(barriers.size()),
         barriers.data());
+
+    // 清空GPU侧计数器
+    vkCmdFillBuffer(commandBuffer, m_counterBuffer->GetBuffer(), 0, sizeof(uint32_t), 0);
+
+    // 重置GPU计算结果buff
+    ResultData resultData;
+    vkCmdUpdateBuffer(commandBuffer,
+                      m_resultBuffer->GetBuffer(),
+                      0,
+                      sizeof(ResultData),
+                      &resultData);
+
+    std::array<VkBufferMemoryBarrier, 2> bufferBarriers{};
+
+    // 增加一个 Buffer Barrier，确保计数器清零完成后再开始计算
+    VkBufferMemoryBarrier counterBarrier{};
+    counterBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    counterBarrier.size = sizeof(uint32_t);
+    counterBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    counterBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    counterBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    counterBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    counterBarrier.buffer = m_counterBuffer->GetBuffer();
+    counterBarrier.offset = 0;
+    counterBarrier.size = VK_WHOLE_SIZE;
+    bufferBarriers[0] = counterBarrier;
+
+    VkBufferMemoryBarrier resultBarrier{};
+    resultBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    resultBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    resultBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    resultBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    resultBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    resultBarrier.buffer =
+        m_resultBuffer
+            ->GetBuffer();  // 确保 m_minDistBuffer 已在 InitComputeResources 中创建！
+    resultBarrier.offset = 0;
+    resultBarrier.size = VK_WHOLE_SIZE;
+    bufferBarriers[1] = resultBarrier;
+
+    vkCmdPipelineBarrier(commandBuffer,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        0,
+                        0,
+                        nullptr,
+                        static_cast<uint32_t>(bufferBarriers.size()),
+                        bufferBarriers.data(),
+                        0,
+                        nullptr);
+
+    // 派发提取任务
+    if (m_sliceMaskRenderSystem) {
+        float dx =
+            (m_viewConfig.xMax - m_viewConfig.xMin) / static_cast<float>(m_viewConfig.nX);
+        float dz =
+            (m_viewConfig.zMin - m_viewConfig.zMax) / static_cast<float>(m_viewConfig.nZ);
+        glm::vec4 mapInfo = {m_viewConfig.xMin, m_viewConfig.zMax, dx, dz};
+
+        //std::cout << "DEBUG MAP INFO: StartY(zMax)=" << mapInfo.y
+        //          << " StepY=" << mapInfo.w << " zMin=" << m_viewConfig.zMin << std::endl;
+
+        SliceComputeInfo info{commandBuffer,
+                              m_contourDescriptorSet,
+                              m_viewConfig.nX,
+                              m_viewConfig.nZ,
+                              m_maxPoints,
+                              frameData.normal,
+                              frameData.point,
+                              mapInfo};
+        m_sliceMaskRenderSystem->DispatchExtractContour(info);
+    }
 
     //使用 m_device 提交
     m_device.endSingleTimeCommands(commandBuffer);
@@ -552,21 +715,171 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                 m_viewConfig.nZ,
                                 m_isWireFrame);
 
-        if (m_grndWheelModel && m_grndWheelInstanceCount > 0) {
-            SliceInstancedInfo onscreenInstInfo{drawCmd,
-                                                *m_grndWheelModel,
-                                                m_grndWheelInstanceBuffer->GetBuffer(),
-                                                m_grndWheelInstanceCount,
-                                                m_descriptorSet,
-                                                frameData.normal,
-                                                frameData.point};
-            m_sliceMaskRenderSystem->BindSliceContourPipeline(drawCmd);
-            m_sliceMaskRenderSystem->RenderSliceContour(onscreenInstInfo);
+        if (m_displayWireframe) {
+            if (m_grndWheelModel && m_grndWheelInstanceCount > 0) {
+                SliceInstancedInfo onscreenInstInfo{
+                    drawCmd,
+                    *m_grndWheelModel,
+                    m_grndWheelInstanceBuffer->GetBuffer(),
+                    m_grndWheelInstanceCount,
+                    m_descriptorSet,
+                    frameData.normal,
+                    frameData.point};
+                m_sliceMaskRenderSystem->BindSliceContourPipeline(drawCmd);
+                m_sliceMaskRenderSystem->RenderSliceContour(onscreenInstInfo);
+            }
         }
 
         m_renderer->EndSwapChainRenderPass(drawCmd);
         m_renderer->EndFrame();
     }
+
+    // 获取交集外轮廓点
+    if (m_fetchContour) {
+        auto points = DownloadContourPoints();
+        std::cout << "Contour points size: " << points.size() << std::endl;
+        std::string filepath =
+            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\points.txt";
+        std::ofstream outFile(filepath);
+        if (!outFile.is_open()) {
+            std::cerr << "[错误] 无法打开文件：" << filepath << std::endl;
+            return;
+        }
+        for (const auto& pos : points) {
+            outFile << "(" << pos.x << ", " << pos.y << ")\n";
+        }
+        outFile.close();
+        if (outFile.fail()) {
+            std::cerr << "[错误] 写入文件 " << filepath << " 失败" << std::endl;
+        } else {
+            std::cout << "[成功] 坐标已写入文件：" << filepath << std::endl;
+        }
+
+        DownloadGPUCalculateResult();
+
+        m_fetchContour = false;
+    }
+
+    
+}
+
+std::vector<glm::vec2> SliceView::DownloadContourPoints()
+{
+    if (!m_stagingCounterBuffer) {
+        m_stagingCounterBuffer = std::make_unique<LveBuffer>(
+            m_device,
+            sizeof(uint32_t),
+            1,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+
+    VkDeviceSize requiredSize = sizeof(glm::vec2) * m_maxPoints;
+    bool neededResize = !m_stagingPointsBuffer;
+    if (m_stagingPointsBuffer && m_stagingPointsBuffer->GetBufferSize() < requiredSize) {
+        neededResize = true;
+    }
+
+    if (neededResize) {
+        m_stagingPointsBuffer = std::make_unique<LveBuffer>(
+            m_device,
+            sizeof(glm::vec2),
+            m_maxPoints,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        m_stagingPointsBufferSize = requiredSize;
+    }
+
+    // 录制拷贝指令
+    auto copyCmd = m_device.beginSingleTimeCommands();
+
+    // 拷贝计数器
+    VkBufferCopy counterCopy{};
+    counterCopy.size = sizeof(uint32_t);
+    vkCmdCopyBuffer(copyCmd,
+                    m_counterBuffer->GetBuffer(),
+                    m_stagingCounterBuffer->GetBuffer(),
+                    1,
+                    &counterCopy);
+
+    // 拷贝坐标点
+    VkBufferCopy pointsCopy{};
+    pointsCopy.size = sizeof(glm::vec2) * m_maxPoints;
+    vkCmdCopyBuffer(copyCmd,
+                    m_contourPointsBuffer->GetBuffer(),
+                    m_stagingPointsBuffer->GetBuffer(),
+                    1,
+                    &pointsCopy);
+
+    m_device.endSingleTimeCommands(copyCmd);
+
+    // 读取计数器数值
+    uint32_t count = 0;
+    m_stagingCounterBuffer->Map();
+    uint32_t* pCountMapped =
+        static_cast<uint32_t*>(m_stagingCounterBuffer->GetMappedMemory());
+    count = *pCountMapped;
+    m_stagingCounterBuffer->Unmap();
+
+    // 读取坐标点（GPU中已经将像素坐标转换成世界坐标）
+    uint32_t readCount = (std::min)(count, m_maxPoints);
+    std::vector<glm::vec2> worldPoints(readCount);
+    if (readCount > 0) {
+        m_stagingPointsBuffer->Map();
+        glm::vec2* pPointsMapped =
+            static_cast<glm::vec2*>(m_stagingPointsBuffer->GetMappedMemory());
+        std::copy(pPointsMapped, pPointsMapped + readCount, worldPoints.begin());
+        m_stagingPointsBuffer->Unmap();
+    }
+
+    return worldPoints;
+}
+
+void SliceView::DownloadGPUCalculateResult()
+{
+    m_resultBuffer->Map();
+    ResultData* data = (ResultData*)m_resultBuffer->GetMappedMemory();
+
+    // 读取数据
+    uint32_t distBits = data->coreRadiusSqBits;
+    int32_t minAngleIntA = data->minAngleA;
+    int32_t maxAngleIntA = data->maxAngleA;
+    int32_t minAngleIntB = data->minAngleB;
+    int32_t maxAngleIntB = data->maxAngleB;
+    glm::vec2 coreRadiusPoint = data->coreRadiusPoint;
+
+
+    m_resultBuffer->Unmap();
+
+    // 检查是否找到了有效点
+    if (distBits == 0xFFFFFFFF || minAngleIntA >= maxAngleIntA || minAngleIntB >= maxAngleIntB) {
+        std::cerr << "No valid point found!"
+                  << "\n";
+        return;  // 或者返回一个无效标记
+    }
+
+    // 获取芯厚半径
+    float worldDistSq = 0.0f;
+    worldDistSq = std::bit_cast<float>(distBits);
+    float radius = std::sqrt(worldDistSq);
+
+    // 获取槽宽角
+    int32_t diffA = maxAngleIntA - minAngleIntA;
+    int32_t diffB = maxAngleIntB - minAngleIntB;
+    int32_t res = diffA < diffB ? diffA : diffB;
+    float slotWidth = static_cast<float>(diffA < diffB ? diffA : diffB) / 100000.f;
+
+std::cout << std::fixed << std::setprecision(4);  // 设置输出精度
+    std::cout << "========= GPU Geometry Analysis =========\n";
+    std::cout << "Core Radius: " << radius << " mm\n"
+              << "   @ Point : (" << coreRadiusPoint.x << ", " << coreRadiusPoint.y
+              << ")\n";
+
+    std::cout << "Slot Width : " << slotWidth << " deg\n";
+    std::cout << "-----------------------------------------\n";
+
+    return;
 }
 
 void SliceView::UpdateGrindingWheelInstanceBuffer(const std::vector<glm::mat4>& instances)

@@ -17,17 +17,33 @@ struct SlicePushConstants {
     alignas(16) glm::vec3 point;
 };
 
+struct SliceComputePushConstants {
+    uint32_t maxPoints = 100000;
+    alignas(16) glm::vec3 normal;
+    alignas(16) glm::vec3 point;
+    alignas(16) glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz
+}; 
+
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
-                                             VkDescriptorSetLayout setLayout)
+                                             VkDescriptorSetLayout graphicsSetLayouts,
+                                             VkDescriptorSetLayout computeSetLayouts)
     : m_lveDevice(device)
 {
-    CreatePipelineLayout(setLayout);  // 定义渲染管线的layout
+    CreatePipelineLayout(graphicsSetLayouts);  // 定义渲染管线的layout
     CreatePipelines(renderPass);
+
+    CreateComputePipelineLayout(computeSetLayouts);
+    CreateComputePipeline();
 }
 
 SliceMaskRenderSystem::~SliceMaskRenderSystem()
 {
     vkDestroyPipelineLayout(m_lveDevice.device(), m_pipelineLayout, nullptr);
+
+    // 销毁计算管线的布局句柄
+    if (m_computePipelineLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(m_lveDevice.device(), m_computePipelineLayout, nullptr);
+    }
 }
 
 /* 创建渲染管线
@@ -60,6 +76,30 @@ void SliceMaskRenderSystem::CreatePipelineLayout(const VkDescriptorSetLayout& se
                                nullptr,
                                &m_pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create pipeline layout!");
+    }
+}
+
+void SliceMaskRenderSystem::CreateComputePipelineLayout(
+    const VkDescriptorSetLayout& setLayout)
+{
+    // 创建计算管线布局
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(SliceComputePushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &setLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_computePipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create compute pipeline layout!");
     }
 }
 
@@ -160,7 +200,7 @@ void SliceMaskRenderSystem::CreateBlankColorPipeline(VkRenderPass renderPass)
     config.depthStencilInfo.front.compareMask = 0x80;
     config.depthStencilInfo.front.reference = 0X80;
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_EQUAL;
-    
+
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
@@ -216,7 +256,7 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;
     config.depthStencilInfo.front.compareMask = 0x7F;
-    //config.depthStencilInfo.front.reference = 0x02;
+    // config.depthStencilInfo.front.reference = 0x02;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
@@ -275,7 +315,7 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilBackPipeline(
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;
     config.depthStencilInfo.front.compareMask = 0x7F;
-    //config.depthStencilInfo.front.reference = 0x04;
+    // config.depthStencilInfo.front.reference = 0x04;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
@@ -598,7 +638,8 @@ void SliceMaskRenderSystem::CreateStencilClearPipeline(VkRenderPass renderPass)
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
     config.depthStencilInfo.front.reference = 0;  // 目标值 0
     config.depthStencilInfo.front.compareMask = 0xFF;  // 比较掩码无所谓，因为是 Always
-    config.depthStencilInfo.front.writeMask = 0x7F;  // 关键：只允许修改低 7 位，保留 Bit 7 (毛坯)
+    config.depthStencilInfo.front.writeMask =
+        0x7F;  // 关键：只允许修改低 7 位，保留 Bit 7 (毛坯)
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_REPLACE;  // 替换为 reference (0)
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_REPLACE;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_REPLACE;
@@ -609,6 +650,20 @@ void SliceMaskRenderSystem::CreateStencilClearPipeline(VkRenderPass renderPass)
         "../../../res/shaders/spv/shader_slice_plane.vert.spv",  // 复用全屏 VS
         "../../../res/shaders/spv/shader_slice_empty.frag.spv",  // 新建的空 FS
         config);
+}
+
+void SliceMaskRenderSystem::CreateComputePipeline()
+{
+    assert(m_computePipelineLayout != nullptr &&
+           "Cannot create compute pipeline before compute pipeline layout");
+
+    PipelineConfigInfo configInfo{};
+    configInfo.pipelineLayout = m_computePipelineLayout;
+
+    m_extractContourPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_extract_contour.comp.spv",
+        configInfo);
 }
 
 void SliceMaskRenderSystem::BindBlankDepthPipeline(VkCommandBuffer commandBuffer)
@@ -700,7 +755,8 @@ void SliceMaskRenderSystem::RenderBlank(const SliceDrawInfo& sliceDrawInfo)
 }
 
 /*调用Render前，由调用者绑定对应pipeline*/
-void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInfo& info, uint32_t firstInstance)
+void SliceMaskRenderSystem::RenderGrindingWheelInstances(const SliceInstancedInfo& info,
+                                                         uint32_t firstInstance)
 {
     if (info.instanceCount == 0) {
         std::cout << "No grinding wheel instances to render!" << std::endl;
@@ -799,7 +855,7 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
                        &push);
 
     // 设置线宽
-    vkCmdSetLineWidth(info.commandBuffer, 1.1f);
+    vkCmdSetLineWidth(info.commandBuffer, 0.1f);
 
     // 绑定顶点和实例
     info.model.Bind(info.commandBuffer);
@@ -808,6 +864,40 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
     vkCmdBindVertexBuffers(info.commandBuffer, 1, 1, instanceBuffers, offsets);
 
     info.model.DrawInstanced(info.commandBuffer, info.instanceCount);
+}
+
+void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
+{
+    // 告诉Vulkan绑定计算管线
+    m_extractContourPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    // 绑定计算专用描述符集
+    vkCmdBindDescriptorSets(info.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_computePipelineLayout,
+                            0,
+                            1,
+                            &info.descriptorSet,
+                            0,
+                            nullptr);
+
+    // 推送平面参数
+    SliceComputePushConstants push{};
+    push.normal = info.normal;
+    push.point = info.point;
+    push.maxPoints = info.maxPoints;
+    push.mapInfo = info.mapInfo;
+    vkCmdPushConstants(info.commandBuffer,
+                       m_computePipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       0,
+                       sizeof(SliceComputePushConstants),
+                       &push);
+
+    // 计算派发组数量
+    uint32_t groupCountX = (info.width + 15) / 16;
+    uint32_t groupCountY = (info.height + 15) / 16;
+    vkCmdDispatch(info.commandBuffer, groupCountX, groupCountY, 1);
 }
 
 }  // namespace lve

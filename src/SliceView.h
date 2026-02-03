@@ -33,6 +33,14 @@ public:
     {
         m_grndWheelModel = model;
     }
+    void SetDisplayWireframe(const bool& display)
+    {
+        m_displayWireframe = display;
+    }
+    void SetFetchContour()
+    {
+        m_fetchContour = true;
+    }
 
     lve::LveWindow* GetWindow() const
     {
@@ -42,6 +50,7 @@ public:
 private:
     void InitOffscreenResources();
     void InitDisplayResources();
+    void InitComputeResources();
 
     void CreateSingleMaskResource(VkImage& image, VkDeviceMemory& memory,
                                   VkImageView& view, VkFramebuffer& framebuffer);
@@ -54,6 +63,11 @@ private:
 
     VkFormat FindDepthStencilFormat();
 
+    // 将提取到的轮廓点从GPU抓取回CPU
+    std::vector<glm::vec2> DownloadContourPoints();
+
+    void DownloadGPUCalculateResult();
+
 private:
     lve::LveDevice& m_device;
     std::unique_ptr<lve::LveWindow> m_window;
@@ -63,7 +77,7 @@ private:
 
     std::unique_ptr<lve::LveDescriptorSetLayout> m_setLayout;
     std::unique_ptr<lve::LveDescriptorPool> m_descriptorPool;
-    VkDescriptorSet m_descriptorSet;
+    VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
 
     std::unique_ptr<lve::LveRenderer> m_renderer;
     std::unique_ptr<lve::LvePipeline> m_displayPipeline;
@@ -86,6 +100,8 @@ private:
 
 private:
     bool m_isWireFrame = false;
+    bool m_displayWireframe = true;
+    bool m_fetchContour = false;
 
     lve::LveModel* m_blankModel = nullptr;
     lve::LveModel* m_grndWheelModel = nullptr;
@@ -115,4 +131,21 @@ private:
 
     /*专门用于采样的模板视图*/
     VkImageView m_stencilSampleView = VK_NULL_HANDLE;
+
+private:
+    // 计算交集轮廓
+    uint32_t m_maxPoints = 50000;
+    std::unique_ptr<lve::LveBuffer> m_contourPointsBuffer;
+    std::unique_ptr<lve::LveBuffer> m_counterBuffer;
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_contourComputeSetLayout;
+    std::unique_ptr<lve::LveDescriptorPool> m_computeDescriptorPool;
+    VkDescriptorSet m_contourDescriptorSet = VK_NULL_HANDLE;
+
+    std::unique_ptr<lve::LveBuffer> m_stagingCounterBuffer;
+    std::unique_ptr<lve::LveBuffer> m_stagingPointsBuffer;
+    VkDeviceSize m_stagingPointsBufferSize = 0;
+
+private:
+    // GPU计算结果
+    std::unique_ptr<lve::LveBuffer> m_resultBuffer;
 };
