@@ -114,7 +114,7 @@ VkCommandBuffer LveRenderer::BeginFrame()
     return commandBuffer;
 }
 
-void LveRenderer::EndFrame()
+void LveRenderer::EndFrame(VkFence additionalFence)
 {
     assert(m_isFrameStarted && "Can't call endFrame while frame is not in progress");
 
@@ -124,6 +124,21 @@ void LveRenderer::EndFrame()
     }
 
     auto result = m_lveSwapChain->SubmitCommandBuffers(&commandBuffer, &m_currentImageIndex);
+
+    // --- 利用空提交触发附加的Fence ---
+    if (additionalFence != VK_NULL_HANDLE) {
+        VkSubmitInfo emptySubmit{};
+        emptySubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        // 紧跟着向同一个队列提交空任务，当这个队列排空时，就会点亮 additionalFence
+        if (vkQueueSubmit(m_lveDevice.graphicsQueue(),
+                          1,
+                          &emptySubmit,
+                          additionalFence) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("failed to submit additional compute fence!");
+        }
+    }
+
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_lveWindow.WasWindowResized()) {
         m_lveWindow.ResetWindowResizedFlag();
         RecreateSwapChain();

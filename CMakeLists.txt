@@ -31,6 +31,9 @@ file(GLOB_RECURSE ENTITIES_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE ALGORITHM_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.h")
+file(GLOB_RECURSE SLICE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -40,15 +43,12 @@ set(PROJECT_SOURCES
     src/FirstApp.cpp
     src/Simulation2DDialog.h
     src/Simulation2DDialog.cpp
-    src/SliceView.h
-    src/SliceView.cpp
     src/Global.h
-
 
     ${LVE_SOURCES}
     ${ENTITIES_SOURCES}
-    ${ECS_SOURCES}
     ${ALGORITHM_SOURCES}
+    ${SLICE_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})

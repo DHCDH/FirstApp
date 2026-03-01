@@ -41,10 +41,6 @@ struct alignas(16) MaterialUBO {
 	glm::uvec4 flags;
 };
 
-struct InstanceData {
-	glm::mat4 modelMatrix;
-};
-
 struct InstanceBatch {
 	LveModel* model = nullptr;
 	VkBuffer instanceBuffer = VK_NULL_HANDLE;	// 实例数据所在缓冲

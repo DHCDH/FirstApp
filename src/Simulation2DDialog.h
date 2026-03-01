@@ -22,7 +22,7 @@ public:
     ~Simulation2DDialog();
 
     void UpdateEntitiesData(const GrindingWheel& grndWheel, const Blank& blank,
-        const std::vector<lve::InstanceData>& grndWheelInstances);
+        const std::vector<glm::mat4>& grndWheelInstances);
     void BuildContactMask();
 
 private:
@@ -33,7 +33,7 @@ private:
 
     const Blank* m_blank = nullptr;
     const GrindingWheel* m_grndWheel = nullptr;
-    std::vector<lve::InstanceData> m_grndWheelInstances;
+    std::vector<glm::mat4> m_grndWheelInstances;
 
     double m_viewHalfSize{ 8. };
 

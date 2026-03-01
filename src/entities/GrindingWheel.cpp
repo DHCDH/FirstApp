@@ -99,7 +99,7 @@ lve::TransformComponent GrindingWheel::EvaluateAtTime(const float& t)
 }
 
 void GrindingWheel::CalculateGrindingWheelInstances(
-    std::vector<lve::InstanceData>& instances, const std::vector<ToolPath>& toolPaths)
+    std::vector<glm::mat4>& instances, const std::vector<ToolPath>& toolPaths)
 {
     lve::TransformComponent transform{};
     size_t totalSize = 0;
@@ -147,8 +147,7 @@ void GrindingWheel::CalculateGrindingWheelInstances(
 
             // 4. 组合最终矩阵 (M = T * R * S)
             // 注意乘法顺序：先缩放，再旋转，最后位移
-            lve::InstanceData instance{};
-            instance.modelMatrix = translationMat * rotationMat * scaleMat;
+            glm::mat4 instance = translationMat * rotationMat * scaleMat;
             #endif
 
             instances.emplace_back(instance);

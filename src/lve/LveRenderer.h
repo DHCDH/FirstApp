@@ -35,7 +35,7 @@ namespace lve {
 
 		/*帧生命周期*/
 		VkCommandBuffer BeginFrame();
-		void EndFrame();
+		void EndFrame(VkFence additionFence = VK_NULL_HANDLE);
 		void BeginSwapChainRenderPass(VkCommandBuffer commandBuffer);
 		void EndSwapChainRenderPass(VkCommandBuffer commandBuffer);
 

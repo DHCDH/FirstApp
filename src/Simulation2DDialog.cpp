@@ -8,7 +8,7 @@
 #include <QMouseEvent>
 #include <QCheckBox>
 
-#include "SliceView.h"
+#include "slice/SliceView.h"
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
@@ -84,7 +84,7 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 
 void Simulation2DDialog::UpdateEntitiesData(
     const GrindingWheel& grndWheel, const Blank& blank, 
-    const std::vector<lve::InstanceData>& grndWheelInstances)
+    const std::vector<glm::mat4>& grndWheelInstances)
 {
     m_grndWheel = &grndWheel;
     m_blank = &blank;
@@ -94,8 +94,7 @@ void Simulation2DDialog::UpdateEntitiesData(
 void Simulation2DDialog::BuildContactMask()
 {
     m_sliceView->UpdateSliceViewConfig(UpdateView());
-    m_sliceView->SetBlankModel(m_blank->GetModel());
-    m_sliceView->SetGrindingWheelModel(m_grndWheel->GetModel());
+    m_sliceView->SetModel(m_blank->GetModel(), m_grndWheel->GetModel());
 
     // 将分辨率和点数实时显示在标题栏
     SliceViewConfig currentConfig = UpdateView();
@@ -113,10 +112,10 @@ void Simulation2DDialog::BuildContactMask()
     SliceFrameData frameData{};
     frameData.normal = {1.f, 0.f, 0.f};
     frameData.point = {0.f, 0.f, 0.f};
-    frameData.blankModel = glm::mat4(1.f);
-    frameData.wheelModels.reserve(m_grndWheelInstances.size());
+    frameData.blankMatrix = glm::mat4(1.f);
+    frameData.wheelMatrixes.reserve(m_grndWheelInstances.size());
     for (const auto& instance : m_grndWheelInstances) {
-        frameData.wheelModels.push_back(instance.modelMatrix);
+        frameData.wheelMatrixes.push_back(instance);
     }
 
     /*执行GPU计算*/
@@ -141,7 +140,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.nZ = static_cast<uint32_t>(h * renderScale);
     #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 4096u;
+    const uint32_t FIXED_RES = 2048u;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
     #endif

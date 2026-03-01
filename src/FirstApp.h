@@ -83,7 +83,7 @@ public:
         }
         return *m_lveDevice;
     }
-    const std::vector<lve::InstanceData>& GetGrindingWheelInstances() const
+    const std::vector<glm::mat4>& GetGrindingWheelInstances() const
     {
         return m_grndWheelInstances;
     }
@@ -173,7 +173,7 @@ private:
     lve::LveObject::id_t m_blankId{};
 
     /*实例数组*/
-    std::vector<lve::InstanceData> m_grndWheelInstances;        // CPU侧实例数组
+    std::vector<glm::mat4> m_grndWheelInstances;        // CPU侧实例数组
     std::unique_ptr<lve::LveBuffer> m_grndWheelInstanceBuffer;  // GPU侧实例数组
     uint32_t m_grndWheelInstanceCount{};
 };

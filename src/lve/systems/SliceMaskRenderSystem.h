@@ -28,7 +28,7 @@ public:
     void RenderPlaneInjection(const SlicePlaneInfo& info);
     void RenderSliceContour(const SliceInstancedInfo& info);
 
-    // 对应图形管线中的Render***函数
+    // 对应图形管线中的Render函数
     void DispatchExtractContour(const SliceComputeInfo& info);
 
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);

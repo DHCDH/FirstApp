@@ -118,7 +118,8 @@ void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
     /*binding = 1*/
     VkVertexInputBindingDescription instanceBinding{};
     instanceBinding.binding = 1;
-    instanceBinding.stride = sizeof(InstanceData);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
+    instanceBinding.stride =
+        sizeof(glm::mat4);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
     instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     bindingDescs.push_back(instanceBinding);
 
@@ -166,7 +167,7 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
     /*binding = 1*/
     VkVertexInputBindingDescription instanceBinding{};
     instanceBinding.binding = 1;
-    instanceBinding.stride = sizeof(InstanceData);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
+    instanceBinding.stride = sizeof(glm::mat4);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
     instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     bindingDescs.push_back(instanceBinding);
 

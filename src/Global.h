@@ -50,18 +50,6 @@ struct SlicePlaneInfo {
     glm::vec3 point{0.f, 0.f, 0.f};
 };
 
-// 用于计算
-struct SliceComputeInfo {
-    VkCommandBuffer commandBuffer;
-    VkDescriptorSet descriptorSet;
-    uint32_t width;
-    uint32_t height;
-    uint32_t maxPoints{50000};
-    glm::vec3 normal{1.f, 0.f, 0.f};
-    glm::vec3 point{0.f, 0.f, 0.f};
-    glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz。用于将像素坐标转换为世界坐标
-};
-
 // 定义每一帧的仿真物理状态
 struct SliceFrameData {
     bool displayWireframe{true};
@@ -69,8 +57,20 @@ struct SliceFrameData {
     glm::vec3 normal;   // 截平面法向
     glm::vec3 point;    // 截平面点
 
-    glm::mat4 blankModel;                // 棒料的世界变换矩阵
-    std::vector<glm::mat4> wheelModels;  // 所有砂轮实例
+    glm::mat4 blankMatrix;                // 棒料的世界变换矩阵
+    std::vector<glm::mat4> wheelMatrixes;  // 所有砂轮实例
+};
+
+// 用于计算
+struct SliceComputeInfo {
+    VkCommandBuffer commandBuffer;
+    VkDescriptorSet descriptorSet;
+    uint32_t width;
+    uint32_t height;
+    uint32_t maxPoints;
+    glm::vec3 normal{1.f, 0.f, 0.f};
+    glm::vec3 point{0.f, 0.f, 0.f};
+    glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz。用于将像素坐标转换为世界坐标
 };
 
 // 定义图像分辨率和世界坐标视野

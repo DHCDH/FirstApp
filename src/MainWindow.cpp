@@ -16,7 +16,7 @@
 
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
-#include "SliceView.h"
+#include "slice/SliceView.h"
 #include "lve/LveWindow.h"
 
 MainWindow::MainWindow(QWidget* parent)

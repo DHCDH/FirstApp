@@ -363,7 +363,7 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
     m_grindingWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, m_toolpaths);
 
     /*将实例数组上传GPU*/
-    VkDeviceSize bufferSize = sizeof(InstanceData) * m_grndWheelInstances.size();
+    VkDeviceSize bufferSize = sizeof(glm::mat4) * m_grndWheelInstances.size();
     m_grndWheelInstanceCount = static_cast<uint32_t>(m_grndWheelInstances.size());
     if (!m_grndWheelInstanceBuffer ||
         m_grndWheelInstanceBuffer->GetBufferSize() < bufferSize) {
@@ -372,7 +372,7 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
                   << "\n";
         m_grndWheelInstanceBuffer = std::make_unique<lve::LveBuffer>(
             *m_lveDevice,
-            sizeof(InstanceData),
+            sizeof(glm::mat4),
             m_grndWheelInstanceCount,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -380,7 +380,7 @@ void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCo
 
     lve::LveBuffer stagingBuffer(
         *m_lveDevice,
-        sizeof(InstanceData),
+        sizeof(glm::mat4),
         m_grndWheelInstanceCount,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -417,7 +417,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     batch.model = it->second.model.get();  // 绑定砂轮模型(location = 0)
     batch.instanceBuffer = m_grndWheelInstanceBuffer->GetBuffer();
     batch.instanceCount = m_grndWheelInstanceCount;
-    batch.instanceStride = sizeof(InstanceData);
+    batch.instanceStride = sizeof(glm::mat4);
 
     // （可选）复用砂轮的贴图/材质参数
     if (frameInfo.materialDescriptorSets) {

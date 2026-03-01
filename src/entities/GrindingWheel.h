@@ -34,7 +34,7 @@ public:
     lve::TransformComponent Update(const float& dt);
     lve::TransformComponent EvaluateAtTime(const float& t);
     void CalculateGrindingWheelInstances(
-        std::vector<lve::InstanceData>& instances,
+        std::vector<glm::mat4>& instances,
         const std::vector<ToolPath>& toolPaths);
 
 private:

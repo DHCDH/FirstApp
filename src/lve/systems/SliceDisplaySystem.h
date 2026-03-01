@@ -10,8 +10,8 @@
 namespace lve
 {
 struct SliceDisplayPushConstants {
-    int showMode = 1;      // 0: Solic, 1: Wireframe
-    glm::vec2 texelSize;  // {1/w, 1/h}
+    int showMode = 1;      // 0: Solid, 1: Wireframe
+    alignas(8) glm::vec2 texelSize;  // {1/w, 1/h}
 };
 
 class SliceDisplaySystem

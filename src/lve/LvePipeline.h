@@ -67,9 +67,9 @@ private:
 
     LveDevice& m_lveDevice;
     VkPipeline m_graphicsPipeline;      // Vulkan管道对象的句柄
-    VkShaderModule m_vertShaderModule;  // Vulkan着色器模块的句柄
-    VkShaderModule m_fragShaderModule;
-    VkShaderModule m_geomShaderModule = VK_NULL_HANDLE;
+    VkShaderModule m_vertShaderModule{VK_NULL_HANDLE};  // Vulkan着色器模块的句柄
+    VkShaderModule m_fragShaderModule{VK_NULL_HANDLE};
+    VkShaderModule m_geomShaderModule{VK_NULL_HANDLE};
 };
 
 }  // namespace lve
