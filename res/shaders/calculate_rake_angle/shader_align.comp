@@ -1,0 +1,55 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+// binding = 2: 第一阶段提取出的点数量
+layout(std430, set = 0, binding = 2) buffer Counter {
+    uint count;
+};
+
+layout(std430, set = 0, binding = 6) buffer TempSorted {
+    vec2 tempPoints[];
+};
+
+layout(std430, set = 0, binding = 7) buffer FinalPoints {
+    vec2 finalPoints[];
+};
+
+layout(push_constant) uniform Push{
+    uint maxPoints;
+    vec3 normal;
+    vec3 point;
+    vec4 mapInfo;
+    int isRightCut;
+}push;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    uint validCount = count;
+    if (i >= validCount) return;
+
+    // 获取曲线的两端
+    vec2 p0 = tempPoints[0];
+    vec2 p1 = tempPoints[validCount - 1];
+
+    float angle0 = atan(p0.y, p0.x);
+    float angle1 = atan(p1.y, p1.x);
+
+    float diff = angle1 - angle0;
+    if (diff > 3.1415926) diff -= 6.2831853;
+    if (diff < -3.1415926) diff += 6.2831853;
+
+    // 默认认为现在的方向是正确的
+    bool reverseArray = false;
+
+    if (push.isRightCut == 1) {
+        // 右切，容屑槽逆时针第一个点为刀尖点
+        if (diff < 0.) reverseArray = true; 
+    } else {
+        if (diff > 0.) reverseArray = true;
+    }
+
+    uint targetIdx = reverseArray ? (validCount - 1 - i) : i;
+    finalPoints[targetIdx] = tempPoints[i];
+}

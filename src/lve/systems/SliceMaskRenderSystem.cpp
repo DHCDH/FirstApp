@@ -22,7 +22,8 @@ struct SliceComputePushConstants {
     alignas(16) glm::vec3 normal;
     alignas(16) glm::vec3 point;
     alignas(16) glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz
-}; 
+    int isRightCut{1};
+};
 
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
                                              VkDescriptorSetLayout graphicsSetLayouts,
@@ -664,6 +665,21 @@ void SliceMaskRenderSystem::CreateComputePipeline()
         m_lveDevice,
         "../../../res/shaders/spv/shader_extract_contour.comp.spv",
         configInfo);
+
+    m_knnPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_sort_contour.comp.spv",
+        configInfo);
+
+    m_tracePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_trace.comp.spv",
+        configInfo);
+
+    m_alignPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_align.comp.spv",
+        configInfo);
 }
 
 void SliceMaskRenderSystem::BindBlankDepthPipeline(VkCommandBuffer commandBuffer)
@@ -882,11 +898,11 @@ void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
                             nullptr);
 
     // 推送平面参数
-    SliceComputePushConstants push{};
-    push.normal = info.normal;
-    push.point = info.point;
-    push.maxPoints = info.maxPoints;
-    push.mapInfo = info.mapInfo;
+    SliceComputePushConstants push{info.maxPoints,
+                                   info.normal,
+                                   info.point,
+                                   info.mapInfo,
+                                   1};
     vkCmdPushConstants(info.commandBuffer,
                        m_computePipelineLayout,
                        VK_SHADER_STAGE_COMPUTE_BIT,
@@ -898,6 +914,63 @@ void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
     uint32_t groupCountX = (info.width + 15) / 16;
     uint32_t groupCountY = (info.height + 15) / 16;
     vkCmdDispatch(info.commandBuffer, groupCountX, groupCountY, 1);
+}
+
+void SliceMaskRenderSystem::DispatchTopologyReconstruction(const SliceComputeInfo& info,
+                                                           bool isRightCut)
+{
+    vkCmdBindDescriptorSets(info.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_computePipelineLayout,
+                            0,
+                            1,
+                            &info.descriptorSet,
+                            0,
+                            nullptr);
+
+    // 直接使用MAX_POINTS作为点数量。可用vkCmdDispatchIndirect进行优化
+    uint32_t groupCount = (info.maxPoints + 255) / 256;
+
+    // --- 派发KNN建图 ---
+    m_knnPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(info.commandBuffer, groupCount, 1, 1);
+
+    // --- 内部屏障，等待KNN写完 ---
+    VkMemoryBarrier computeBarrier{};
+    computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    computeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(info.commandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         1,
+                         &computeBarrier,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr);
+
+    // --- 派发单线程追踪 ---
+    m_tracePipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(info.commandBuffer, 1, 1, 1);
+
+    // 内部屏障，等待Trace写完
+    vkCmdPipelineBarrier(info.commandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         1,
+                         &computeBarrier,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr);
+
+    // --- 派发对齐翻转 ---
+    m_alignPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(info.commandBuffer, groupCount, 1, 1);
+
 }
 
 }  // namespace lve

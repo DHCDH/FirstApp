@@ -31,6 +31,8 @@ public:
     // 对应图形管线中的Render函数
     void DispatchExtractContour(const SliceComputeInfo& info);
 
+    void DispatchTopologyReconstruction(const SliceComputeInfo& info, bool isRightCut = 1);
+
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);
     void BindBlankColorPipeline(VkCommandBuffer commandBuffer);
     void BindGrindingWheelStencilFrontPipeline(VkCommandBuffer commandBuffer);
@@ -101,6 +103,11 @@ private:
     // 提取交集轮廓点
     VkPipelineLayout m_computePipelineLayout;
     std::unique_ptr<LvePipeline> m_extractContourPipeline;
+
+    // 轮廓点排序
+    std::unique_ptr<LvePipeline> m_knnPipeline;
+    std::unique_ptr<LvePipeline> m_tracePipeline;
+    std::unique_ptr<LvePipeline> m_alignPipeline;
 
     void CreateComputePipelineLayout(const VkDescriptorSetLayout& setLayout);
     void CreateComputePipeline();

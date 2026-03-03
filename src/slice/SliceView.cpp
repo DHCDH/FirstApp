@@ -182,7 +182,7 @@ void SliceView::ProcessAnalysisResult()
             std::cout << std::fixed << std::setprecision(4);
             std::cout << "========= GPU Geometry Analysis =========\n";
             std::cout << "Core Radius: " << radius << " mm\n"
-                      << "   @ Point : (" << resultData.coreRadiusPoint.x << ", "
+                      << "Core Radius Point : (" << resultData.coreRadiusPoint.x << ", "
                       << resultData.coreRadiusPoint.y << ")\n";
             std::cout << "Slot Width : " << slotWidth << " deg\n";
             std::cout << "-----------------------------------------\n";

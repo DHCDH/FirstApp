@@ -317,6 +317,32 @@ void SliceResourceContext::CreateComputeResources()
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    // --- 获取前角所需buffer ---
+    m_knnBuffer = std::make_unique<LveBuffer>(m_lveDevice,
+                                              sizeof(uint32_t) * 4,
+                                              MAX_POINTS,
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_tipInfoBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(uint32_t),
+        2,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_tempSortedBuffer = std::make_unique<LveBuffer>(m_lveDevice,
+                                                     sizeof(glm::vec2),
+                                                     MAX_POINTS,
+                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_sortedPointsBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(glm::vec2),
+        MAX_POINTS,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,  // 最终结果，必须能作为SRC拷贝回CPU
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
     // 创建计算描述符集布局
     m_contourComputeSetLayout =
         LveDescriptorSetLayout::Builder(m_lveDevice)
@@ -326,19 +352,28 @@ void SliceResourceContext::CreateComputeResources()
             .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
+
     // 更新描述符池
     m_computeDescriptorPool =
         LveDescriptorPool::Builder(m_lveDevice)
             .SetMaxSets(1)
             .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7)
             .Build();
 
     // 绑定资源并构建 Descriptor Set
     auto pointsInfo = m_contourPointsBuffer->DescriptorInfo();
     auto counterInfo = m_counterBuffer->DescriptorInfo();
     auto resultBufferInfo = m_resultBuffer->DescriptorInfo();
+    auto knnInfo = m_knnBuffer->DescriptorInfo();
+    auto tipInfoBufferInfo = m_tipInfoBuffer->DescriptorInfo();
+    auto tempSortedInfo = m_tempSortedBuffer->DescriptorInfo();
+    auto finalPointsInfo = m_sortedPointsBuffer->DescriptorInfo();
     auto imageInfo = VkDescriptorImageInfo{m_maskSampler,
                                            m_blankMaskView,
                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -347,6 +382,10 @@ void SliceResourceContext::CreateComputeResources()
         .WriteBuffer(1, &pointsInfo)
         .WriteBuffer(2, &counterInfo)
         .WriteBuffer(3, &resultBufferInfo)
+        .WriteBuffer(4, &knnInfo)
+        .WriteBuffer(5, &tipInfoBufferInfo)
+        .WriteBuffer(6, &tempSortedInfo)
+        .WriteBuffer(7, &finalPointsInfo)
         .Build(m_contourDescriptorSet);
 
     // 创建staging buffer

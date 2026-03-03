@@ -39,6 +39,7 @@ layout(push_constant) uniform Push{
     vec3 normal;
     vec3 point;
     vec4 mapInfo;
+    int isRightCut;
 }push;
 
 // 读取原始二值(1.0 == 交集， 0.0 == 砂轮/棒料/背景)

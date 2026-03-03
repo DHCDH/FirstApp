@@ -1,0 +1,89 @@
+#version 450
+
+layout (local_size_x = 1) in;   // 单线程
+
+// binding = 1: 轮廓点buffer
+layout(std430, set = 0, binding = 1) buffer OutPoints {
+    vec2 points[];
+};
+
+// binding = 2: 第一阶段提取出的点数量
+layout(std430, set = 0, binding = 2) buffer Counter {
+    uint count;
+};
+
+// 存储每个点最近的4个邻居索引
+layout(std430, set = 0, binding = 4) buffer KNN {
+    uint knn[];
+};
+
+// 存储最远点信息
+layout(std430, set = 0, binding = 5) buffer TipInfo {
+    uint maxDistBits;
+    uint tipIndex;
+}tipInfo;
+
+layout(std430, set = 0, binding = 6) buffer TempSorted {
+    vec2 tempPoints[];
+};
+
+// --- 使用共享内存作为位图，标记点是否被访问过 ---
+// 0: 未访问；1: 已访问
+// 512个uint可以标记16384个点
+uint visited[512];
+
+bool isVisited(uint idx) {
+    // n1 = idx / 32: idx在第n1个uint
+    // n2 = (1u << (idx % 32)): idx在第n1个uint的第n2位
+    return (visited[idx / 32] & (1u << (idx % 32))) != 0;
+}
+
+void setVisited(uint idx) {
+    visited[idx / 32] |= (1u << (idx % 32));
+}
+
+void main()
+{
+    uint validCount = count;
+    if (validCount == 0) return;
+
+    // --- 初始化位图 ---
+    for (uint i = 0; i < 512; i++) {
+        visited[i] = 0;
+    }
+
+    // --- 从距离圆心最远的点开始追踪 ---
+    uint curr = tipInfo.tipIndex;
+    for (uint step = 0; step < validCount; step++) {
+        tempPoints[step] = points[curr];
+        setVisited(curr);
+
+        if (step == validCount - 1) break;
+
+        uint nextIdx = 0xFFFFFFFF;
+        for (uint k = 0; k < 4; k++) {
+            uint n = knn[curr * 4 + k];
+            if (!isVisited(n)) {
+                nextIdx = n;
+                break;
+            }
+        }
+
+        // --- 如果4个邻居全部被访问过，执行一次全局搜索 ---
+        if (nextIdx == 0xFFFFFFFF) {
+            float minDist = 99999.0;
+            vec2 pCurr = points[curr];
+            for (uint i = 0; i < validCount; i++) {
+                if (!isVisited(i)) {
+                    float d = dot(pCurr - points[i], pCurr - points[i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        nextIdx = i;
+                    }
+                }
+            }
+        }
+        curr = nextIdx;
+    }
+
+}

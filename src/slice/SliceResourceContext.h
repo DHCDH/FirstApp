@@ -141,6 +141,11 @@ private:
     std::unique_ptr<lve::LveBuffer> m_contourPointsBuffer = nullptr;
     std::unique_ptr<lve::LveBuffer> m_counterBuffer = nullptr;
     std::unique_ptr<lve::LveBuffer> m_resultBuffer = nullptr;
+    // 获取前角用到的缓冲指针
+    std::unique_ptr<lve::LveBuffer> m_knnBuffer = nullptr;
+    std::unique_ptr<lve::LveBuffer> m_tipInfoBuffer = nullptr;
+    std::unique_ptr<lve::LveBuffer> m_tempSortedBuffer = nullptr;
+    std::unique_ptr<lve::LveBuffer> m_sortedPointsBuffer = nullptr;
 
     // compute descriptor
     std::unique_ptr<lve::LveDescriptorSetLayout> m_contourComputeSetLayout = nullptr;

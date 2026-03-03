@@ -291,6 +291,53 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                               frameData.point,
                               mapInfo};
         m_renderSystem->DispatchExtractContour(info);
+
+        // 插入计算屏障，等待提取shader完成写入
+        VkMemoryBarrier computeBarrier{};
+        computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        computeBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             1,
+                             &computeBarrier,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr);
+
+        // 清空TipInfo Buffer，为每次提取重新寻找最远点做准备
+        vkCmdFillBuffer(commandBuffer,
+                        context.m_tipInfoBuffer->GetBuffer(),
+                        0,
+                        sizeof(uint32_t) * 2,
+                        0);
+
+        // --- 插入传输屏障，等待vkCmdFillBuffer完成 ---
+        VkMemoryBarrier fillBarrier{};
+        fillBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        fillBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        fillBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             1,
+                             &fillBarrier,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr);
+
+        bool isRightCut = 1;   // viewConfig.isRightCut;
+
+        m_renderSystem->DispatchTopologyReconstruction(info, isRightCut);
     }
 
     VkBufferMemoryBarrier computeToTransferBarriers[3] = {};
@@ -305,7 +352,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
     computeToTransferBarriers[1].buffer = context.m_resultBuffer->GetBuffer();
 
     computeToTransferBarriers[2] = computeToTransferBarriers[0];
-    computeToTransferBarriers[2].buffer = context.m_contourPointsBuffer->GetBuffer();
+    computeToTransferBarriers[2].buffer = context.m_sortedPointsBuffer->GetBuffer();
 
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -343,7 +390,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
     copyPoints.dstOffset = sizeof(ResultData) + sizeof(uint32_t);
     copyPoints.size = sizeof(glm::vec2) * MAX_POINTS;  // 假设 maxPoints 是 50000
     vkCmdCopyBuffer(commandBuffer,
-                    context.m_contourPointsBuffer->GetBuffer(),
+                    context.m_sortedPointsBuffer->GetBuffer(),
                     context.m_readbackBuffer->GetBuffer(),
                     1,
                     &copyPoints);

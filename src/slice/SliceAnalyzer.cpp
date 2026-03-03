@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <iostream>
+#include <fstream>
 
 using namespace lve;
 
@@ -64,6 +65,29 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
 
     // 解除映射
     context.m_readbackBuffer->Unmap();
+
+    #if 1
+    {
+        // 将点外轮廓点写入文件
+        std::cout << "Contour points size: " << m_contourPoints.size() << std::endl;
+        std::string filepath =
+            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\points.txt";
+        std::ofstream outFile(filepath);
+        if (!outFile.is_open()) {
+            std::cerr << "[ERROR] Failed to open file：" << filepath << std::endl;
+            return true;
+        }
+        for (const auto& pos : m_contourPoints) {
+            outFile << "(" << pos.x << ", " << pos.y << ")\n";
+        }
+        outFile.close();
+        if (outFile.fail()) {
+            std::cerr << "[ERROR] Write file: " << filepath << " failed" << std::endl;
+        } else {
+            std::cout << "[SUCCESS] Write coordinates into file：" << filepath << std::endl;
+        }
+    }
+    #endif
 
     return true;
 }
