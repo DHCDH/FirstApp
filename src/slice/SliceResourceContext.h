@@ -30,6 +30,11 @@ struct ResultData {
     alignas(8) glm::vec2 maxAnglePointA{0.f};
     alignas(8) glm::vec2 minAnglePointB{0.f};
     alignas(8) glm::vec2 maxAnglePointB{0.f};
+
+    alignas(8) glm::vec2 tipPoint;  // 刀尖点
+    alignas(8) glm::vec2 tangent;   // 容屑槽刀尖点处的切向量
+    float rakeAngle;                // 前角
+    float slotAngle;                // 槽宽角
 };
 
 constexpr uint32_t MAX_POINTS = 50000;

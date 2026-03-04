@@ -33,6 +33,7 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_ex
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\calculate_rake_angle\shader_sort_contour.comp -o res\shaders\spv\shader_sort_contour.comp.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\calculate_rake_angle\shader_trace.comp -o res\shaders\spv\shader_trace.comp.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\calculate_rake_angle\shader_align.comp -o res\shaders\spv\shader_align.comp.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\calculate_rake_angle\shader_rake_angle.comp -o res\shaders\spv\shader_rake_angle.comp.spv
 
 
 pause

@@ -184,7 +184,10 @@ void SliceView::ProcessAnalysisResult()
             std::cout << "Core Radius: " << radius << " mm\n"
                       << "Core Radius Point : (" << resultData.coreRadiusPoint.x << ", "
                       << resultData.coreRadiusPoint.y << ")\n";
-            std::cout << "Slot Width : " << slotWidth << " deg\n";
+            std::cout << "Rake Angle : " << resultData.rakeAngle << " deg\n";
+            std::cout << "Tangent : (" << resultData.tangent.x << ", "
+                      << resultData.tangent.y << ")\n";
+            std::cout << "Slot Angle : " << resultData.slotAngle << " deg\n";
             std::cout << "-----------------------------------------\n";
         }
 

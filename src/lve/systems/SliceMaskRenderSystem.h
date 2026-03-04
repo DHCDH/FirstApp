@@ -109,6 +109,9 @@ private:
     std::unique_ptr<LvePipeline> m_tracePipeline;
     std::unique_ptr<LvePipeline> m_alignPipeline;
 
+    // 计算前角
+    std::unique_ptr<LvePipeline> m_rakeAnglePipeline;
+
     void CreateComputePipelineLayout(const VkDescriptorSetLayout& setLayout);
     void CreateComputePipeline();
 };

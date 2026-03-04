@@ -680,6 +680,11 @@ void SliceMaskRenderSystem::CreateComputePipeline()
         m_lveDevice,
         "../../../res/shaders/spv/shader_align.comp.spv",
         configInfo);
+
+    m_rakeAnglePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_rake_angle.comp.spv",
+        configInfo);
 }
 
 void SliceMaskRenderSystem::BindBlankDepthPipeline(VkCommandBuffer commandBuffer)
@@ -913,7 +918,30 @@ void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
     // 计算派发组数量
     uint32_t groupCountX = (info.width + 15) / 16;
     uint32_t groupCountY = (info.height + 15) / 16;
+
     vkCmdDispatch(info.commandBuffer, groupCountX, groupCountY, 1);
+
+    // --- 派发局部最小二乘前角拟合 ---
+    // 插入屏障：等待对齐翻转把 finalPoints 写完
+    VkMemoryBarrier alignBarrier{};
+    alignBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    alignBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    alignBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(info.commandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         1,
+                         &alignBarrier,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr);
+
+    m_rakeAnglePipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    vkCmdDispatch(info.commandBuffer, 1, 1, 1);
 }
 
 void SliceMaskRenderSystem::DispatchTopologyReconstruction(const SliceComputeInfo& info,
