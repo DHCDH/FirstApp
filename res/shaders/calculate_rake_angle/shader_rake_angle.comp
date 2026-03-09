@@ -35,15 +35,26 @@ layout(std430, set = 0, binding = 3) buffer OutputBuffer {
 
 void main() 
 {
+
     uint validCount = count;
+
+    // --- 获取槽宽角 ---
+    vec2 tipVec = finalPoints[0];               // 第一个点
+    vec2 heelVec = finalPoints[validCount - 1]; // 最后一个点
+    tipVec = normalize(tipVec);
+    heelVec = normalize(heelVec);
+    float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
+    outputBuffer.slotAngle = degrees(slotAngleRad);
+
+    
     // 点数过少无法拟合
     if (validCount < 50) return;
 
     // 用于拟合曲线的点数
-    uint N = 40;
+    uint N = 100;
 
     // --- 累积弦长参数化 ---
-    float t[40];
+    float t[100];
     t[0] = 0.;
     float totalLen = 0.;
     for (uint i = 1; i < N; i++) {
@@ -100,12 +111,4 @@ void main()
     outputBuffer.tipPoint = P0;
     outputBuffer.tangent = T;
     outputBuffer.rakeAngle = degrees(angleRad);
-
-    // --- 获取槽宽角 ---
-    vec2 tipVec = finalPoints[0];               // 第一个点
-    vec2 heelVec = finalPoints[validCount - 1]; // 最后一个点
-    tipVec = normalize(tipVec);
-    heelVec = normalize(heelVec);
-    float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
-    outputBuffer.slotAngle = degrees(slotAngleRad);
 }

@@ -32,6 +32,11 @@ layout(std430, set = 0, binding = 3) buffer OutputBuffer {
     vec2 maxAnglePointA;
     vec2 minAnglePointB;
     vec2 maxAnglePointB;
+
+    vec2 tipPoint;
+    vec2 tangent;
+    float rakeAngle;
+    float slotAngle;
 }outputBuffer;
 
 layout(push_constant) uniform Push{
@@ -212,6 +217,7 @@ void main()
         }
     }
 
+/*
     // --- 双相角度计算 ---
     
     // 计算System A
@@ -261,5 +267,6 @@ void main()
             break;
         }
     }
+*/
 
 }
