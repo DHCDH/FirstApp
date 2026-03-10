@@ -6,8 +6,21 @@
 #include "../Global.h"
 #include "LveCamera.h"
 #include "LveDevice.h"
+#include "LveModel.h"
 #include "LveObject.h"
 #include "LvePipeline.h"
+
+struct SliceMaskRenderPassData {
+    VkRenderPass renderPass;
+    uint32_t width;
+    uint32_t height;
+
+    VkFramebuffer frameBuffer;
+
+    VkDescriptorSet globalDescriptorSet;
+    lve::LveBuffer* grndWheelInstancesBuffer;
+    uint32_t grndWheelInstancesCount;
+};
 
 namespace lve
 {
@@ -28,11 +41,6 @@ public:
     void RenderPlaneInjection(const SlicePlaneInfo& info);
     void RenderSliceContour(const SliceInstancedInfo& info);
 
-    // 对应图形管线中的Render函数
-    void DispatchExtractContour(const SliceComputeInfo& info);
-
-    void DispatchTopologyReconstruction(const SliceComputeInfo& info, bool isRightCut = 1);
-
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);
     void BindBlankColorPipeline(VkCommandBuffer commandBuffer);
     void BindGrindingWheelStencilFrontPipeline(VkCommandBuffer commandBuffer);
@@ -49,6 +57,15 @@ public:
 
     // 计算砂轮截形外轮廓的几何着色器管线
     void CreateSliceContourPipeline(VkRenderPass renderPass);
+
+    // 整合渲染逻辑
+    void RenderMask(VkCommandBuffer commandBuffer,
+                    const SliceMaskRenderPassData& renderPassData,
+                    const RasterizerData& rasData, Plane plane);
+
+    // 整合计算逻辑
+    void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
+                      LveBuffer* tipInfoBuffer);
 
 private:
     LveDevice& m_lveDevice;

@@ -52,7 +52,7 @@ public:
 private:
     void InitDisplayResources();
     void RecreateDisplayDescriptorSet();
-    void ProcessAnalysisResult();
+    void ProcessAnalysisResult(const SliceFrameData& frameData);
 
 private:
     lve::LveModel* m_blankModel = nullptr;

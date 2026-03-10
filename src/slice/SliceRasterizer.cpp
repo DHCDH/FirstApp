@@ -65,119 +65,78 @@ void SliceRasterizer::UpdateInstances(const std::vector<glm::mat4>& instanceData
     m_lveDevice.endSingleTimeCommands(copyCmd);
 }
 
-void SliceRasterizer::DrawOnscreenWireframe(VkCommandBuffer commandBuffer, SliceResourceContext& context,
-    const RasterizerData& rasterizerData)
+void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
+                                       SliceResourceContext& context,
+                                       const RasterizerData& rasterizerData,
+                                       const SliceFrameData& frameData,
+                                       const SliceViewConfig& viewConfig)
 {
-
-}
-
-void SliceRasterizer::DrawMask(VkCommandBuffer commandBuffer,
-                               SliceResourceContext& context,
-                               const RasterizerData& rasterizerData)
-{
-    // --- 配置离屏Render Pass ---
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = context.m_maskRenderPass;
-    renderPassInfo.framebuffer = context.m_blankMaskFramebuffer;
-    // 设置渲染区域
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = {context.m_width, context.m_height};
-
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color.uint32[0] = 0u;
-    clearValues[1].depthStencil = {1.0f, 0};
-    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    renderPassInfo.pClearValues = clearValues.data();
-
-    // 开始离屏Pass
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // 设置动态视口和裁剪
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(context.m_width);
-    viewport.height = static_cast<float>(context.m_height);
-    viewport.minDepth = 0.f;
-    viewport.maxDepth = 1.f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = {context.m_width, context.m_height};
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-    if (m_renderSystem) {
-        SlicePlaneInfo planeInfo{commandBuffer,
-                                 context.m_globalDescriptorSet,  // 传入全局 UBO 描述符
-                                 rasterizerData.normal,
-                                 rasterizerData.point};
-        m_renderSystem->BindPlaneInjectionPipeline(commandBuffer);
-        m_renderSystem->RenderPlaneInjection(planeInfo);
+    uint32_t numPlane = static_cast<uint32_t>(frameData.planes.size());
+    if (numPlane == 0) {
+        throw std::runtime_error("No plane to process");
     }
 
-    // --- 绘制棒料 ---
-    if (rasterizerData.blankModel != nullptr) {
-        SliceDrawInfo info{commandBuffer,
-                           *rasterizerData.blankModel,
-                           rasterizerData.blankMatrix,
-                           context.m_globalDescriptorSet,
-                           rasterizerData.normal,
-                           rasterizerData.point};
+    SliceMaskRenderPassData renderPassData{context.m_maskRenderPass,
+                                           context.m_width,
+                                           context.m_height,
+                                           context.m_blankMaskFramebuffer,
+                                           context.m_globalDescriptorSet,
+                                           m_grndWheelInstancesBuffer.get(),
+                                           m_grndWheelInstancesCount};
 
-        // 写入Stencil
-        m_renderSystem->BindBlankStencilPipeline(commandBuffer);
-        m_renderSystem->RenderBlank(info);
+    auto process_single_plane = [&](uint32_t planeIdx, bool isLastPlane) {
+        const Plane& curPlane = frameData.planes[planeIdx];
 
-        m_renderSystem->BindBlankColorPipeline(commandBuffer);
-        m_renderSystem->RenderBlank(info);
-    }
-
-    // --- 绘制砂轮实例 ---
-    if (rasterizerData.grndWheelModel != nullptr && m_grndWheelInstancesCount > 0) {
-        SliceInstancedInfo instInfo{commandBuffer,
-                                    *rasterizerData.grndWheelModel,
-                                    m_grndWheelInstancesBuffer->GetBuffer(),
-                                    m_grndWheelInstancesCount,
-                                    context.m_globalDescriptorSet,
-                                    rasterizerData.normal,
-                                    rasterizerData.point};
-
-        const uint32_t BATCH_SIZE = 100;
-        for (uint32_t i = 0; i < m_grndWheelInstancesCount; i += BATCH_SIZE) {
-            // 计算当前批次大小
-            uint32_t curCount = BATCH_SIZE < m_grndWheelInstancesCount - i
-                                    ? BATCH_SIZE
-                                    : m_grndWheelInstancesCount - i;
-            instInfo.instanceCount = curCount;
-
-            /*绘制砂轮前表面*/
-            m_renderSystem->BindGrindingWheelStencilFrontPipeline(commandBuffer);
-            m_renderSystem->RenderGrindingWheelInstances(instInfo, i);
-
-            /*绘制砂轮后表面*/
-            m_renderSystem->BindGrindingWheelStencilBackPipeline(commandBuffer);
-            m_renderSystem->RenderGrindingWheelInstances(instInfo, i);
-
-            m_renderSystem->BindStencilResolvePipeline(commandBuffer);
-            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
-            m_renderSystem->BindStencilClearPipeline(commandBuffer);
-            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        // --- 离屏渲染 ---
+        if (m_renderSystem) {
+            m_renderSystem->RenderMask(commandBuffer,
+                                       renderPassData,
+                                       rasterizerData,
+                                       curPlane);
         }
-    } else {
-        throw std::runtime_error("Invalid grinding wheel instances data.");
+
+        // --- 派发计算 ---
+        DispatchCompute(commandBuffer, context, frameData, viewConfig, planeIdx);
+
+        // --- 尾部安全屏障 ---
+        if (!isLastPlane) {
+            VkMemoryBarrier tailBarrier{};
+            tailBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            tailBarrier.srcAccessMask =
+                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            tailBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                        VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(commandBuffer,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0,
+                                 1,
+                                 &tailBarrier,
+                                 0,
+                                 nullptr,
+                                 0,
+                                 nullptr);
+        }
+    };
+
+    for (uint32_t i = 0; i < numPlane; i++) {
+        if (i == frameData.displayPlaneIdx) continue;
+        process_single_plane(i, false);
     }
 
-    // 结束RenderPass
-    vkCmdEndRenderPass(commandBuffer);
+    process_single_plane(frameData.displayPlaneIdx, true);
+
+    ReadbackFromGPU(commandBuffer, context, numPlane);
 }
 
 void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                                       SliceResourceContext& context,
                                       const SliceFrameData& frameData,
-                                      const SliceViewConfig& viewConfig)
+                                      const SliceViewConfig& viewConfig,
+                                      uint32_t planeIdx)
 {
     // --- 设置内存屏障与计算着色器 ---
     std::vector<VkImageMemoryBarrier> barriers;
@@ -231,7 +190,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
     ResultData resultData;
     vkCmdUpdateBuffer(commandBuffer,
                       context.m_resultBuffer->GetBuffer(),
-                      0,
+                      sizeof(ResultData) * planeIdx,    // 根据索引计算内存偏移
                       sizeof(ResultData),
                       &resultData);
 
@@ -282,64 +241,25 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
             (viewConfig.zMin - viewConfig.zMax) / static_cast<float>(viewConfig.nZ);
         glm::vec4 mapInfo = {viewConfig.xMin, viewConfig.zMax, dx, dz};
 
-        SliceComputeInfo info{commandBuffer,
-                              context.m_contourDescriptorSet,
-                              viewConfig.nX,
-                              viewConfig.nZ,
-                              MAX_POINTS,
-                              frameData.normal,
-                              frameData.point,
-                              mapInfo};
-        m_renderSystem->DispatchExtractContour(info);
-
-        // 插入计算屏障，等待提取shader完成写入
-        VkMemoryBarrier computeBarrier{};
-        computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        computeBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-
-        vkCmdPipelineBarrier(commandBuffer,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             1,
-                             &computeBarrier,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr);
-
-        // 清空TipInfo Buffer，为每次提取重新寻找最远点做准备
-        vkCmdFillBuffer(commandBuffer,
-                        context.m_tipInfoBuffer->GetBuffer(),
-                        0,
-                        sizeof(uint32_t) * 2,
-                        0);
-
-        // --- 插入传输屏障，等待vkCmdFillBuffer完成 ---
-        VkMemoryBarrier fillBarrier{};
-        fillBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        fillBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        fillBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-
-        vkCmdPipelineBarrier(commandBuffer,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             1,
-                             &fillBarrier,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr);
-
-        bool isRightCut = 1;   // viewConfig.isRightCut;
-
-        m_renderSystem->DispatchTopologyReconstruction(info, isRightCut);
+        SliceComputeInfo computeInfo{context.m_contourDescriptorSet,
+                                     viewConfig.nX,
+                                     viewConfig.nZ,
+                                     MAX_POINTS,
+                                     planeIdx,
+                                     frameData.planes[planeIdx].normal,
+                                     frameData.planes[planeIdx].point,
+                                     mapInfo};
+        m_renderSystem->ComputeFlute(commandBuffer,
+                                     computeInfo,
+                                     context.m_tipInfoBuffer.get());
     }
 
+    return;
+}
+
+void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
+                                      SliceResourceContext& context, uint32_t numPlane)
+{
     VkBufferMemoryBarrier computeToTransferBarriers[3] = {};
 
     computeToTransferBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -364,11 +284,11 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                          computeToTransferBarriers,
                          0,
                          nullptr);
-    
+
     VkBufferCopy copyResult{};
     copyResult.srcOffset = 0;
     copyResult.dstOffset = 0;
-    copyResult.size = sizeof(ResultData);
+    copyResult.size = sizeof(ResultData) * numPlane;
     vkCmdCopyBuffer(commandBuffer,
                     context.m_resultBuffer->GetBuffer(),
                     context.m_readbackBuffer->GetBuffer(),
@@ -377,7 +297,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
 
     VkBufferCopy copyCounter{};
     copyCounter.srcOffset = 0;
-    copyCounter.dstOffset = sizeof(ResultData);
+    copyCounter.dstOffset = sizeof(ResultData) * MAX_PLANES;
     copyCounter.size = sizeof(uint32_t);
     vkCmdCopyBuffer(commandBuffer,
                     context.m_counterBuffer->GetBuffer(),
@@ -387,7 +307,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
 
     VkBufferCopy copyPoints{};
     copyPoints.srcOffset = 0;
-    copyPoints.dstOffset = sizeof(ResultData) + sizeof(uint32_t);
+    copyPoints.dstOffset = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t);
     copyPoints.size = sizeof(glm::vec2) * MAX_POINTS;  // 假设 maxPoints 是 50000
     vkCmdCopyBuffer(commandBuffer,
                     context.m_sortedPointsBuffer->GetBuffer(),

@@ -1,5 +1,20 @@
 #version 450 
 
+struct ResultData {
+    vec2 coreRadiusPoint;
+    vec2 tipPoint;
+    vec2 tangent;
+
+    vec2 normal;
+    vec2 point;
+
+    uint coreRadiusSqBits;    // 芯厚半径平方
+    float rakeAngle;
+    float slotAngle;
+
+    float _pad;
+};
+
 layout(local_size_x = 1) in;
 
 layout(std430, set = 0, binding = 2) buffer Counter {
@@ -11,32 +26,23 @@ layout(std430, set = 0, binding = 7) buffer FinalPoints {
 };
 
 layout(std430, set = 0, binding = 3) buffer OutputBuffer {
-    uint coreRadiusSqBits;    // 芯厚半径平方
-
-    // --- System A：标准坐标系 ---
-    int minAngleA;             // 容屑槽最小角度
-    int maxAngleA;             // 容屑槽最大角度
-
-    // --- System B：移位坐标系 ---
-    int minAngleB;
-    int maxAngleB;
-
-    vec2 coreRadiusPoint;
-    vec2 minAnglePointA;
-    vec2 maxAnglePointA;
-    vec2 minAnglePointB;
-    vec2 maxAnglePointB;
-
-    vec2 tipPoint;
-    vec2 tangent;
-    float rakeAngle;
-    float slotAngle;
+    ResultData allResults[];
 }outputBuffer;
+
+layout(push_constant) uniform Push{
+    uint maxPoints;
+    uint planeIndex;
+    vec3 normal;
+    vec3 point;
+    vec4 mapInfo;
+    int isRightCut;
+}push;
 
 void main() 
 {
 
     uint validCount = count;
+    uint plnIdx = push.planeIndex;
 
     // --- 获取槽宽角 ---
     vec2 tipVec = finalPoints[0];               // 第一个点
@@ -44,7 +50,7 @@ void main()
     tipVec = normalize(tipVec);
     heelVec = normalize(heelVec);
     float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
-    outputBuffer.slotAngle = degrees(slotAngleRad);
+    outputBuffer.allResults[plnIdx].slotAngle = degrees(slotAngleRad);
 
     
     // 点数过少无法拟合
@@ -108,7 +114,7 @@ void main()
     float dotVal = dot(R, T);
     float angleRad = atan(crossVal, dotVal);
 
-    outputBuffer.tipPoint = P0;
-    outputBuffer.tangent = T;
-    outputBuffer.rakeAngle = degrees(angleRad);
+    outputBuffer.allResults[plnIdx].tipPoint = P0;
+    outputBuffer.allResults[plnIdx].tangent = T;
+    outputBuffer.allResults[plnIdx].rakeAngle = degrees(angleRad);
 }

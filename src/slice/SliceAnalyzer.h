@@ -15,7 +15,8 @@ public:
 
 public:
     
-    bool DownloadGPUCalculateResult(SliceResourceContext& context, ResultData& result);
+    bool DownloadGPUCalculateResult(SliceResourceContext& context, uint32_t numPlanes,
+                                    std::vector<ResultData>& outResult);
 
     VkFence GetFence() const { return m_fence; }
 

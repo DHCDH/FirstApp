@@ -6,15 +6,6 @@
 #include "SliceResourceContext.h"
 #include "systems/SliceMaskRenderSystem.h"
 
-struct RasterizerData {
-    lve::LveModel* blankModel = nullptr;
-    lve::LveModel* grndWheelModel = nullptr;
-    glm::mat4 blankMatrix{1.f};
-    std::vector<glm::mat4> grndWheelInstances;
-    glm::vec3 point{0.f, 0.f, 0.f};
-    glm::vec3 normal{1.f, 0.f, 0.f};
-};
-
 // 离屏渲染/光栅化器
 class SliceRasterizer
 {
@@ -29,18 +20,13 @@ public:
     // 更新实例数据
     void UpdateInstances(const std::vector<glm::mat4>& instanceData);
 
-    // 绘制线框
-    void DrawOnscreenWireframe(VkCommandBuffer commandBuffer,
-                               SliceResourceContext& context,
-                               const RasterizerData& rasterizerData);
-
-    // 绘制Mask
-    void DrawMask(VkCommandBuffer commandBuffer, SliceResourceContext& context,
-                  const RasterizerData& rasterizerData);
+    void ProcessAllPlanes(VkCommandBuffer commandBuffer, SliceResourceContext& context,
+                     const RasterizerData& rasterizerData,
+                     const SliceFrameData& frameData, const SliceViewConfig& viewConfig);
 
     // 执行计算
     void DispatchCompute(VkCommandBuffer commandBuffer, SliceResourceContext& context,
-                         const SliceFrameData& frameData, const SliceViewConfig& viewConfig);
+                         const SliceFrameData& frameData, const SliceViewConfig& viewConfig, uint32_t planeIndex);
 
     VkBuffer GetGrndWheelInstancesBuffer() const
     {
@@ -53,6 +39,9 @@ public:
     }
 
 private:
+    void ReadbackFromGPU(VkCommandBuffer commandBuffer, SliceResourceContext& context,
+                         uint32_t numPlane);
+
     lve::LveDevice& m_lveDevice;
 
     // 管线系统

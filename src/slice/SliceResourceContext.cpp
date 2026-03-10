@@ -313,7 +313,7 @@ void SliceResourceContext::CreateComputeResources()
     m_resultBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         sizeof(ResultData),
-        1,
+        MAX_PLANES,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -390,7 +390,7 @@ void SliceResourceContext::CreateComputeResources()
 
     // 创建staging buffer
     VkDeviceSize totalReadbackSize =
-        sizeof(ResultData) + sizeof(uint32_t) + sizeof(glm::vec2) * MAX_POINTS;
+        sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) + sizeof(glm::vec2) * MAX_POINTS;
     m_readbackBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         totalReadbackSize,

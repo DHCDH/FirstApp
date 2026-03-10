@@ -1,8 +1,8 @@
 ﻿#include "SliceAnalyzer.h"
 
-#include <stdexcept>
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <stdexcept>
 
 using namespace lve;
 
@@ -30,7 +30,8 @@ void SliceAnalyzer::ResetFence()
 }
 
 bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
-                                               ResultData& outResult)
+                                               uint32_t numPlanes,
+                                               std::vector<ResultData>& outResult)
 {
     if (vkGetFenceStatus(m_lveDevice.device(), m_fence) == VK_NOT_READY) {
         std::cout << "fence not ready" << std::endl;
@@ -40,13 +41,16 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     context.m_readbackBuffer->Map();
     auto* dataPtr = static_cast<char*>(context.m_readbackBuffer->GetMappedMemory());
 
-    size_t resultOffset = 0;
-    outResult = *reinterpret_cast<ResultData*>(dataPtr);
+    outResult.resize(numPlanes);
+    std::memcpy(outResult.data(), dataPtr, numPlanes * sizeof(ResultData));
 
+    // 解除映射
+    context.m_readbackBuffer->Unmap();
+#if 0
     size_t countOffset = sizeof(ResultData);
     uint32_t pointCount = *reinterpret_cast<uint32_t*>(dataPtr + countOffset);
 
-    const uint32_t MAX_POINTS = 50000;
+    /*const uint32_t MAX_POINTS = 50000;*/
     if (pointCount > MAX_POINTS) {
         pointCount = MAX_POINTS;
     }
@@ -66,7 +70,7 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     // 解除映射
     context.m_readbackBuffer->Unmap();
 
-    #if 1
+#if 1
     {
         // 将点外轮廓点写入文件
         std::cout << "Contour points size: " << m_contourPoints.size() << std::endl;
@@ -87,7 +91,8 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
             std::cout << "[SUCCESS] Write coordinates into file：" << filepath << std::endl;
         }
     }
-    #endif
+#endif
+#endif
 
     return true;
 }

@@ -14,29 +14,22 @@ class SliceRasterizer;
 class SliceAnalyzer;
 
 struct ResultData {
+    glm::vec2 coreRadiusPoint{0.f};
+    glm::vec2 tipPoint;  // 刀尖点
+    glm::vec2 tangent;   // 容屑槽刀尖点处的切向量
+
+    glm::vec2 normal;
+    glm::vec2 point;
+
     uint32_t coreRadiusSqBits{std::numeric_limits<
         uint32_t>::max()};  // 芯厚半径平方的位数据，设为float的最大值位表示
-
-    // --- System A: 标准坐标系 ---
-    int32_t minAngleA{std::numeric_limits<int32_t>::max()};  // 容屑槽最小角度（Deg）
-    int32_t maxAngleA{std::numeric_limits<int32_t>::lowest()};  // 容屑槽最大角度（Deg）
-
-    // --- System B: 移位坐标系 ---
-    int32_t minAngleB{std::numeric_limits<int32_t>::max()};
-    int32_t maxAngleB{std::numeric_limits<int32_t>::lowest()};
-
-    alignas(8) glm::vec2 coreRadiusPoint{0.f};
-    alignas(8) glm::vec2 minAnglePointA{0.f};
-    alignas(8) glm::vec2 maxAnglePointA{0.f};
-    alignas(8) glm::vec2 minAnglePointB{0.f};
-    alignas(8) glm::vec2 maxAnglePointB{0.f};
-
-    alignas(8) glm::vec2 tipPoint;  // 刀尖点
-    alignas(8) glm::vec2 tangent;   // 容屑槽刀尖点处的切向量
     float rakeAngle;                // 前角
     float slotAngle;                // 槽宽角
+
+    float _pad;
 };
 
+constexpr uint32_t MAX_PLANES = 300;
 constexpr uint32_t MAX_POINTS = 50000;
 
 // --- 管理离屏渲染资源、计算资源、分辨率变更和资源生命周期

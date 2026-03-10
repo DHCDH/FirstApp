@@ -13,30 +13,40 @@ SliceProcessor::SliceProcessor(LveDevice& lveDevice, uint32_t width, uint32_t he
 
 void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
                                   const SliceFrameData& frameData,
-                                  const SliceViewConfig& viewConfig) 
+                                  const SliceViewConfig& viewConfig)
 {
     // 检查计算是否已读回完毕
     if (!m_analyzer->IsReadyForNewTask()) {
         return;
     }
 
+    if (frameData.planes.empty()) {
+        throw std::runtime_error("No planes to process!");
+    }
+
     // 重置Fence锁
     m_analyzer->ResetFence();
 
-    UpdateCameraUbo(frameData.normal, frameData.point, viewConfig);
+    // --- 只有第一个截面需要更新相机UBO，用于显示渲染结果
+    uint32_t planeIdx = frameData.displayPlaneIdx;
+    if (planeIdx >= frameData.planes.size()) {
+        planeIdx = 0;
+    }
+    UpdateCameraUbo(frameData.planes[planeIdx].normal,
+                    frameData.planes[planeIdx].point,
+                    viewConfig);
 
     // 组装Draw Mask数据
     RasterizerData rasterizerData{m_blankModel,
-                                  m_grndWheelModel,
-                                  m_blankMatrix,
-                                  m_grndWheelInstances,
-                                  frameData.point,
-                                  frameData.normal};
-    // 执行光栅化
-    m_rasterizer->DrawMask(commandBuffer, *m_context, rasterizerData);
+                                      m_grndWheelModel,
+                                      m_blankMatrix,
+                                      m_grndWheelInstances};
 
-    //计算着色器
-    m_rasterizer->DispatchCompute(commandBuffer, *m_context, frameData, viewConfig);
+    m_rasterizer->ProcessAllPlanes(commandBuffer,
+                                   *m_context,
+                                   rasterizerData,
+                                   frameData,
+                                   viewConfig);
 
     return;
 }
@@ -77,11 +87,12 @@ VkDescriptorImageInfo SliceProcessor::GetOutputImageInfo()
         imageInfo.imageView = m_context->GetBlankMaskView();
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     }
-    
+
     return imageInfo;
 }
 
-bool SliceProcessor::GetAnalysisResult(ResultData& result)
+bool SliceProcessor::GetAnalysisResult(uint32_t numPlanes,
+                                       std::vector<ResultData>& results)
 {
     if (!m_analyzer || !m_context) {
         std::cerr << "Get analysis result failed!"
@@ -89,7 +100,7 @@ bool SliceProcessor::GetAnalysisResult(ResultData& result)
         return false;
     }
 
-    return m_analyzer->DownloadGPUCalculateResult(*m_context, result);
+    return m_analyzer->DownloadGPUCalculateResult(*m_context, numPlanes, results);
 }
 
 const std::vector<glm::vec2>& SliceProcessor::GetContourPoints() const

@@ -120,7 +120,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     }
 
     // 异步读回
-    ProcessAnalysisResult();
+    ProcessAnalysisResult(frameData);
 
     // --- 更新Processor状态 ---
     m_processor->SetModels(m_blankModel, m_grndWheelModel);
@@ -147,13 +147,18 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                             false);  // 线框显示移交OverlayRenderSystem
 
     if (m_displayWireframe && m_grndWheelModel) {
+        uint32_t displayIdx = frameData.displayPlaneIdx;
+        if (displayIdx >= frameData.planes.size()) {
+            displayIdx = 0;
+        }
+
         SliceInstancedInfo info{commandBuffer,
                                 *m_grndWheelModel,
                                 m_processor->GetGrndWheelInstancesBuffer(),
                                 m_processor->GetGrndWheelInstancesCount(),
                                 m_processor->GetGlobalDescriptorSet(),
-                                frameData.normal,
-                                frameData.point};
+                                frameData.planes[displayIdx].normal,
+                                frameData.planes[displayIdx].point};
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 
@@ -161,38 +166,55 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     m_renderer->EndFrame(m_processor->GetComputeFence());
 }
 
-void SliceView::ProcessAnalysisResult()
+void SliceView::ProcessAnalysisResult(const SliceFrameData& frameData)
 {
     if (!m_fetchContour) {
         return;
     }
 
-    ResultData resultData;
-    if (m_processor->GetAnalysisResult(resultData)) {
-        // --- 打印统计数据 ---
-        uint32_t distBits = resultData.coreRadiusSqBits;
-        if (distBits != 0xFFFFFFFF) {
-            float worldDistSq = std::bit_cast<float>(distBits);
-            float radius = std::sqrt(worldDistSq);
-            int32_t diffA = resultData.maxAngleA - resultData.minAngleA;
-            int32_t diffB = resultData.maxAngleB - resultData.minAngleB;
-            float slotWidth =
-                static_cast<float>(diffA < diffB ? diffA : diffB) / 100000.f;
+    if (frameData.planes.empty()) {
+        return;
+    }
 
-            std::cout << std::fixed << std::setprecision(4);
-            std::cout << "========= GPU Geometry Analysis =========\n";
-            std::cout << "Core Radius: " << radius << " mm\n"
-                      << "Core Radius Point : (" << resultData.coreRadiusPoint.x << ", "
-                      << resultData.coreRadiusPoint.y << ")\n";
-            std::cout << "Rake Angle : " << resultData.rakeAngle << " deg\n";
-            std::cout << "Tangent : (" << resultData.tangent.x << ", "
-                      << resultData.tangent.y << ")\n";
-            std::cout << "Slot Angle : " << resultData.slotAngle << " deg\n";
-            std::cout << "-----------------------------------------\n";
+    std::vector<ResultData> results;
+    uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
+
+    if (m_processor->GetAnalysisResult(numPlanes, results)) {
+        
+        // --- 打印统计数据 ---
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "========= GPU Geometry Analysis (" << numPlanes
+                  << " Planes) =========\n";
+
+        for (uint32_t i = 0; i < numPlanes; i++) {
+
+            auto resultData = results[i];
+            uint32_t distBits = resultData.coreRadiusSqBits;
+
+            if (distBits != 0xFFFFFFFF) {
+                float worldDistSq = std::bit_cast<float>(distBits);
+                float radius = std::sqrt(worldDistSq);
+
+                glm::vec3 p = frameData.planes[i].point;
+                glm::vec3 n = frameData.planes[i].normal;
+
+                std::cout << "Plane[" << i << "] : p{" << p[0] << ", " << p[1] << ", "
+                          << p[2] << "} n{" << n[0] << ", " << n[1] << ", " << n[2] << "}"
+                          << "\n";
+                std::cout << "Core Radius: " << radius << " mm\n"
+                          << "Core Radius Point : (" << resultData.coreRadiusPoint.x
+                          << ", " << resultData.coreRadiusPoint.y << ")\n";
+                std::cout << "Rake Angle : " << resultData.rakeAngle << " deg\n";
+                std::cout << "Tangent : (" << resultData.tangent.x << ", "
+                          << resultData.tangent.y << ")\n";
+                std::cout << "Slot Angle : " << resultData.slotAngle << " deg\n";
+                std::cout << "-----------------------------------------\n";
+            }
         }
 
         m_fetchContour = false;
     }
+    
 }
 
 void SliceView::RunFrame()

@@ -21,6 +21,12 @@ struct RenderContext {
     std::unordered_map<uint32_t, lve::MaterialGPU>& objectMaterialParams;
 };
 
+// 单个平面定义
+struct Plane {
+    glm::vec3 normal{1.f, 0.f, 0.f};    // 截平面法向
+    glm::vec3 point{0.f, 0.f, 0.f};     // 截平面点
+};
+
 // 用于单模型绘制
 struct SliceDrawInfo {
     VkCommandBuffer commandBuffer;
@@ -54,23 +60,34 @@ struct SlicePlaneInfo {
 struct SliceFrameData {
     bool displayWireframe{true};
 
-    glm::vec3 normal;   // 截平面法向
-    glm::vec3 point;    // 截平面点
+    uint32_t displayPlaneIdx{0};
 
     glm::mat4 blankMatrix;                // 棒料的世界变换矩阵
     std::vector<glm::mat4> wheelMatrixes;  // 所有砂轮实例
+
+    std::vector<Plane> planes;  // 所有需要离屏渲染的截面
 };
 
 // 用于计算
 struct SliceComputeInfo {
-    VkCommandBuffer commandBuffer;
     VkDescriptorSet descriptorSet;
     uint32_t width;
     uint32_t height;
     uint32_t maxPoints;
+    uint32_t planeIndex;
     glm::vec3 normal{1.f, 0.f, 0.f};
     glm::vec3 point{0.f, 0.f, 0.f};
     glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz。用于将像素坐标转换为世界坐标
+};
+
+// 光栅化数据
+struct RasterizerData {
+    lve::LveModel* blankModel = nullptr;
+    lve::LveModel* grndWheelModel = nullptr;
+    glm::mat4 blankMatrix{1.f};
+    std::vector<glm::mat4> grndWheelInstances;
+    //glm::vec3 point{0.f, 0.f, 0.f};
+    //glm::vec3 normal{1.f, 0.f, 0.f};
 };
 
 // 定义图像分辨率和世界坐标视野

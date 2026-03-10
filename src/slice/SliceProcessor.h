@@ -20,7 +20,7 @@ public:
                       const SliceViewConfig& viewConfig);
 
     // --- 数据输出 ---
-    bool GetAnalysisResult(ResultData& result);
+    bool GetAnalysisResult(uint32_t numPlanes, std::vector<ResultData>& results);
     const std::vector<glm::vec2>& GetContourPoints() const;
 
     // --- 获取离屏渲染图象 ---

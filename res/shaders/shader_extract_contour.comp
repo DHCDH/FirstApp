@@ -1,5 +1,20 @@
 #version 450
 
+struct ResultData {
+    vec2 coreRadiusPoint;
+    vec2 tipPoint;
+    vec2 tangent;
+
+    vec2 normal;
+    vec2 point;
+
+    uint coreRadiusSqBits;    // 芯厚半径平方
+    float rakeAngle;
+    float slotAngle;
+
+    float _pad;
+};
+
 layout(local_size_x = 16, local_size_y = 16) in;
 
 // 绑定0：Stencil纹理
@@ -17,30 +32,12 @@ layout(std430, binding = 2) buffer Counter {
 
 // 绑定3：存储计算结果
 layout(std430, set = 0, binding = 3) buffer OutputBuffer {
-    uint coreRadiusSqBits;    // 芯厚半径平方
-
-    // --- System A：标准坐标系 ---
-    int minAngleA;             // 容屑槽最小角度
-    int maxAngleA;             // 容屑槽最大角度
-
-    // --- System B：移位坐标系 ---
-    int minAngleB;
-    int maxAngleB;
-
-    vec2 coreRadiusPoint;
-    vec2 minAnglePointA;
-    vec2 maxAnglePointA;
-    vec2 minAnglePointB;
-    vec2 maxAnglePointB;
-
-    vec2 tipPoint;
-    vec2 tangent;
-    float rakeAngle;
-    float slotAngle;
+    ResultData allResults[];
 }outputBuffer;
 
 layout(push_constant) uniform Push{
     uint maxPoints;
+    uint planeIndex;
     vec3 normal;
     vec3 point;
     vec4 mapInfo;
@@ -201,72 +198,23 @@ void main()
     // 计算并原子更新芯厚点
     float distSq = dot(worldPos, worldPos);
     uint distUint = floatBitsToUint(distSq);
+
+    uint plnIdx = push.planeIndex;
+
     while (true) {
         // 读取当前的全局最小值
-        uint oldDistBits = outputBuffer.coreRadiusSqBits;
+        uint oldDistBits = outputBuffer.allResults[plnIdx].coreRadiusSqBits;
         if (distUint >= oldDistBits) {
             break;
         }
 
-        uint prev = atomicCompSwap(outputBuffer.coreRadiusSqBits, oldDistBits, distUint);
+        uint prev = atomicCompSwap(outputBuffer.allResults[plnIdx].coreRadiusSqBits, oldDistBits, distUint);
 
         if (prev == oldDistBits) {
             // 只有成功更新了距离的线程，才有资格更新坐标点
-            outputBuffer.coreRadiusPoint = worldPos;
+            outputBuffer.allResults[plnIdx].coreRadiusPoint = worldPos;
             break; // 任务完成，退出循环
         }
     }
-
-/*
-    // --- 双相角度计算 ---
-    
-    // 计算System A
-    float angleA = degrees(atan(worldPos.y, worldPos.x));
-    // 计算System B
-    float angleB = (angleA < 0.) ? (angleA + 360.) : angleA;
-
-    int angleIntA = int(angleA * 100000.);
-    int angleIntB = int(angleB * 100000.);
-
-    // 原子更新System A
-    while (true) {
-        int oldMin = outputBuffer.minAngleA;
-        if (angleIntA >= oldMin) {
-            break;
-        }
-        if (atomicCompSwap(outputBuffer.minAngleA, oldMin, angleIntA) == oldMin) {
-            outputBuffer.minAnglePointA = worldPos;
-            break;
-        }
-    }
-    while (true) {
-        int oldMax = outputBuffer.maxAngleA;
-        if (angleIntA <= oldMax) {
-            break;
-        }
-        if (atomicCompSwap(outputBuffer.maxAngleA, oldMax, angleIntA) == oldMax) {
-            outputBuffer.maxAnglePointA = worldPos;
-            break;
-        }
-    }
-
-    // 原子更新System B
-    while (true) {
-        int oldMin = outputBuffer.minAngleB;
-        if (angleIntB >= oldMin) break;
-        if (atomicCompSwap(outputBuffer.minAngleB, oldMin, angleIntB) == oldMin) {
-            outputBuffer.minAnglePointB = worldPos;
-            break;
-        }
-    }
-    while (true) {
-        int oldMax = outputBuffer.maxAngleB;
-        if (angleIntB <= oldMax) break;
-        if (atomicCompSwap(outputBuffer.maxAngleB, oldMax, angleIntB) == oldMax) {
-            outputBuffer.maxAnglePointB = worldPos;
-            break;
-        }
-    }
-*/
 
 }

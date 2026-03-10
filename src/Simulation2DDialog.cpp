@@ -108,10 +108,15 @@ void Simulation2DDialog::BuildContactMask()
         emit OpenToolPathSignal();
     }
 
-    /*准备帧数据*/
+    // ---准备帧数据 ---
     SliceFrameData frameData{};
-    frameData.normal = {1.f, 0.f, 0.f};
-    frameData.point = {0.f, 0.f, 0.f};
+    frameData.displayPlaneIdx = 0;
+    int n = 50;
+    float step = 30. / (float)n;
+    for (int i = 0; i <= n; i++) {
+        Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
+        frameData.planes.emplace_back(pln);
+    }
     frameData.blankMatrix = glm::mat4(1.f);
     frameData.wheelMatrixes.reserve(m_grndWheelInstances.size());
     for (const auto& instance : m_grndWheelInstances) {

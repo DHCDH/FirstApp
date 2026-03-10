@@ -17,6 +17,7 @@ layout(std430, set = 0, binding = 7) buffer FinalPoints {
 
 layout(push_constant) uniform Push{
     uint maxPoints;
+    uint planeIndex;
     vec3 normal;
     vec3 point;
     vec4 mapInfo;

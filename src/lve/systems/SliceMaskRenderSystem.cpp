@@ -19,6 +19,7 @@ struct SlicePushConstants {
 
 struct SliceComputePushConstants {
     uint32_t maxPoints = 100000;
+    uint32_t planeIndex;  // shader写入outputBuffer的位置
     alignas(16) glm::vec3 normal;
     alignas(16) glm::vec3 point;
     alignas(16) glm::vec4 mapInfo;  // 映射参数：xMin, zMin, dx, dz
@@ -671,15 +672,15 @@ void SliceMaskRenderSystem::CreateComputePipeline()
         "../../../res/shaders/spv/shader_sort_contour.comp.spv",
         configInfo);
 
-    m_tracePipeline = std::make_unique<LvePipeline>(
-        m_lveDevice,
-        "../../../res/shaders/spv/shader_trace.comp.spv",
-        configInfo);
+    m_tracePipeline =
+        std::make_unique<LvePipeline>(m_lveDevice,
+                                      "../../../res/shaders/spv/shader_trace.comp.spv",
+                                      configInfo);
 
-    m_alignPipeline = std::make_unique<LvePipeline>(
-        m_lveDevice,
-        "../../../res/shaders/spv/shader_align.comp.spv",
-        configInfo);
+    m_alignPipeline =
+        std::make_unique<LvePipeline>(m_lveDevice,
+                                      "../../../res/shaders/spv/shader_align.comp.spv",
+                                      configInfo);
 
     m_rakeAnglePipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
@@ -887,28 +888,154 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
     info.model.DrawInstanced(info.commandBuffer, info.instanceCount);
 }
 
-void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
+void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
+                                       const SliceMaskRenderPassData& renderPassData,
+                                       const RasterizerData& rasData, Plane plane)
 {
-    // 告诉Vulkan绑定计算管线
-    m_extractContourPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    // --- 配置离屏Render Pass ---
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPassData.renderPass;
+    renderPassInfo.framebuffer = renderPassData.frameBuffer;
+    // 设置渲染区域
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {renderPassData.width, renderPassData.height};
+
+    // --- 清除上一个截面的残余数据 ---
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color.uint32[0] = 0u;
+    clearValues[1].depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+    renderPassInfo.pClearValues = clearValues.data();
+
+    // 开始离屏Pass
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // 设置动态视口和裁剪
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(renderPassData.width);
+    viewport.height = static_cast<float>(renderPassData.height);
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = {renderPassData.width, renderPassData.height};
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    SlicePlaneInfo planeInfo{commandBuffer,
+                             renderPassData.globalDescriptorSet,  // 传入全局 UBO 描述符
+                             plane.normal,
+                             plane.point};
+    m_planeInjectionPipeline->Bind(commandBuffer);
+    RenderPlaneInjection(planeInfo);
+
+    // --- 绘制棒料 ---
+    if (rasData.blankModel != nullptr) {
+        SlicePushConstants push{};
+        push.modelMatrix = rasData.blankMatrix;
+        push.normal = plane.normal;
+        push.point = plane.point;
+
+        vkCmdPushConstants(commandBuffer,
+                           m_pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                               VK_SHADER_STAGE_GEOMETRY_BIT,
+                           0,
+                           sizeof(SlicePushConstants),
+                           &push);
+
+        SliceDrawInfo info{commandBuffer,
+                           *rasData.blankModel,
+                           rasData.blankMatrix,
+                           renderPassData.globalDescriptorSet,
+                           plane.normal,
+                           plane.point};
+
+        // 写入Stencil
+        BindBlankStencilPipeline(commandBuffer);
+        RenderBlank(info);
+
+        BindBlankColorPipeline(commandBuffer);
+        RenderBlank(info);
+    } else {
+        throw std::runtime_error("Blank model is a null model!");
+    }
+
+    // --- 绘制砂轮实例 ---
+    if (rasData.grndWheelModel != nullptr && renderPassData.grndWheelInstancesCount > 0) {
+        SliceInstancedInfo instInfo{commandBuffer,
+                                    *rasData.grndWheelModel,
+                                    renderPassData.grndWheelInstancesBuffer->GetBuffer(),
+                                    renderPassData.grndWheelInstancesCount,
+                                    renderPassData.globalDescriptorSet,
+                                    plane.normal,
+                                    plane.point};
+        const uint32_t BATCH_SIZE = 100;
+        for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
+             i += BATCH_SIZE) {
+            // 计算当前批次大小
+            uint32_t curCount = BATCH_SIZE < renderPassData.grndWheelInstancesCount - i
+                                    ? BATCH_SIZE
+                                    : renderPassData.grndWheelInstancesCount - i;
+            instInfo.instanceCount = curCount;
+
+            /*绘制砂轮前表面*/
+            m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
+            RenderGrindingWheelInstances(instInfo, i);
+
+            /*绘制砂轮后表面*/
+            m_grndWheelStencilBackPipeline->Bind(commandBuffer);
+            RenderGrindingWheelInstances(instInfo, i);
+
+            m_stencilResolvePipeline->Bind(commandBuffer);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+            m_stencilClearPipeline->Bind(commandBuffer);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        }
+    } else {
+        throw std::runtime_error("Grinding wheel model is a null model!");
+    }
+
+    vkCmdEndRenderPass(commandBuffer);
+    return;
+}
+
+void SliceMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
+                                         SliceComputeInfo computeInfo,
+                                         LveBuffer* tipInfoBuffer)
+{
+    // 清空TipInfo Buffer，为每次提取重新寻找最远点做准备
+    vkCmdFillBuffer(commandBuffer,
+                    tipInfoBuffer->GetBuffer(),
+                    0,
+                    sizeof(uint32_t) * 2,
+                    0);
+
+    m_extractContourPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    SliceComputePushConstants push{computeInfo.maxPoints,
+                                   computeInfo.planeIndex,
+                                   computeInfo.normal,
+                                   computeInfo.point,
+                                   computeInfo.mapInfo,
+                                   1};
 
     // 绑定计算专用描述符集
-    vkCmdBindDescriptorSets(info.commandBuffer,
+    vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_COMPUTE,
                             m_computePipelineLayout,
                             0,
                             1,
-                            &info.descriptorSet,
+                            &computeInfo.descriptorSet,
                             0,
                             nullptr);
 
-    // 推送平面参数
-    SliceComputePushConstants push{info.maxPoints,
-                                   info.normal,
-                                   info.point,
-                                   info.mapInfo,
-                                   1};
-    vkCmdPushConstants(info.commandBuffer,
+    vkCmdPushConstants(commandBuffer,
                        m_computePipelineLayout,
                        VK_SHADER_STAGE_COMPUTE_BIT,
                        0,
@@ -916,89 +1043,72 @@ void SliceMaskRenderSystem::DispatchExtractContour(const SliceComputeInfo& info)
                        &push);
 
     // 计算派发组数量
-    uint32_t groupCountX = (info.width + 15) / 16;
-    uint32_t groupCountY = (info.height + 15) / 16;
+    uint32_t groupCountX = (computeInfo.width + 15) / 16;
+    uint32_t groupCountY = (computeInfo.height + 15) / 16;
+    vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
 
-    vkCmdDispatch(info.commandBuffer, groupCountX, groupCountY, 1);
+    // --- 插入传输屏障，等待 FillBuffer 和 Extract 完成 ---
+    VkMemoryBarrier stageBarrier{};
+    stageBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    stageBarrier.srcAccessMask =
+        VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    stageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1,
+        &stageBarrier,
+        0,
+        nullptr,
+        0,
+        nullptr);
 
-    // --- 派发局部最小二乘前角拟合 ---
-    // 插入屏障：等待对齐翻转把 finalPoints 写完
-    VkMemoryBarrier alignBarrier{};
-    alignBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    alignBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    alignBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-
-    vkCmdPipelineBarrier(info.commandBuffer,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         0,
-                         1,
-                         &alignBarrier,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr);
-
-    m_rakeAnglePipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    vkCmdDispatch(info.commandBuffer, 1, 1, 1);
-}
-
-void SliceMaskRenderSystem::DispatchTopologyReconstruction(const SliceComputeInfo& info,
-                                                           bool isRightCut)
-{
-    vkCmdBindDescriptorSets(info.commandBuffer,
-                            VK_PIPELINE_BIND_POINT_COMPUTE,
-                            m_computePipelineLayout,
-                            0,
-                            1,
-                            &info.descriptorSet,
-                            0,
-                            nullptr);
-
-    // 直接使用MAX_POINTS作为点数量。可用vkCmdDispatchIndirect进行优化
-    uint32_t groupCount = (info.maxPoints + 255) / 256;
-
-    // --- 派发KNN建图 ---
-    m_knnPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(info.commandBuffer, groupCount, 1, 1);
-
-    // --- 内部屏障，等待KNN写完 ---
     VkMemoryBarrier computeBarrier{};
     computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     computeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    vkCmdPipelineBarrier(info.commandBuffer,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         0,
-                         1,
-                         &computeBarrier,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr);
+    auto insert_compute_barrier = [commandBuffer, computeBarrier]() {
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             1,
+                             &computeBarrier,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr);
+    };
+
+    // --- 派发KNN建图 ---
+    // 直接使用MAX_POINTS作为点数量。可用vkCmdDispatchIndirect进行优化
+    uint32_t groupCount = (computeInfo.maxPoints + 255) / 256;
+    m_knnPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, groupCount, 1, 1);
+
+    // --- 内部屏障，等待KNN写完 ---
+    insert_compute_barrier();
 
     // --- 派发单线程追踪 ---
-    m_tracePipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(info.commandBuffer, 1, 1, 1);
+    m_tracePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, 1, 1, 1);
 
     // 内部屏障，等待Trace写完
-    vkCmdPipelineBarrier(info.commandBuffer,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         0,
-                         1,
-                         &computeBarrier,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr);
+    insert_compute_barrier();
 
     // --- 派发对齐翻转 ---
-    m_alignPipeline->Bind(info.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(info.commandBuffer, groupCount, 1, 1);
+    m_alignPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, groupCount, 1, 1);
 
+    insert_compute_barrier();
+
+    // --- 派发前角与槽宽计算 ---
+    m_rakeAnglePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+    return;
 }
 
 }  // namespace lve
