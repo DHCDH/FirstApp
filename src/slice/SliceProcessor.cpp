@@ -13,7 +13,8 @@ SliceProcessor::SliceProcessor(LveDevice& lveDevice, uint32_t width, uint32_t he
 
 void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
                                   const SliceFrameData& frameData,
-                                  const SliceViewConfig& viewConfig)
+                                  const SliceViewConfig& viewConfig,
+                                  bool isAnalysisRequested)
 {
     // 检查计算是否已读回完毕
     if (!m_analyzer->IsReadyForNewTask()) {
@@ -27,26 +28,23 @@ void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
     // 重置Fence锁
     m_analyzer->ResetFence();
 
-    // --- 只有第一个截面需要更新相机UBO，用于显示渲染结果
-    uint32_t planeIdx = frameData.displayPlaneIdx;
-    if (planeIdx >= frameData.planes.size()) {
-        planeIdx = 0;
-    }
-    UpdateCameraUbo(frameData.planes[planeIdx].normal,
-                    frameData.planes[planeIdx].point,
+    // --- 只有需要显示的截面需要更新相机UBO，用于显示渲染结果
+    UpdateCameraUbo(frameData.displayPlane.normal,
+                    frameData.displayPlane.point,
                     viewConfig);
 
     // 组装Draw Mask数据
     RasterizerData rasterizerData{m_blankModel,
-                                      m_grndWheelModel,
-                                      m_blankMatrix,
-                                      m_grndWheelInstances};
+                                  m_grndWheelModel,
+                                  m_blankMatrix,
+                                  m_grndWheelInstances};
 
     m_rasterizer->ProcessAllPlanes(commandBuffer,
                                    *m_context,
                                    rasterizerData,
                                    frameData,
-                                   viewConfig);
+                                   viewConfig,
+                                   isAnalysisRequested);
 
     return;
 }

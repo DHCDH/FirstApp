@@ -119,8 +119,22 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         m_renderer->RecreateSwapChain();
     }
 
-    // 异步读回
-    ProcessAnalysisResult(frameData);
+    // 如果正在等待GPU，尝试读取
+    if (m_isWaitingForAnalysis) {
+        if (ProcessAnalysisResult(m_analysisPlaneCount)) {
+            m_isWaitingForAnalysis = false;     // 成功读回，解除挂起状态
+        }
+    }
+
+    // --- 检查当前帧是否触发了Analysis请求 ---
+    bool requestThisFrame = false;
+    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS && !m_isWaitingForAnalysis) {
+        requestThisFrame = true;
+        m_isWaitingForAnalysis = true;
+        m_analysisPlaneCount = static_cast<uint32_t>(frameData.planes.size());
+
+        m_runningMode = RunningMode::DISPLAY_ONLY;
+    }
 
     // --- 更新Processor状态 ---
     m_processor->SetModels(m_blankModel, m_grndWheelModel);
@@ -134,8 +148,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         return;
     }
 
-    // Processor执行底层管线
-    m_processor->ProcessFrame(commandBuffer, frameData, m_viewConfig);
+    // 将requestThisFrame信号传递给Processor
+    m_processor->ProcessFrame(commandBuffer, frameData, m_viewConfig, requestThisFrame);
 
     // 屏上显示
     m_renderer->BeginSwapChainRenderPass(commandBuffer);
@@ -145,49 +159,38 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                             m_viewConfig.nX,
                             m_viewConfig.nZ,
                             false);  // 线框显示移交OverlayRenderSystem
-
+#if 1
     if (m_displayWireframe && m_grndWheelModel) {
-        uint32_t displayIdx = frameData.displayPlaneIdx;
-        if (displayIdx >= frameData.planes.size()) {
-            displayIdx = 0;
-        }
-
         SliceInstancedInfo info{commandBuffer,
                                 *m_grndWheelModel,
                                 m_processor->GetGrndWheelInstancesBuffer(),
                                 m_processor->GetGrndWheelInstancesCount(),
                                 m_processor->GetGlobalDescriptorSet(),
-                                frameData.planes[displayIdx].normal,
-                                frameData.planes[displayIdx].point};
+                                frameData.displayPlane.normal,
+                                frameData.displayPlane.point};
         m_overlayRenderSystem->RenderSliceContour(info);
     }
+#endif
 
     m_renderer->EndSwapChainRenderPass(commandBuffer);
     m_renderer->EndFrame(m_processor->GetComputeFence());
 }
 
-void SliceView::ProcessAnalysisResult(const SliceFrameData& frameData)
+bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
 {
-    if (!m_fetchContour) {
-        return;
-    }
-
-    if (frameData.planes.empty()) {
-        return;
+    if (numPlanes == 0) {
+        return false;
     }
 
     std::vector<ResultData> results;
-    uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
 
     if (m_processor->GetAnalysisResult(numPlanes, results)) {
-        
         // --- 打印统计数据 ---
         std::cout << std::fixed << std::setprecision(6);
         std::cout << "========= GPU Geometry Analysis (" << numPlanes
                   << " Planes) =========\n";
 
         for (uint32_t i = 0; i < numPlanes; i++) {
-
             auto resultData = results[i];
             uint32_t distBits = resultData.coreRadiusSqBits;
 
@@ -195,11 +198,7 @@ void SliceView::ProcessAnalysisResult(const SliceFrameData& frameData)
                 float worldDistSq = std::bit_cast<float>(distBits);
                 float radius = std::sqrt(worldDistSq);
 
-                glm::vec3 p = frameData.planes[i].point;
-                glm::vec3 n = frameData.planes[i].normal;
-
-                std::cout << "Plane[" << i << "] : p{" << p[0] << ", " << p[1] << ", "
-                          << p[2] << "} n{" << n[0] << ", " << n[1] << ", " << n[2] << "}"
+                std::cout << "Plane[" << i << "]"
                           << "\n";
                 std::cout << "Core Radius: " << radius << " mm\n"
                           << "Core Radius Point : (" << resultData.coreRadiusPoint.x
@@ -209,12 +208,17 @@ void SliceView::ProcessAnalysisResult(const SliceFrameData& frameData)
                           << resultData.tangent.y << ")\n";
                 std::cout << "Slot Angle : " << resultData.slotAngle << " deg\n";
                 std::cout << "-----------------------------------------\n";
+            } else {
+                std::cout << "Plane[" << i << "] No valid intersection.\n";
+                std::cout << "-----------------------------------------\n";
             }
         }
 
-        m_fetchContour = false;
+        // 成功解析完毕
+        return true;
     }
-    
+    // fence未就绪，继续等待
+    return false;
 }
 
 void SliceView::RunFrame()

@@ -21,12 +21,15 @@ public:
     void UpdateInstances(const std::vector<glm::mat4>& instanceData);
 
     void ProcessAllPlanes(VkCommandBuffer commandBuffer, SliceResourceContext& context,
-                     const RasterizerData& rasterizerData,
-                     const SliceFrameData& frameData, const SliceViewConfig& viewConfig);
+                          const RasterizerData& rasterizerData,
+                          const SliceFrameData& frameData,
+                          const SliceViewConfig& viewConfig, bool isAnalysisRequested);
 
     // 执行计算
     void DispatchCompute(VkCommandBuffer commandBuffer, SliceResourceContext& context,
-                         const SliceFrameData& frameData, const SliceViewConfig& viewConfig, uint32_t planeIndex);
+                         const SliceFrameData& frameData,
+                         const SliceViewConfig& viewConfig, uint32_t planeIndex,
+                         bool isAnalysisRequested);
 
     VkBuffer GetGrndWheelInstancesBuffer() const
     {

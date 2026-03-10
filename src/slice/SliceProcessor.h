@@ -17,7 +17,7 @@ public:
 
     // --- 核心调度流程 ---
     void ProcessFrame(VkCommandBuffer commandBuffer, const SliceFrameData& frameData,
-                      const SliceViewConfig& viewConfig);
+                      const SliceViewConfig& viewConfig, bool isAnalysisRequested);
 
     // --- 数据输出 ---
     bool GetAnalysisResult(uint32_t numPlanes, std::vector<ResultData>& results);

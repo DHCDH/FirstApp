@@ -1,12 +1,16 @@
 ﻿#include "Simulation2DDialog.h"
 
-#include <QHBoxLayout>
-#include <QTimer>
-#include <QWheelEvent>
-#include <QPushButton>
-#include <QVBoxLayout>
-#include <QMouseEvent>
 #include <QCheckBox>
+#include <QHBoxLayout>
+#include <QLineEdit>
+#include <QMouseEvent>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QRegularExpressionMatch>
+#include <QStringList>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include "slice/SliceView.h"
 
@@ -27,16 +31,26 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     mainLayout->addLayout(controlLayout);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
-    QPushButton* btnFetchContour = new QPushButton("Fetch Contour", this);
+    m_inputPoint = new QLineEdit("0.0, 0.0, 0.0", this);
+    m_inputNormal = new QLineEdit("1.0, 0.0, 0.0", this);
+
+    QPushButton* btnDisplayOnly = new QPushButton("Display", this);
+    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&Calculate", this);
+
     controlLayout->addWidget(checkDisplayWireframe);
-    controlLayout->addWidget(btnFetchContour);
+    controlLayout->addWidget(new QLabel("point", this));
+    controlLayout->addWidget(m_inputPoint);
+    controlLayout->addWidget(new QLabel("normal", this));
+    controlLayout->addWidget(m_inputNormal);
+    controlLayout->addWidget(btnDisplayOnly);
+    controlLayout->addWidget(btnDisplayAndAnalysis);
 
     /*初始化防抖定时器*/
     m_resizeTimer = new QTimer(this);
     m_resizeTimer->setSingleShot(true);  // 只触发一次
     m_resizeTimer->setInterval(100);     // 延迟100ms
 
-    //m_renderWidget->resize(720, 480);
+    // m_renderWidget->resize(720, 480);
     m_renderWidget->setAttribute(Qt::WA_PaintOnScreen);
     m_renderWidget->setAttribute(Qt::WA_NativeWindow);
     m_renderWidget->winId();
@@ -45,8 +59,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     InitSliceView(device, hwnd, hinstance);
 
-    connect(m_renderTimer, &QTimer::timeout, [this]() { BuildContactMask(); });
-    m_renderTimer->start(16);
+    //connect(m_renderTimer, &QTimer::timeout, [this]() { BuildContactMask(); });
+    //m_renderTimer->start(16);
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         if (m_grndWheel && m_blank) {
@@ -62,10 +76,20 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         }
     });
 
-    connect(btnFetchContour, &QPushButton::clicked, this, [this]() {
-        m_sliceView->SetFetchContour();
+    connect(btnDisplayOnly, &QPushButton::clicked, this, [this]() {
+        m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
+        m_runningMode = RunningMode::DISPLAY_ONLY;
         BuildContactMask();
     });
+
+    connect(btnDisplayAndAnalysis, &QPushButton::clicked, this, [this]() {
+        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
+        m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+        BuildContactMask();
+    });
+
+    connect(m_inputPoint, &QLineEdit::textChanged, [this]() { BuildContactMask(); });
+    connect(m_inputNormal, &QLineEdit::textChanged, [this]() { BuildContactMask(); });
 }
 
 void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
@@ -83,7 +107,7 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
-    const GrindingWheel& grndWheel, const Blank& blank, 
+    const GrindingWheel& grndWheel, const Blank& blank,
     const std::vector<glm::mat4>& grndWheelInstances)
 {
     m_grndWheel = &grndWheel;
@@ -98,10 +122,9 @@ void Simulation2DDialog::BuildContactMask()
 
     // 将分辨率和点数实时显示在标题栏
     SliceViewConfig currentConfig = UpdateView();
-    QString title =
-        QString("2D Simulation | Res: %1x%2")
-            .arg(currentConfig.nX)
-            .arg(currentConfig.nZ);  // 假设你给 SliceView 加了获取点数的接口
+    QString title = QString("2D Simulation | Res: %1x%2")
+                        .arg(currentConfig.nX)
+                        .arg(currentConfig.nZ);  // 假设你给 SliceView 加了获取点数的接口
     this->setWindowTitle(title);
 
     if (m_grndWheelInstances.empty()) {
@@ -110,13 +133,18 @@ void Simulation2DDialog::BuildContactMask()
 
     // ---准备帧数据 ---
     SliceFrameData frameData{};
-    frameData.displayPlaneIdx = 0;
-    int n = 50;
-    float step = 30. / (float)n;
-    for (int i = 0; i <= n; i++) {
-        Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
-        frameData.planes.emplace_back(pln);
+    frameData.displayPlane = FetchDisplayPlane();
+    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS) {
+        int n = 50;
+        float step = 30. / (float)n;
+        for (int i = 0; i <= n; i++) {
+            Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
+            frameData.planes.emplace_back(pln);
+        }
+        m_runningMode = RunningMode::DISPLAY_ONLY;
     }
+    // 需要显示的截面永远放在数组最后一位
+    frameData.planes.push_back(frameData.displayPlane);
     frameData.blankMatrix = glm::mat4(1.f);
     frameData.wheelMatrixes.reserve(m_grndWheelInstances.size());
     for (const auto& instance : m_grndWheelInstances) {
@@ -137,18 +165,18 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
-    #if 0
+#if 0
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 2.f;
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
-    #else
+#else
     // 固定分辨率
     const uint32_t FIXED_RES = 2048u;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
-    #endif
+#endif
 
     float xHalf, zHalf;
 
@@ -168,6 +196,36 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.zMax = m_viewCenter.y + zHalf;
 
     return config;
+}
+
+Plane Simulation2DDialog::FetchDisplayPlane()
+{
+    QString inputP = m_inputPoint->text();
+    QString inputN = m_inputNormal->text();
+
+    auto fetch_value = [](QString input) {
+        static QRegularExpression re(
+            R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?))");
+        QRegularExpressionMatch match = re.match(input);
+
+        if (match.hasMatch()) {
+            bool okX, okY, okZ;
+            double x = match.captured(1).toDouble(&okX);
+            double y = match.captured(2).toDouble(&okY);
+            double z = match.captured(3).toDouble(&okZ);
+
+            if (okX && okY && okZ) {
+            } else {
+                std::cerr << "bu shi ge men"
+                          << "\n";
+            }
+
+            return glm::vec3{x, y, z};
+        }
+        return glm::vec3{0, 0, 0};
+    };
+
+    return {fetch_value(inputN), fetch_value(inputP)};
 }
 
 void Simulation2DDialog::resizeEvent(QResizeEvent* event)
@@ -244,7 +302,7 @@ void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
     // 这必须与 UpdateView 中的逻辑一致
     float aspectRatio = static_cast<float>(width()) / static_cast<float>(height());
     float pixelToWorldScale = 0.0f;
-    
+
     // 根据 UpdateView 的逻辑：
     // 如果宽 > 高 (aspect > 1)，m_viewHalfSize 对应高度的一半 (Z轴)
     // 如果宽 < 高 (aspect < 1)，m_viewHalfSize 对应宽度的一半 (X轴)

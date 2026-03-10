@@ -69,7 +69,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        SliceResourceContext& context,
                                        const RasterizerData& rasterizerData,
                                        const SliceFrameData& frameData,
-                                       const SliceViewConfig& viewConfig)
+                                       const SliceViewConfig& viewConfig,
+                                       bool isAnalysisRequested)
 {
     uint32_t numPlane = static_cast<uint32_t>(frameData.planes.size());
     if (numPlane == 0) {
@@ -96,7 +97,7 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
         }
 
         // --- 派发计算 ---
-        DispatchCompute(commandBuffer, context, frameData, viewConfig, planeIdx);
+        DispatchCompute(commandBuffer, context, frameData, viewConfig, planeIdx, isAnalysisRequested);
 
         // --- 尾部安全屏障 ---
         if (!isLastPlane) {
@@ -104,14 +105,16 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
             tailBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             tailBarrier.srcAccessMask =
                 VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            tailBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                                        VK_ACCESS_TRANSFER_WRITE_BIT;
+            tailBarrier.dstAccessMask =
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             vkCmdPipelineBarrier(commandBuffer,
                                  VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
                                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                  0,
                                  1,
                                  &tailBarrier,
@@ -123,20 +126,19 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     };
 
     for (uint32_t i = 0; i < numPlane; i++) {
-        if (i == frameData.displayPlaneIdx) continue;
-        process_single_plane(i, false);
+        process_single_plane(i, (i == numPlane - 1));
     }
 
-    process_single_plane(frameData.displayPlaneIdx, true);
-
-    ReadbackFromGPU(commandBuffer, context, numPlane);
+    if (isAnalysisRequested) {
+        ReadbackFromGPU(commandBuffer, context, numPlane);
+    }
 }
 
 void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                                       SliceResourceContext& context,
                                       const SliceFrameData& frameData,
                                       const SliceViewConfig& viewConfig,
-                                      uint32_t planeIdx)
+                                      uint32_t planeIdx, bool isAnalysisRequested)
 {
     // --- 设置内存屏障与计算着色器 ---
     std::vector<VkImageMemoryBarrier> barriers;
@@ -179,6 +181,10 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
         static_cast<uint32_t>(barriers.size()),
         barriers.data());
 
+    if (!isAnalysisRequested) {
+        return;
+    }
+
     // 清空GPU侧计数器
     vkCmdFillBuffer(commandBuffer,
                     context.m_counterBuffer->GetBuffer(),
@@ -187,10 +193,11 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                     0);
 
     // 重置GPU计算结果buffer
-    ResultData resultData;
+    ResultData resultData{};
+    resultData.coreRadiusSqBits = 0xFFFFFFFF;
     vkCmdUpdateBuffer(commandBuffer,
                       context.m_resultBuffer->GetBuffer(),
-                      sizeof(ResultData) * planeIdx,    // 根据索引计算内存偏移
+                      sizeof(ResultData) * planeIdx,  // 根据索引计算内存偏移
                       sizeof(ResultData),
                       &resultData);
 

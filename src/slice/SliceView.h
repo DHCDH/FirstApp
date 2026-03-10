@@ -39,9 +39,9 @@ public:
     {
         m_displayWireframe = display;
     }
-    void SetFetchContour()
+    void SetRunningMode(RunningMode mode)
     {
-        m_fetchContour = true;
+        m_runningMode = mode;
     }
 
     lve::LveWindow* GetWindow() const
@@ -52,7 +52,7 @@ public:
 private:
     void InitDisplayResources();
     void RecreateDisplayDescriptorSet();
-    void ProcessAnalysisResult(const SliceFrameData& frameData);
+    bool ProcessAnalysisResult(uint32_t numPlanes);
 
 private:
     lve::LveModel* m_blankModel = nullptr;
@@ -77,7 +77,9 @@ private:
 
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
-    bool m_fetchContour = false;
+    RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
+    bool m_isWaitingForAnalysis = false;    // 是否挂起等待GPU
+    uint32_t m_analysisPlaneCount = 0;      // 记住派发了多少个面
 
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;

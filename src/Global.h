@@ -60,7 +60,7 @@ struct SlicePlaneInfo {
 struct SliceFrameData {
     bool displayWireframe{true};
 
-    uint32_t displayPlaneIdx{0};
+    Plane displayPlane{{1.f, 0.f, 0.f}, {0.f, 0.f, 0.f}};
 
     glm::mat4 blankMatrix;                // 棒料的世界变换矩阵
     std::vector<glm::mat4> wheelMatrixes;  // 所有砂轮实例
@@ -111,6 +111,12 @@ enum class SliceDisplayMode : uint32_t
     BLANK_ONLY = 1,
     GRNDWHEEL_ONLY = 2,
     INTERSECTION_ONLY = 3
+};
+
+enum class RunningMode : uint32_t
+{
+    DISPLAY_ONLY = 0,
+    DISPLAY_AND_ANALYSIS = 1
 };
 
 struct ToolPath {
