@@ -48,6 +48,10 @@ public:
     {
         return m_window.get();
     }
+    std::vector<SliceViewConfig> GetLastMicroConfigs() const
+    {
+        return m_processor->GetLastMicroConfigs();
+    }
 
 private:
     void InitDisplayResources();

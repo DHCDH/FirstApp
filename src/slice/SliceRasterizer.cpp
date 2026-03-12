@@ -1,6 +1,10 @@
 ﻿#include "SliceRasterizer.h"
 
+#include <algorithm>
+#include <cstring>
 #include <iostream>
+
+#include "LveCamera.h"
 
 using namespace lve;
 
@@ -12,7 +16,8 @@ SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& con
         m_lveDevice,
         context.m_maskRenderPass,
         context.m_globalSetLayout->GetDescriptorSetLayout(),
-        context.m_contourComputeSetLayout->GetDescriptorSetLayout());
+        context.m_contourComputeSetLayout->GetDescriptorSetLayout(),
+        context.m_bboxComputeSetLayout->GetDescriptorSetLayout());
 }
 
 void SliceRasterizer::UpdateInstances(const std::vector<glm::mat4>& instanceData)
@@ -72,8 +77,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        const SliceViewConfig& viewConfig,
                                        bool isAnalysisRequested)
 {
-    uint32_t numPlane = static_cast<uint32_t>(frameData.planes.size());
-    if (numPlane == 0) {
+    uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
+    if (numPlanes == 0) {
         throw std::runtime_error("No plane to process");
     }
 
@@ -85,52 +90,372 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                            m_grndWheelInstancesBuffer.get(),
                                            m_grndWheelInstancesCount};
 
-    auto process_single_plane = [&](uint32_t planeIdx, bool isLastPlane) {
-        const Plane& curPlane = frameData.planes[planeIdx];
+    // --- 为每个截面准备独立的相机配置数组
+    std::vector<SliceViewConfig> updatedViewConfigs(numPlanes, viewConfig);
+    std::vector<GlobalUbo> updatedUbos(numPlanes);
 
-        // --- 离屏渲染 ---
+    if (!isAnalysisRequested) {
         if (m_renderSystem) {
             m_renderSystem->RenderMask(commandBuffer,
                                        renderPassData,
                                        rasterizerData,
-                                       curPlane);
+                                       frameData.displayPlane);
         }
 
-        // --- 派发计算 ---
-        DispatchCompute(commandBuffer, context, frameData, viewConfig, planeIdx, isAnalysisRequested);
+        // --- 插入图像内存屏障，手动转换图像布局 ---
+        VkImageMemoryBarrier colorBarrier{};
+        colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        colorBarrier.image = context.m_blankMaskImage;
+        colorBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        // 渲染管线结束时是 Attachment 状态
+        colorBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        // 屏幕显示系统需要 Read Only 状态
+        colorBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        colorBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        colorBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        // --- 尾部安全屏障 ---
-        if (!isLastPlane) {
-            VkMemoryBarrier tailBarrier{};
-            tailBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-            tailBarrier.srcAccessMask =
-                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            tailBarrier.dstAccessMask =
-                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
-                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        // 提交管线屏障
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &colorBarrier);
+
+        return;
+    }
+
+    VkCommandBuffer scoutCmd = m_lveDevice.beginSingleTimeCommands();
+
+    {
+        GlobalUbo scoutBaseUbo;
+        void* scoutUboMapped = context.m_cameraUboBuffer->GetMappedMemory();
+        if (scoutUboMapped) std::memcpy(&scoutBaseUbo, scoutUboMapped, sizeof(GlobalUbo));
+
+        // 强制覆盖当前的 UBO
+        vkCmdUpdateBuffer(scoutCmd,
+                          context.m_cameraUboBuffer->GetBuffer(),
+                          0,
+                          sizeof(GlobalUbo),
+                          &scoutBaseUbo);
+
+        // 屏障：确保覆盖完成后，后续的 RenderMask 才能读取
+        VkBufferMemoryBarrier scoutUboBarrier{};
+        scoutUboBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        scoutUboBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        scoutUboBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+        scoutUboBarrier.buffer = context.m_cameraUboBuffer->GetBuffer();
+        scoutUboBarrier.size = sizeof(GlobalUbo);
+        vkCmdPipelineBarrier(
+            scoutCmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0,
+            0,
+            nullptr,
+            1,
+            &scoutUboBarrier,
+            0,
+            nullptr);
+    }
+
+    // --- 初始化所有BBox的极值 ---
+    std::vector<BBoxData> initBBoxes(numPlanes, {0xFFFFFFFF, 0xFFFFFFFF, 0, 0});
+    vkCmdUpdateBuffer(scoutCmd,
+                      context.m_bboxBuffer->GetBuffer(),
+                      0,
+                      sizeof(BBoxData) * numPlanes,
+                      initBBoxes.data());
+
+    VkBufferMemoryBarrier clearBarrier{};
+    clearBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    clearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    clearBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    clearBarrier.buffer = context.m_bboxBuffer->GetBuffer();
+    clearBarrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(scoutCmd,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         1,
+                         &clearBarrier,
+                         0,
+                         nullptr);
+
+    for (uint32_t i = 0; i < numPlanes; i++) {
+        if (m_renderSystem) {
+            m_renderSystem->RenderMask(scoutCmd,
+                                       renderPassData,
+                                       rasterizerData,
+                                       frameData.planes[i]);
+        }
+
+        VkImageMemoryBarrier scoutImageBarrier{};
+        scoutImageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        scoutImageBarrier.image = context.m_blankMaskImage;
+        scoutImageBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        scoutImageBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        scoutImageBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        scoutImageBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        scoutImageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(scoutCmd,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &scoutImageBarrier);
+
+        if (m_renderSystem) {
+            m_renderSystem->ComputeBBox(scoutCmd,
+                                        context.GetBBoxDescriptorSet(),
+                                        context.m_width,
+                                        context.m_height,
+                                        i);
+        }
+
+        // --- 内部循环屏障，防止多个截面的 Shader 读写踩踏 ---
+        VkBufferMemoryBarrier loopBarrier{};
+        loopBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        loopBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        loopBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        loopBarrier.buffer = context.m_bboxBuffer->GetBuffer();
+        loopBarrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(scoutCmd,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             1,
+                             &loopBarrier,
+                             0,
+                             nullptr);
+    }
+
+    // --- 将BBox数组拷贝回CPU ---
+    VkBufferMemoryBarrier bboxToTransferBarrier{};
+    bboxToTransferBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bboxToTransferBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    bboxToTransferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    bboxToTransferBarrier.buffer = context.m_bboxBuffer->GetBuffer();
+    bboxToTransferBarrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(scoutCmd,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         1,
+                         &bboxToTransferBarrier,
+                         0,
+                         nullptr);
+
+    VkBufferCopy copyRegion{};
+    copyRegion.size = sizeof(BBoxData) * numPlanes;
+    vkCmdCopyBuffer(scoutCmd,
+                    context.m_bboxBuffer->GetBuffer(),
+                    context.m_bboxReadbackBuffer->GetBuffer(),
+                    1,
+                    &copyRegion);
+
+    VkBufferMemoryBarrier bboxReadBarrier{};
+    bboxReadBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bboxReadBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bboxReadBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    bboxReadBarrier.buffer = context.m_bboxReadbackBuffer->GetBuffer();
+    bboxReadBarrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(scoutCmd,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_HOST_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         1,
+                         &bboxReadBarrier,
+                         0,
+                         nullptr);
+
+    // 强制暂停，等待缓冲区数据写入完成
+    m_lveDevice.endSingleTimeCommands(scoutCmd);
+
+    // --- CPU为每个截面单独配发相机 ---
+    context.m_bboxReadbackBuffer->Map();
+    void* mappedData = context.m_bboxReadbackBuffer->GetMappedMemory();
+    std::vector<BBoxData> gpuBounds(numPlanes);
+    std::memcpy(gpuBounds.data(), mappedData, sizeof(BBoxData) * numPlanes);
+    context.m_bboxReadbackBuffer->Unmap();
+
+    GlobalUbo baseUbo;
+    void* uboMapped = context.m_cameraUboBuffer->GetMappedMemory();
+    if (uboMapped) std::memcpy(&baseUbo, uboMapped, sizeof(GlobalUbo));
+
+    float scout_dx =
+        (viewConfig.xMax - viewConfig.xMin) / static_cast<float>(context.m_width);
+    float scout_dz =
+        (viewConfig.zMin - viewConfig.zMax) / static_cast<float>(context.m_height);
+
+    float aspect = static_cast<float>(viewConfig.nX) / static_cast<float>(viewConfig.nZ);
+
+    for (uint32_t i = 0; i < numPlanes; i++) {
+        updatedUbos[i] = baseUbo;
+
+        if (gpuBounds[i].minX == 0xFFFFFFFF) {
+            updatedViewConfigs[i] = viewConfig;
+            LveCamera tempCamera;
+            tempCamera.SetOrthographicProjection(viewConfig.xMin,
+                                                 viewConfig.xMax,
+                                                 viewConfig.zMax,
+                                                 viewConfig.zMin,
+                                                 -4000.f,
+                                                 4000.f);
+            updatedUbos[i].projection = tempCamera.GetProjection();
+            continue;
+        }
+
+        float worldMinX = viewConfig.xMin + gpuBounds[i].minX * scout_dx;
+        float worldMaxX = viewConfig.xMin + gpuBounds[i].maxX * scout_dx;
+        float worldMinZ = viewConfig.zMax + gpuBounds[i].minY * scout_dz;
+        float worldMaxZ = viewConfig.zMax + gpuBounds[i].maxY * scout_dz;
+
+        float newCenterX = (worldMinX + worldMaxX) * 0.5f;
+        float newCenterZ = (worldMinZ + worldMaxZ) * 0.5f;
+        float newWidth = std::abs(worldMaxX - worldMinX);
+        float newHeight = std::abs(worldMaxZ - worldMinZ);
+
+        float safeHalfX = newWidth * 0.5f * 1.15f;
+        float safeHalfZ = newHeight * 0.5f * 1.15f;
+
+        float maxHalf = std::max({safeHalfX, safeHalfZ, 0.001f});
+        float finalHalfX = maxHalf;
+        float finalHalfZ = maxHalf;
+        if (aspect > 1.f) {
+            finalHalfX = maxHalf * aspect;
+        } else {
+            finalHalfZ = maxHalf / aspect;
+        }
+
+        updatedViewConfigs[i].xMin = newCenterX - finalHalfX;
+        updatedViewConfigs[i].xMax = newCenterX + finalHalfX;
+        updatedViewConfigs[i].zMin = newCenterZ - finalHalfZ;
+        updatedViewConfigs[i].zMax = newCenterZ + finalHalfZ;
+
+        updatedViewConfigs[i].nX = context.m_width;
+        updatedViewConfigs[i].nZ = context.m_height;
+
+        // --- 重新生成此截面的投影矩阵 ---
+        LveCamera tempCamera;
+        tempCamera.SetOrthographicProjection(updatedViewConfigs[i].xMin,
+                                             updatedViewConfigs[i].xMax,
+                                             updatedViewConfigs[i].zMax,
+                                             updatedViewConfigs[i].zMin,
+                                             -4000.f,
+                                             4000.f);
+
+        updatedUbos[i].projection = tempCamera.GetProjection();
+    }
+    m_lastMicroConfigs = updatedViewConfigs;
+
+    for (uint32_t i = 0; i < numPlanes; i++) {
+        if (isAnalysisRequested) {
+            if (i > 0) {
+                // --- 等上一次的Vertex Shader读完老UBO再允许更新 ---
+                VkBufferMemoryBarrier waitUboBarrier{};
+                waitUboBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                waitUboBarrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+                waitUboBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                waitUboBarrier.buffer = context.m_cameraUboBuffer->GetBuffer();
+                waitUboBarrier.size = sizeof(GlobalUbo);
+                vkCmdPipelineBarrier(commandBuffer,
+                                     VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     0,
+                                     0,
+                                     nullptr,
+                                     1,
+                                     &waitUboBarrier,
+                                     0,
+                                     nullptr);
+            }
+
+            vkCmdUpdateBuffer(commandBuffer,
+                              context.m_cameraUboBuffer->GetBuffer(),
+                              0,
+                              sizeof(GlobalUbo),
+                              &updatedUbos[i]);
+
+            // --- 等UBO更新完再允许开始画 ---
+            VkBufferMemoryBarrier uboBarrier{};
+            uboBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            uboBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            uboBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+            uboBarrier.buffer = context.m_cameraUboBuffer->GetBuffer();
+            uboBarrier.size = sizeof(GlobalUbo);
             vkCmdPipelineBarrier(commandBuffer,
-                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT |
-                                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                  0,
-                                 1,
-                                 &tailBarrier,
                                  0,
                                  nullptr,
+                                 1,
+                                 &uboBarrier,
                                  0,
                                  nullptr);
-        }
-    };
 
-    for (uint32_t i = 0; i < numPlane; i++) {
-        process_single_plane(i, (i == numPlane - 1));
+            if (m_renderSystem) {
+                m_renderSystem->RenderMask(commandBuffer,
+                                           renderPassData,
+                                           rasterizerData,
+                                           frameData.planes[i]);
+            }
+
+            DispatchCompute(commandBuffer,
+                            context,
+                            frameData,
+                            isAnalysisRequested ? updatedViewConfigs[i] : viewConfig,
+                            i,
+                            isAnalysisRequested);
+
+            bool isLastPlane = (i == numPlanes - 1);
+            if (!isLastPlane) {
+                VkMemoryBarrier tailBarrier{};
+                tailBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                tailBarrier.srcAccessMask =
+                    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                tailBarrier.dstAccessMask =
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+                    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                vkCmdPipelineBarrier(commandBuffer,
+                                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                         VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     0,
+                                     1,
+                                     &tailBarrier,
+                                     0,
+                                     nullptr,
+                                     0,
+                                     nullptr);
+            }
+        }
     }
 
     if (isAnalysisRequested) {
-        ReadbackFromGPU(commandBuffer, context, numPlane);
+        ReadbackFromGPU(commandBuffer, context, numPlanes);
     }
 }
 

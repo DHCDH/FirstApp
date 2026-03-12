@@ -111,4 +111,11 @@ VkFence SliceProcessor::GetComputeFence() const
     return m_analyzer->GetFence();
 }
 
+void SliceProcessor::Resize(uint32_t width, uint32_t height)
+{
+    if (m_context) {
+        m_context->Resize(width, height);
+    }
+}
+
 SliceProcessor::~SliceProcessor() = default;

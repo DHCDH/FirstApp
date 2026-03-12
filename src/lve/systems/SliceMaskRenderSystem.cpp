@@ -28,7 +28,8 @@ struct SliceComputePushConstants {
 
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
                                              VkDescriptorSetLayout graphicsSetLayouts,
-                                             VkDescriptorSetLayout computeSetLayouts)
+                                             VkDescriptorSetLayout computeSetLayouts,
+                                             VkDescriptorSetLayout bboxSetLayout)
     : m_lveDevice(device)
 {
     CreatePipelineLayout(graphicsSetLayouts);  // 定义渲染管线的layout
@@ -36,6 +37,8 @@ SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass ren
 
     CreateComputePipelineLayout(computeSetLayouts);
     CreateComputePipeline();
+
+    CreateBBoxPipeline(bboxSetLayout);
 }
 
 SliceMaskRenderSystem::~SliceMaskRenderSystem()
@@ -46,6 +49,8 @@ SliceMaskRenderSystem::~SliceMaskRenderSystem()
     if (m_computePipelineLayout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(m_lveDevice.device(), m_computePipelineLayout, nullptr);
     }
+
+    vkDestroyPipelineLayout(m_lveDevice.device(), m_bboxPipelineLayout, nullptr);
 }
 
 /* 创建渲染管线
@@ -104,6 +109,36 @@ void SliceMaskRenderSystem::CreateComputePipelineLayout(
         throw std::runtime_error("failed to create compute pipeline layout!");
     }
 }
+
+void SliceMaskRenderSystem::CreateBBoxPipeline(VkDescriptorSetLayout bboxSetLayout)
+{
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(uint32_t);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &bboxSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_bboxPipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create compute pipeline layout!");
+    }
+
+    PipelineConfigInfo configInfo{};
+    configInfo.pipelineLayout = m_bboxPipelineLayout;
+    m_bboxPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader_find_bbox.comp.spv",
+        configInfo);
+}
+
 
 void SliceMaskRenderSystem::CreatePipelines(VkRenderPass renderPass)
 {
@@ -1109,6 +1144,29 @@ void SliceMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
     vkCmdDispatch(commandBuffer, 1, 1, 1);
 
     return;
+}
+
+void SliceMaskRenderSystem::ComputeBBox(VkCommandBuffer commandBuffer,
+                                      VkDescriptorSet bboxDescriptorSet,
+    uint32_t width, uint32_t height, uint32_t planeIdx)
+{
+    m_bboxPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          m_bboxPipelineLayout, 0, 1,
+                            &bboxDescriptorSet,
+                            0,
+                            nullptr);
+
+    vkCmdPushConstants(commandBuffer,
+                       m_bboxPipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       0,
+                       sizeof(uint32_t),
+                       &planeIdx);
+
+    uint32_t groupX = (width + 15) / 16;
+    uint32_t groupY = (height + 15) / 16;
+    vkCmdDispatch(commandBuffer, groupX, groupY, 1);
 }
 
 }  // namespace lve

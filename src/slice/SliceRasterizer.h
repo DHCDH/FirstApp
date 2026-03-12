@@ -40,6 +40,10 @@ public:
     {
         return m_grndWheelInstancesCount;
     }
+    const std::vector<SliceViewConfig>& GetLastMicroConfigs() const
+    {
+        return m_lastMicroConfigs;
+    }
 
 private:
     void ReadbackFromGPU(VkCommandBuffer commandBuffer, SliceResourceContext& context,
@@ -53,4 +57,6 @@ private:
     // 实例缓冲区
     std::unique_ptr<lve::LveBuffer> m_grndWheelInstancesBuffer;
     uint32_t m_grndWheelInstancesCount{0};
+
+    std::vector<SliceViewConfig> m_lastMicroConfigs;
 };

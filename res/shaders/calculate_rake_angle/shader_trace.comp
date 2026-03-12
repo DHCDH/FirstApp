@@ -52,6 +52,7 @@ void main()
         visited[i] = 0;
     }
 
+
     // --- 从距离圆心最远的点开始追踪 ---
     uint curr = tipInfo.tipIndex;
     for (uint step = 0; step < validCount; step++) {
@@ -82,8 +83,14 @@ void main()
                     }
                 }
             }
+
+            if (nextIdx != 0xFFFFFFFF && minDist > 0.01) {
+                count = step + 1; // 覆盖全局有效点数，丢弃后面所有噪点
+                break;
+            }
         }
         curr = nextIdx;
     }
+    
 
 }

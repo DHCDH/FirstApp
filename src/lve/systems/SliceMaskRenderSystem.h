@@ -29,7 +29,8 @@ class SliceMaskRenderSystem
 public:
     SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
                           VkDescriptorSetLayout graphicsSetLayouts,
-                          VkDescriptorSetLayout computeSetLayouts);
+                          VkDescriptorSetLayout computeSetLayouts,
+                          VkDescriptorSetLayout bboxSetLayout);
     ~SliceMaskRenderSystem();
 
     SliceMaskRenderSystem(const SliceMaskRenderSystem&) = delete;
@@ -66,6 +67,9 @@ public:
     // 整合计算逻辑
     void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
                       LveBuffer* tipInfoBuffer);
+
+    void ComputeBBox(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
+                     uint32_t width, uint32_t height, uint32_t planeIdx);
 
 private:
     LveDevice& m_lveDevice;
@@ -114,6 +118,11 @@ private:
     void CreateStencilResolvePipeline(VkRenderPass renderPass);
     void CreateStencilClearPipeline(VkRenderPass renderPass);
 
+    void CreateComputePipelineLayout(const VkDescriptorSetLayout& setLayout);
+    void CreateComputePipeline();
+
+    void CreateBBoxPipeline(VkDescriptorSetLayout descriptorSetLayout);
+
 private:
     // --- 计算资源 ---
 
@@ -129,8 +138,8 @@ private:
     // 计算前角
     std::unique_ptr<LvePipeline> m_rakeAnglePipeline;
 
-    void CreateComputePipelineLayout(const VkDescriptorSetLayout& setLayout);
-    void CreateComputePipeline();
+    VkPipelineLayout m_bboxPipelineLayout;
+    std::unique_ptr<LvePipeline> m_bboxPipeline;
 };
 
 }  // namespace lve

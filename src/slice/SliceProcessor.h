@@ -29,6 +29,8 @@ public:
     // --- 获取计算完成同步信号 ---
     VkFence GetComputeFence() const;
 
+    void Resize(uint32_t width, uint32_t height);
+
 public:
     void SetModels(lve::LveModel* blank, lve::LveModel* grndWheel)
     {
@@ -69,6 +71,10 @@ public:
     VkDescriptorSetLayout GetGlobalDescriptorSetLayout() const
     {
         return m_context->GetGlobalDescriptorSetLayout();
+    }
+    const std::vector<SliceViewConfig>& GetLastMicroConfigs() const
+    {
+        return m_rasterizer->GetLastMicroConfigs();
     }
 
 private:

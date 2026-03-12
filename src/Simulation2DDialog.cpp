@@ -131,6 +131,8 @@ void Simulation2DDialog::BuildContactMask()
         emit OpenToolPathSignal();
     }
 
+    bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS);
+
     // ---准备帧数据 ---
     SliceFrameData frameData{};
     frameData.displayPlane = FetchDisplayPlane();
@@ -153,6 +155,30 @@ void Simulation2DDialog::BuildContactMask()
 
     /*执行GPU计算*/
     m_sliceView->BuildContactMask(frameData);
+
+    // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
+    if (wasAnalysisRequested) {
+        auto microConfigs = m_sliceView->GetLastMicroConfigs();
+        if (!microConfigs.empty()) {
+
+            // --- 避免对焦到可能没有交集的displayPlane
+
+            auto micro = microConfigs.back();
+
+            // 同步相机的物理中心点到切削交集处
+            m_viewCenter.x = (micro.xMin + micro.xMax) * 0.5f;
+            m_viewCenter.y = (micro.zMin + micro.zMax) * 0.5f;
+
+            // 同步鼠标的缩放倍率 (m_viewHalfSize) 到显微镜级别
+            float aspectRatio =
+                static_cast<float>(width()) / static_cast<float>(height());
+            if (aspectRatio > 1.0f) {
+                m_viewHalfSize = std::abs(micro.zMax - micro.zMin) * 0.5f;
+            } else {
+                m_viewHalfSize = std::abs(micro.xMax - micro.xMin) * 0.5f;
+            }
+        }
+    }
 }
 
 SliceViewConfig Simulation2DDialog::UpdateView()
@@ -165,9 +191,9 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
-#if 0
+#if 1
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
-    constexpr float renderScale = 2.f;
+    constexpr float renderScale = 1.f;
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);

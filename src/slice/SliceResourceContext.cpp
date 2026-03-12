@@ -51,7 +51,7 @@ void SliceResourceContext::CreateGlobalResources()
         m_lveDevice,
         sizeof(GlobalUbo),
         1,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     m_cameraUboBuffer->Map();
 
@@ -213,6 +213,58 @@ void SliceResourceContext::CreateOffscreenImage()
                           &m_stencilSampleView) != VK_SUCCESS) {
         throw std::runtime_error("failed to create depth stencil sample view!");
     }
+
+    VkCommandBuffer transitionCmd = m_lveDevice.beginSingleTimeCommands();
+    auto transitionImage =
+        [&](VkImage img, VkImageAspectFlags aspect, VkImageLayout newLayout) {
+            if (img == VK_NULL_HANDLE) return;
+
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = img;
+            barrier.subresourceRange.aspectMask = aspect;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(transitionCmd,
+                                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 0,
+                                 0,
+                                 nullptr,
+                                 0,
+                                 nullptr,
+                                 1,
+                                 &barrier);
+        };
+
+    // 转换所有颜色掩码图
+    transitionImage(m_blankMaskImage,
+                    VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transitionImage(m_grndWheelMaskImage,
+                    VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transitionImage(m_contactMaskImage,
+                    VK_IMAGE_ASPECT_COLOR_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // 转换深度图 (可选，但为了防止外部采样也一并转换)
+    transitionImage(m_depthStencilImage,
+                    VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    m_lveDevice.endSingleTimeCommands(transitionCmd);
 }
 
 void SliceResourceContext::CreateSingleImageResource(VkImage& image,
@@ -343,6 +395,29 @@ void SliceResourceContext::CreateComputeResources()
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,  // 最终结果，必须能作为SRC拷贝回CPU
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    // --- 包围盒Bbox存储和读回buffer
+    m_bboxBuffer = std::make_unique<LveBuffer>(m_lveDevice,
+                                               sizeof(BBoxData),
+                                               MAX_PLANES,
+                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_bboxReadbackBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(BBoxData),
+        MAX_PLANES,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    m_bboxComputeSetLayout =
+        LveDescriptorSetLayout::Builder(m_lveDevice)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+
     // 创建计算描述符集布局
     m_contourComputeSetLayout =
         LveDescriptorSetLayout::Builder(m_lveDevice)
@@ -361,9 +436,9 @@ void SliceResourceContext::CreateComputeResources()
     // 更新描述符池
     m_computeDescriptorPool =
         LveDescriptorPool::Builder(m_lveDevice)
-            .SetMaxSets(1)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7)
+            .SetMaxSets(2)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8)
             .Build();
 
     // 绑定资源并构建 Descriptor Set
@@ -387,6 +462,12 @@ void SliceResourceContext::CreateComputeResources()
         .WriteBuffer(6, &tempSortedInfo)
         .WriteBuffer(7, &finalPointsInfo)
         .Build(m_contourDescriptorSet);
+
+    auto bboxInfo = m_bboxBuffer->DescriptorInfo();
+    LveDescriptorWriter(*m_bboxComputeSetLayout, *m_computeDescriptorPool)
+        .WriteImage(0, &imageInfo)  // 共用一张blankMaskView
+        .WriteBuffer(1, &bboxInfo)
+        .Build(m_bboxDescriptorSet);
 
     // 创建staging buffer
     VkDeviceSize totalReadbackSize =
@@ -448,6 +529,10 @@ void SliceResourceContext::Resize(uint32_t newWidth, uint32_t newHeight)
     lve::LveDescriptorWriter(*m_contourComputeSetLayout, *m_computeDescriptorPool)
         .WriteImage(0, &imageInfo)
         .Overwrite(m_contourDescriptorSet);
+
+    lve::LveDescriptorWriter(*m_bboxComputeSetLayout, *m_computeDescriptorPool)
+        .WriteImage(0, &imageInfo)
+        .Overwrite(m_bboxDescriptorSet);
 }
 
 void SliceResourceContext::CleanupMaskResource(VkImage& image, VkImageView& view,

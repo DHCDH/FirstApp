@@ -104,7 +104,7 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
 
     // 如果物理分辨率变了，你需要通知 Processor 里的 Context Resize
     // 需要你在 Processor 里加一个 Resize 接口透传到 Context
-    // m_processor->Resize(m_viewConfig.nX, m_viewConfig.nZ);
+     m_processor->Resize(m_viewConfig.nX, m_viewConfig.nZ);
 
     RecreateDisplayDescriptorSet();
 }

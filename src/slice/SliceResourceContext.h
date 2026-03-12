@@ -29,6 +29,14 @@ struct ResultData {
     float _pad;
 };
 
+struct BBoxData {
+    uint32_t minX;
+    uint32_t minY;
+    uint32_t maxX;
+    uint32_t maxY;
+};
+
+
 constexpr uint32_t MAX_PLANES = 300;
 constexpr uint32_t MAX_POINTS = 50000;
 
@@ -44,6 +52,11 @@ public:
 
     SliceResourceContext(const SliceResourceContext&) = delete;
     SliceResourceContext& operator=(const SliceResourceContext&) = delete;
+
+    std::unique_ptr<lve::LveBuffer> m_bboxBuffer;
+    std::unique_ptr<lve::LveBuffer> m_bboxReadbackBuffer;
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_bboxComputeSetLayout;
+    VkDescriptorSet m_bboxDescriptorSet;
 
 public:
     // 调整分辨率
@@ -74,6 +87,10 @@ public:
     VkDescriptorSetLayout GetGlobalDescriptorSetLayout() const
     {
         return m_globalSetLayout->GetDescriptorSetLayout();
+    }
+    VkDescriptorSet GetBBoxDescriptorSet() const
+    {
+        return m_bboxDescriptorSet;
     }
 
 private:
