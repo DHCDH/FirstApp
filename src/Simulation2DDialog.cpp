@@ -31,19 +31,23 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     mainLayout->addLayout(controlLayout);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
-    m_inputPoint = new QLineEdit("0.0, 0.0, 0.0", this);
-    m_inputNormal = new QLineEdit("1.0, 0.0, 0.0", this);
+    m_editDiameter = new QLineEdit("10.", this);
+    m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
+    m_editNormal = new QLineEdit("1.0, 0.0, 0.0", this);
 
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
-    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&Calculate", this);
+    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
 
     controlLayout->addWidget(checkDisplayWireframe);
-    controlLayout->addWidget(new QLabel("point", this));
-    controlLayout->addWidget(m_inputPoint);
-    controlLayout->addWidget(new QLabel("normal", this));
-    controlLayout->addWidget(m_inputNormal);
+    controlLayout->addWidget(new QLabel("Diameter", this));
+    controlLayout->addWidget(m_editDiameter);
+    controlLayout->addWidget(new QLabel("Point", this));
+    controlLayout->addWidget(m_editPoint);
+    controlLayout->addWidget(new QLabel("Normal", this));
+    controlLayout->addWidget(m_editNormal);
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
+    controlLayout->addStretch();
 
     /*初始化防抖定时器*/
     m_resizeTimer = new QTimer(this);
@@ -53,6 +57,9 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     // m_renderWidget->resize(720, 480);
     m_renderWidget->setAttribute(Qt::WA_PaintOnScreen);
     m_renderWidget->setAttribute(Qt::WA_NativeWindow);
+    // 禁止Qt自动绘制背景，防止失去焦点时画面被刷黑
+    m_renderWidget->setAttribute(Qt::WA_NoSystemBackground);
+    m_renderWidget->setAttribute(Qt::WA_OpaquePaintEvent);
     m_renderWidget->winId();
     void* hwnd = reinterpret_cast<void*>(m_renderWidget->winId());
     void* hinstance = GetModuleHandle(nullptr);
@@ -83,13 +90,31 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     });
 
     connect(btnDisplayAndAnalysis, &QPushButton::clicked, this, [this]() {
+        this->setProperty("isFullAnalysis", true);
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
         m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
         BuildContactMask();
     });
 
-    connect(m_inputPoint, &QLineEdit::textChanged, [this]() { BuildContactMask(); });
-    connect(m_inputNormal, &QLineEdit::textChanged, [this]() { BuildContactMask(); });
+    // --- 为输入框创建一个400毫秒的防抖定时器 ---
+    QTimer* inputTimer = new QTimer(this);
+    inputTimer->setSingleShot(true);
+    inputTimer->setInterval(400);
+
+    connect(m_editPoint, &QLineEdit::textChanged, [inputTimer]() {
+        inputTimer->start();
+    });
+    connect(m_editNormal, &QLineEdit::textChanged, [inputTimer]() {
+        inputTimer->start();
+    });
+    connect(inputTimer, &QTimer::timeout, [this]() {
+        std::cout << "plane change"
+                  << "\n";
+        this->setProperty("isFullAnalysis", false);     // 标记为单截面
+        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
+        m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+        BuildContactMask();
+    });
 }
 
 void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
@@ -117,6 +142,19 @@ void Simulation2DDialog::UpdateEntitiesData(
 
 void Simulation2DDialog::BuildContactMask()
 {
+    bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS);
+
+    if (wasAnalysisRequested) {
+        // 不管是全量还是单截面分析，先把雷达拉回到刚好能包住整根棒料的范围！
+        // 这样既不会让新截面跑出视野，也不会因为视野太大(400)导致小特征丢失。
+        m_viewCenter = glm::vec2(0.0f, 0.0f);
+        m_viewHalfSize =
+            m_editDiameter->text().toDouble() *
+            1.5f;  // <--- 请根据你实际棒料的半径调整，20.0f 是个非常安全的推荐值
+    }
+
+    m_sliceView->UpdateSliceViewConfig(UpdateView());
+
     m_sliceView->UpdateSliceViewConfig(UpdateView());
     m_sliceView->SetModel(m_blank->GetModel(), m_grndWheel->GetModel());
 
@@ -131,17 +169,18 @@ void Simulation2DDialog::BuildContactMask()
         emit OpenToolPathSignal();
     }
 
-    bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS);
-
     // ---准备帧数据 ---
     SliceFrameData frameData{};
     frameData.displayPlane = FetchDisplayPlane();
     if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS) {
-        int n = 50;
-        float step = 30. / (float)n;
-        for (int i = 0; i <= n; i++) {
-            Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
-            frameData.planes.emplace_back(pln);
+        bool isFullAnalysis = this->property("isFullAnalysis").toBool();
+        if (isFullAnalysis) {
+            int n = 50;
+            float step = 30. / (float)n;
+            for (int i = 0; i <= n; i++) {
+                Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
+                frameData.planes.emplace_back(pln);
+            }
         }
         m_runningMode = RunningMode::DISPLAY_ONLY;
     }
@@ -177,6 +216,14 @@ void Simulation2DDialog::BuildContactMask()
             } else {
                 m_viewHalfSize = std::abs(micro.xMax - micro.xMin) * 0.5f;
             }
+
+            std::cout << "[3. GPU -> UI] Synced Target Micro Config: X[" << micro.xMin
+                      << ", " << micro.xMax << "], Z[" << micro.zMin << ", " << micro.zMax
+                      << "]\n";
+            std::cout << "[3. GPU -> UI] Final UI Camera: Center(" << m_viewCenter.x
+                      << ", " << m_viewCenter.y << "), HalfSize: " << m_viewHalfSize
+                      << "\n";
+            std::cout << "================================================\n\n";
         }
     }
 }
@@ -226,8 +273,8 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 Plane Simulation2DDialog::FetchDisplayPlane()
 {
-    QString inputP = m_inputPoint->text();
-    QString inputN = m_inputNormal->text();
+    QString inputP = m_editPoint->text();
+    QString inputN = m_editNormal->text();
 
     auto fetch_value = [](QString input) {
         static QRegularExpression re(

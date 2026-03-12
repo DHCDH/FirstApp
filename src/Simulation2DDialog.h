@@ -48,8 +48,9 @@ private:
     bool m_isDragging = false;              // 是否正在拖拽
 
     // --- 用户输入控件 ---
-    QLineEdit* m_inputPoint;
-    QLineEdit* m_inputNormal;
+    QLineEdit* m_editDiameter;
+    QLineEdit* m_editPoint;
+    QLineEdit* m_editNormal;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);

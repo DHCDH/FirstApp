@@ -47,7 +47,7 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     // 解除映射
     context.m_readbackBuffer->Unmap();
 #if 0
-    size_t countOffset = sizeof(ResultData);
+    size_t countOffset = sizeof(ResultData) * MAX_PLANES;
     uint32_t pointCount = *reinterpret_cast<uint32_t*>(dataPtr + countOffset);
 
     /*const uint32_t MAX_POINTS = 50000;*/

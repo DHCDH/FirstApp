@@ -305,21 +305,19 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     float scout_dz =
         (viewConfig.zMin - viewConfig.zMax) / static_cast<float>(context.m_height);
 
-    float aspect = static_cast<float>(viewConfig.nX) / static_cast<float>(viewConfig.nZ);
+    bool hasAnyIntersection = false;
+    SliceViewConfig firstValidMicroConfig = viewConfig;
 
+    // --- 找出所有有交集的截面并计算bbox ---
     for (uint32_t i = 0; i < numPlanes; i++) {
-        updatedUbos[i] = baseUbo;
+        uint32_t minX = gpuBounds[i].minX;
+        uint32_t maxX = gpuBounds[i].maxX;
+        uint32_t minY = gpuBounds[i].minY;
+        uint32_t maxY = gpuBounds[i].maxY;
 
-        if (gpuBounds[i].minX == 0xFFFFFFFF) {
-            updatedViewConfigs[i] = viewConfig;
-            LveCamera tempCamera;
-            tempCamera.SetOrthographicProjection(viewConfig.xMin,
-                                                 viewConfig.xMax,
-                                                 viewConfig.zMax,
-                                                 viewConfig.zMin,
-                                                 -4000.f,
-                                                 4000.f);
-            updatedUbos[i].projection = tempCamera.GetProjection();
+        // --- 判断bbox是否无效 ---
+        if (minX == 0xFFFFFFFF || maxX <= minX || maxY <= minY) {
+            updatedViewConfigs[i].nX = 0;
             continue;
         }
 
@@ -328,32 +326,41 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
         float worldMinZ = viewConfig.zMax + gpuBounds[i].minY * scout_dz;
         float worldMaxZ = viewConfig.zMax + gpuBounds[i].maxY * scout_dz;
 
-        float newCenterX = (worldMinX + worldMaxX) * 0.5f;
-        float newCenterZ = (worldMinZ + worldMaxZ) * 0.5f;
-        float newWidth = std::abs(worldMaxX - worldMinX);
-        float newHeight = std::abs(worldMaxZ - worldMinZ);
+        float centerX = (worldMinX + worldMaxX) * 0.5f;
+        float centerZ = (worldMinZ + worldMaxZ) * 0.5f;
+        float halfX = std::abs((worldMaxX - worldMinX)) * 0.5f;
+        float halfZ = std::abs((worldMaxZ - worldMinZ)) * 0.5f;
 
-        float safeHalfX = newWidth * 0.5f * 1.15f;
-        float safeHalfZ = newHeight * 0.5f * 1.15f;
+        float maxHalf = std::max({halfX, halfZ, 1.f}) * 1.1f;  // 留10%边距
 
-        float maxHalf = std::max({safeHalfX, safeHalfZ, 0.001f});
-        float finalHalfX = maxHalf;
-        float finalHalfZ = maxHalf;
-        if (aspect > 1.f) {
-            finalHalfX = maxHalf * aspect;
-        } else {
-            finalHalfZ = maxHalf / aspect;
+        float aspect = static_cast<float>(viewConfig.xMax - viewConfig.xMin) /
+                       static_cast<float>(viewConfig.zMax - viewConfig.zMin);
+
+        updatedViewConfigs[i] = viewConfig;
+        updatedViewConfigs[i].xMin = centerX - maxHalf * aspect;
+        updatedViewConfigs[i].xMax = centerX + maxHalf * aspect;
+        updatedViewConfigs[i].zMin = centerZ - maxHalf;
+        updatedViewConfigs[i].zMax = centerZ + maxHalf;
+
+        if (!hasAnyIntersection) {
+            hasAnyIntersection = true;
+            firstValidMicroConfig = updatedViewConfigs[i];
+        }
+    }
+
+    // --- 统一分配相机参数并生成最终投影矩阵 ---
+    for (uint32_t i = 0; i < numPlanes; i++) {
+        if (updatedViewConfigs[i].nX == 0) {
+            if (hasAnyIntersection) {
+                updatedViewConfigs[i] = firstValidMicroConfig;
+                // 没有交集，直接使用默认视角
+                //updatedViewConfigs[i] = viewConfig;
+            } else {
+                updatedViewConfigs[i] = viewConfig;
+            }
         }
 
-        updatedViewConfigs[i].xMin = newCenterX - finalHalfX;
-        updatedViewConfigs[i].xMax = newCenterX + finalHalfX;
-        updatedViewConfigs[i].zMin = newCenterZ - finalHalfZ;
-        updatedViewConfigs[i].zMax = newCenterZ + finalHalfZ;
-
-        updatedViewConfigs[i].nX = context.m_width;
-        updatedViewConfigs[i].nZ = context.m_height;
-
-        // --- 重新生成此截面的投影矩阵 ---
+        // --- 重新生成当前截面的投影矩阵 ---
         LveCamera tempCamera;
         tempCamera.SetOrthographicProjection(updatedViewConfigs[i].xMin,
                                              updatedViewConfigs[i].xMax,
@@ -361,10 +368,36 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                              updatedViewConfigs[i].zMin,
                                              -4000.f,
                                              4000.f);
-
+        updatedUbos[i] = baseUbo;
         updatedUbos[i].projection = tempCamera.GetProjection();
     }
+
     m_lastMicroConfigs = updatedViewConfigs;
+
+    if (isAnalysisRequested) {
+        vkCmdFillBuffer(commandBuffer,
+                        context.m_counterBuffer->GetBuffer(),
+                        0,
+                        sizeof(uint32_t),
+                        0);
+        VkBufferMemoryBarrier counterBarrier{};
+        counterBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        counterBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        counterBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        counterBarrier.buffer = context.m_counterBuffer->GetBuffer();
+        counterBarrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             1,
+                             &counterBarrier,
+                             0,
+                             nullptr);
+    }
 
     for (uint32_t i = 0; i < numPlanes; i++) {
         if (isAnalysisRequested) {
@@ -510,13 +543,6 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
         return;
     }
 
-    // 清空GPU侧计数器
-    vkCmdFillBuffer(commandBuffer,
-                    context.m_counterBuffer->GetBuffer(),
-                    0,
-                    sizeof(uint32_t),
-                    0);
-
     // 重置GPU计算结果buffer
     ResultData resultData{};
     resultData.coreRadiusSqBits = 0xFFFFFFFF;
@@ -525,21 +551,6 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                       sizeof(ResultData) * planeIdx,  // 根据索引计算内存偏移
                       sizeof(ResultData),
                       &resultData);
-
-    std::array<VkBufferMemoryBarrier, 2> bufferBarriers{};
-
-    // 增加一个 Buffer Barrier，确保计数器清零完成后再开始计算
-    VkBufferMemoryBarrier counterBarrier{};
-    counterBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    counterBarrier.size = sizeof(uint32_t);
-    counterBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    counterBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    counterBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    counterBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    counterBarrier.buffer = context.m_counterBuffer->GetBuffer();
-    counterBarrier.offset = 0;
-    counterBarrier.size = VK_WHOLE_SIZE;
-    bufferBarriers[0] = counterBarrier;
 
     VkBufferMemoryBarrier resultBarrier{};
     resultBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -552,7 +563,6 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
             ->GetBuffer();  // 确保 m_minDistBuffer 已在 InitComputeResources 中创建！
     resultBarrier.offset = 0;
     resultBarrier.size = VK_WHOLE_SIZE;
-    bufferBarriers[1] = resultBarrier;
 
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -560,8 +570,8 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                          0,
                          0,
                          nullptr,
-                         static_cast<uint32_t>(bufferBarriers.size()),
-                         bufferBarriers.data(),
+                         1,
+                         &resultBarrier,
                          0,
                          nullptr);
 

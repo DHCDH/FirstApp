@@ -44,10 +44,6 @@ private:
     bool m_instancedShown = false;
     bool m_is2DSimulationActive = false;
 
-    /*控件*/
-    QLineEdit* m_editPoint;
-    QLineEdit* m_editNormal;
-
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* e) override;

@@ -6,6 +6,9 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <thread>
+#include <QMetaObject>
+#include <QCoreApplication>
 
 using namespace lve;
 
@@ -119,13 +122,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
         m_renderer->RecreateSwapChain();
     }
 
-    // 如果正在等待GPU，尝试读取
-    if (m_isWaitingForAnalysis) {
-        if (ProcessAnalysisResult(m_analysisPlaneCount)) {
-            m_isWaitingForAnalysis = false;     // 成功读回，解除挂起状态
-        }
-    }
-
     // --- 检查当前帧是否触发了Analysis请求 ---
     bool requestThisFrame = false;
     if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS && !m_isWaitingForAnalysis) {
@@ -159,7 +155,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                             m_viewConfig.nX,
                             m_viewConfig.nZ,
                             false);  // 线框显示移交OverlayRenderSystem
-#if 1
+
     if (m_displayWireframe && m_grndWheelModel) {
         SliceInstancedInfo info{commandBuffer,
                                 *m_grndWheelModel,
@@ -170,10 +166,30 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
                                 frameData.displayPlane.point};
         m_overlayRenderSystem->RenderSliceContour(info);
     }
-#endif
 
     m_renderer->EndSwapChainRenderPass(commandBuffer);
+
+    // 获取当前提交给GPU的fence
+    VkFence computeFence = m_processor->GetComputeFence();
+
     m_renderer->EndFrame(m_processor->GetComputeFence());
+
+    // --- 后台线程等待fence并触发UI回调 ---
+    if (requestThisFrame && computeFence != VK_NULL_HANDLE) {
+        VkDevice vkDevice = m_device.device();
+        uint32_t planeCount = m_analysisPlaneCount;
+
+        std::thread([this, vkDevice, computeFence, planeCount]() {
+            vkWaitForFences(vkDevice, 1, &computeFence, VK_TRUE, UINT64_MAX);
+            // --- 通过Qt安全队列把任务扔回主线程 ---
+            QMetaObject::invokeMethod(
+                qApp,
+                [this, planeCount] {
+                this->ProcessAnalysisResult(planeCount);
+                this->m_isWaitingForAnalysis = false;
+            }, Qt::QueuedConnection);
+        }).detach();
+    }
 }
 
 bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
