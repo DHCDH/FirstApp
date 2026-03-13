@@ -1,5 +1,10 @@
 #version 450
 
+struct TipData {
+    uint maxDistBits;
+    uint tipIndex;
+};
+
 layout(local_size_x = 256) in;  // 每个工作组有256个线程
 
 // binding = 1: 轮廓点buffer
@@ -9,7 +14,7 @@ layout(std430, set = 0, binding = 1) buffer OutPoints {
 
 // binding = 2: 第一阶段提取出的点数量
 layout(std430, set = 0, binding = 2) buffer Counter {
-    uint count;
+    uint count[];
 };
 
 // 存储每个点最近的4个邻居索引
@@ -19,25 +24,35 @@ layout(std430, set = 0, binding = 4) buffer KNN {
 
 // 存储最远点信息
 layout (std430, set = 0, binding = 5) buffer TipInfo {
-    uint maxDistBits;
-    uint tipIndex;
-}tipInfo;
+    TipData tips[];
+};
+
+layout(push_constant) uniform Push {
+    uint maxPoints;
+    uint planeIndex;
+    vec3 normal;
+    vec3 point;
+    vec4 mapInfo;
+    int isRightCut;
+} push;
 
 void main()
 {
     uint i = gl_GlobalInvocationID.x;   // 当前执行线程在整个grid中的索引
-    uint validCount = count;
+    uint plnIdx = push.planeIndex;
+    uint validCount = count[plnIdx];
     if (i >= validCount) return;
 
-    vec2 p = points[i];
+    uint global_i = plnIdx * push.maxPoints + i;
+    vec2 p = points[global_i];
 
     // --- 并发寻找距离圆心最远的点 ---
     uint distBits = floatBitsToUint(dot(p, p));
     while (true) {
-        uint oldDistBits = tipInfo.maxDistBits;
+        uint oldDistBits = tips[plnIdx].maxDistBits;
         if (distBits <= oldDistBits) break;
-        if (atomicCompSwap(tipInfo.maxDistBits, oldDistBits, distBits) == oldDistBits) {
-            tipInfo.tipIndex = i;
+        if (atomicCompSwap(tips[plnIdx].maxDistBits, oldDistBits, distBits) == oldDistBits) {
+            tips[plnIdx].tipIndex = i;
             break;
         }
     }
@@ -48,7 +63,8 @@ void main()
     for (uint j = 0; j < validCount; j++) {
         if (i == j) continue;
 
-        float d = dot(p - points[j], p - points[j]);
+        uint global_j = plnIdx * push.maxPoints + j;
+        float d = dot(p - points[global_j], p - points[global_j]);
 
         if (d < d0) {
             d3 = d2; n3 = n2;
@@ -68,8 +84,9 @@ void main()
     }
 
     // --- 写入KNN拓扑表 ---
-    knn[i * 4 + 0] = n0;
-    knn[i * 4 + 1] = n1;
-    knn[i * 4 + 2] = n2;
-    knn[i * 4 + 3] = n3;
+    uint knnBase = plnIdx * push.maxPoints * 4 + i * 4;
+    knn[knnBase + 0] = n0;
+    knn[knnBase + 1] = n1;
+    knn[knnBase + 2] = n2;
+    knn[knnBase + 3] = n3;
 }

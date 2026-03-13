@@ -18,7 +18,7 @@ struct ResultData {
 layout(local_size_x = 1) in;
 
 layout(std430, set = 0, binding = 2) buffer Counter {
-    uint count;
+    uint count[];
 };
 
 layout(std430, set = 0, binding = 7) buffer FinalPoints {
@@ -40,13 +40,16 @@ layout(push_constant) uniform Push{
 
 void main() 
 {
-
-    uint validCount = count;
     uint plnIdx = push.planeIndex;
+    uint validCount = count[plnIdx];
+
+    if(validCount < 50) return;
 
     // --- 获取槽宽角 ---
-    vec2 tipVec = finalPoints[0];               // 第一个点
-    vec2 heelVec = finalPoints[validCount - 1]; // 最后一个点
+    uint global_0 = plnIdx * push.maxPoints + 0;
+    uint global_end = plnIdx * push.maxPoints + validCount - 1;
+    vec2 tipVec = finalPoints[global_0];               // 第一个点
+    vec2 heelVec = finalPoints[global_end]; // 最后一个点
     tipVec = normalize(tipVec);
     heelVec = normalize(heelVec);
     float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
@@ -57,14 +60,16 @@ void main()
     if (validCount < 50) return;
 
     // 用于拟合曲线的点数
-    uint N = 100;
+    uint N = min(100, validCount);
 
     // --- 累积弦长参数化 ---
     float t[100];
     t[0] = 0.;
     float totalLen = 0.;
     for (uint i = 1; i < N; i++) {
-        totalLen += distance(finalPoints[i], finalPoints[i - 1]);
+        uint g_curr = plnIdx * push.maxPoints + i;
+        uint g_prev = plnIdx * push.maxPoints + i - 1;
+        totalLen += distance(finalPoints[g_curr], finalPoints[g_prev]);
         t[i] = totalLen;
     }
 
@@ -88,7 +93,7 @@ void main()
 
         S1 += ti;  S2 += t2;  S3 += t3;  S4 += t4;
 
-        vec2 p = finalPoints[i];
+        vec2 p = finalPoints[plnIdx * push.maxPoints + i];
         Rx0 += p.x;       Rx1 += p.x * ti;       Rx2 += p.x * t2;
         Ry0 += p.y;       Ry1 += p.y * ti;       Ry2 += p.y * t2;
     }
@@ -107,7 +112,7 @@ void main()
     float by = (A10 * Ry0 + A11 * Ry1 + A12 * Ry2) / det;
 
     vec2 T = normalize(vec2(bx, by));
-    vec2 P0 = finalPoints[0];
+    vec2 P0 = finalPoints[global_0];
     vec2 R = normalize(-P0);
 
     float crossVal = R.x * T.y - R.y * T.x;

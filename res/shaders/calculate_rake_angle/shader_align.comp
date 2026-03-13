@@ -4,7 +4,7 @@ layout(local_size_x = 256) in;
 
 // binding = 2: 第一阶段提取出的点数量
 layout(std430, set = 0, binding = 2) buffer Counter {
-    uint count;
+    uint count[];
 };
 
 layout(std430, set = 0, binding = 6) buffer TempSorted {
@@ -27,12 +27,15 @@ layout(push_constant) uniform Push{
 void main()
 {
     uint i = gl_GlobalInvocationID.x;
-    uint validCount = count;
+    uint plnIdx = push.planeIndex;
+    uint validCount = count[plnIdx];
     if (i >= validCount) return;
 
     // 获取曲线的两端
-    vec2 p0 = tempPoints[0];
-    vec2 p1 = tempPoints[validCount - 1];
+    uint global_0 = plnIdx * push.maxPoints + 0;
+    uint global_end = plnIdx * push.maxPoints + validCount - 1;
+    vec2 p0 = tempPoints[global_0];
+    vec2 p1 = tempPoints[global_end];
 
     float angle0 = atan(p0.y, p0.x);
     float angle1 = atan(p1.y, p1.x);
@@ -51,6 +54,9 @@ void main()
         if (diff > 0.) reverseArray = true;
     }
 
+    uint global_i = plnIdx * push.maxPoints + i;
     uint targetIdx = reverseArray ? (validCount - 1 - i) : i;
-    finalPoints[targetIdx] = tempPoints[i];
+    uint global_target = plnIdx * push.maxPoints + targetIdx;
+
+    finalPoints[global_target] = tempPoints[global_i];
 }
