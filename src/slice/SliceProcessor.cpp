@@ -25,6 +25,8 @@ void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
         throw std::runtime_error("No planes to process!");
     }
 
+    m_planes = frameData.planes;
+
     // 重置Fence锁
     m_analyzer->ResetFence();
 
@@ -98,7 +100,7 @@ bool SliceProcessor::GetAnalysisResult(uint32_t numPlanes,
         return false;
     }
 
-    return m_analyzer->DownloadGPUCalculateResult(*m_context, numPlanes, results);
+    return m_analyzer->DownloadGPUCalculateResult(*m_context, numPlanes, m_planes, results);
 }
 
 const std::vector<glm::vec2>& SliceProcessor::GetContourPoints() const

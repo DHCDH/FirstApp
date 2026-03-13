@@ -350,13 +350,13 @@ void SliceResourceContext::CreateComputeResources()
     m_contourPointsBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         sizeof(glm::vec2),
-        MAX_POINTS,
+        MAX_POINTS * MAX_PLANES,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     // 创建计数器
     m_counterBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                                   sizeof(uint32_t),
-                                                  1,
+                                                  MAX_PLANES,
                                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -373,24 +373,24 @@ void SliceResourceContext::CreateComputeResources()
     // --- 获取前角所需buffer ---
     m_knnBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                               sizeof(uint32_t) * 4,
-                                              MAX_POINTS,
+                                              MAX_POINTS * MAX_PLANES,
                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     m_tipInfoBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         sizeof(uint32_t),
-        2,
+        2 * MAX_PLANES,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     m_tempSortedBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                                      sizeof(glm::vec2),
-                                                     MAX_POINTS,
+                                                     MAX_POINTS * MAX_PLANES,
                                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     m_sortedPointsBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         sizeof(glm::vec2),
-        MAX_POINTS,
+        MAX_POINTS * MAX_PLANES,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,  // 最终结果，必须能作为SRC拷贝回CPU
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -470,8 +470,8 @@ void SliceResourceContext::CreateComputeResources()
         .Build(m_bboxDescriptorSet);
 
     // 创建staging buffer
-    VkDeviceSize totalReadbackSize =
-        sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) + sizeof(glm::vec2) * MAX_POINTS;
+    VkDeviceSize totalReadbackSize = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES +
+                                     sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;
     m_readbackBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
         totalReadbackSize,

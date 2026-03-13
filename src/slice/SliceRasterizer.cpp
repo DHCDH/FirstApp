@@ -375,26 +375,44 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     m_lastMicroConfigs = updatedViewConfigs;
 
     if (isAnalysisRequested) {
+        // 清空全局计数器缓冲
         vkCmdFillBuffer(commandBuffer,
                         context.m_counterBuffer->GetBuffer(),
                         0,
-                        sizeof(uint32_t),
+                        VK_WHOLE_SIZE,
                         0);
-        VkBufferMemoryBarrier counterBarrier{};
-        counterBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        counterBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        counterBarrier.dstAccessMask =
+
+        // 清空刀尖点特征缓冲
+        vkCmdFillBuffer(commandBuffer,
+                        context.m_tipInfoBuffer->GetBuffer(),
+                        0,
+                        VK_WHOLE_SIZE,
+                        0);
+
+        std::array<VkBufferMemoryBarrier, 2> clearBarriers{};
+
+        clearBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        clearBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        clearBarriers[0].dstAccessMask =
             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        counterBarrier.buffer = context.m_counterBuffer->GetBuffer();
-        counterBarrier.size = VK_WHOLE_SIZE;
+        clearBarriers[0].buffer = context.m_counterBuffer->GetBuffer();
+        clearBarriers[0].size = VK_WHOLE_SIZE;
+
+        clearBarriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        clearBarriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        clearBarriers[1].dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        clearBarriers[1].buffer = context.m_tipInfoBuffer->GetBuffer();
+        clearBarriers[1].size = VK_WHOLE_SIZE;
+
         vkCmdPipelineBarrier(commandBuffer,
                              VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                              0,
                              0,
                              nullptr,
-                             1,
-                             &counterBarrier,
+                             static_cast<uint32_t>(clearBarriers.size()),
+                             clearBarriers.data(),
                              0,
                              nullptr);
     }
@@ -640,7 +658,7 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
     VkBufferCopy copyCounter{};
     copyCounter.srcOffset = 0;
     copyCounter.dstOffset = sizeof(ResultData) * MAX_PLANES;
-    copyCounter.size = sizeof(uint32_t);
+    copyCounter.size = sizeof(uint32_t) * MAX_PLANES;
     vkCmdCopyBuffer(commandBuffer,
                     context.m_counterBuffer->GetBuffer(),
                     context.m_readbackBuffer->GetBuffer(),
@@ -649,8 +667,8 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
 
     VkBufferCopy copyPoints{};
     copyPoints.srcOffset = 0;
-    copyPoints.dstOffset = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t);
-    copyPoints.size = sizeof(glm::vec2) * MAX_POINTS;  // 假设 maxPoints 是 50000
+    copyPoints.dstOffset = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES;
+    copyPoints.size = sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;  // 假设 maxPoints 是 50000
     vkCmdCopyBuffer(commandBuffer,
                     context.m_sortedPointsBuffer->GetBuffer(),
                     context.m_readbackBuffer->GetBuffer(),

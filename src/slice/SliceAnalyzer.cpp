@@ -31,6 +31,7 @@ void SliceAnalyzer::ResetFence()
 
 bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
                                                uint32_t numPlanes,
+                                               const std::vector<Plane>& planes,
                                                std::vector<ResultData>& outResult)
 {
     if (vkGetFenceStatus(m_lveDevice.device(), m_fence) == VK_NOT_READY) {
@@ -45,30 +46,15 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     std::memcpy(outResult.data(), dataPtr, numPlanes * sizeof(ResultData));
 
     // 解除映射
-    context.m_readbackBuffer->Unmap();
-#if 0
+    // context.m_readbackBuffer->Unmap();
+
+    // --- 拿到计数器数组首地址 ---
     size_t countOffset = sizeof(ResultData) * MAX_PLANES;
-    uint32_t pointCount = *reinterpret_cast<uint32_t*>(dataPtr + countOffset);
+    uint32_t* pointCounts = reinterpret_cast<uint32_t*>(dataPtr + countOffset);
 
-    /*const uint32_t MAX_POINTS = 50000;*/
-    if (pointCount > MAX_POINTS) {
-        pointCount = MAX_POINTS;
-    }
-
-    if (pointCount > 0) {
-        size_t pointsOffset = sizeof(ResultData) + sizeof(uint32_t);
-        auto* srcBegin = reinterpret_cast<glm::vec2*>(dataPtr + pointsOffset);
-
-        m_contourPoints.resize(pointCount);
-
-        std::memcpy(m_contourPoints.data(), srcBegin, pointCount * sizeof(glm::vec2));
-    } else {
-        std::cout << "no points" << std::endl;
-        m_contourPoints.clear();
-    }
-
-    // 解除映射
-    context.m_readbackBuffer->Unmap();
+    // --- 拿到点集大数组首地址 ---
+    size_t pointsOffset = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES;
+    auto* srcBegin = reinterpret_cast<glm::vec2*>(dataPtr + pointsOffset);
 
 #if 1
     {
@@ -77,22 +63,38 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
         std::string filepath =
             "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\points.txt";
         std::ofstream outFile(filepath);
-        if (!outFile.is_open()) {
-            std::cerr << "[ERROR] Failed to open file：" << filepath << std::endl;
-            return true;
+
+        uint32_t totalPoints = 0;
+
+        for (uint32_t i = 0; i < numPlanes; i++) {
+            uint32_t count = pointCounts[i];
+            if (count > MAX_POINTS) count = MAX_POINTS;
+
+            if (count == 0) continue;
+
+            totalPoints += count;
+
+            outFile << "plane : p(" << planes[i].point.x << ", " << planes[i].point.y
+                    << ", " << planes[i].point.z << "), n(" << planes[i].normal.x << ", "
+                    << planes[i].normal.y << ", " << planes[i].normal.z << ")\n";
+
+            for (uint32_t p = 0; p < count; p++) {
+                glm::vec2 pos = srcBegin[i * MAX_POINTS + p];
+                outFile << "(" << pos.x << ", " << pos.y << ")" << "\n";
+            }
         }
-        for (const auto& pos : m_contourPoints) {
-            outFile << "(" << pos.x << ", " << pos.y << ")\n";
-        }
+
         outFile.close();
         if (outFile.fail()) {
             std::cerr << "[ERROR] Write file: " << filepath << " failed" << std::endl;
         } else {
-            std::cout << "[SUCCESS] Write coordinates into file：" << filepath << std::endl;
+            std::cout << "[SUCCESS] Write coordinates into file：" << filepath
+                      << std::endl;
         }
     }
 #endif
-#endif
+
+    context.m_readbackBuffer->Unmap();
 
     return true;
 }

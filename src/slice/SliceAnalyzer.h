@@ -1,8 +1,9 @@
 ﻿#pragma once
 
-#include "SliceResourceContext.h"
-
 #include <vector>
+
+#include "../Global.h"
+#include "SliceResourceContext.h"
 
 class SliceAnalyzer
 {
@@ -14,11 +15,14 @@ public:
     SliceAnalyzer& operator=(const SliceAnalyzer&) = delete;
 
 public:
-    
     bool DownloadGPUCalculateResult(SliceResourceContext& context, uint32_t numPlanes,
+                                    const std::vector<Plane>& planes,
                                     std::vector<ResultData>& outResult);
 
-    VkFence GetFence() const { return m_fence; }
+    VkFence GetFence() const
+    {
+        return m_fence;
+    }
 
     // 检查Fence是否被信号量标记
     bool IsReadyForNewTask() const;

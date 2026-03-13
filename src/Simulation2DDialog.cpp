@@ -216,14 +216,6 @@ void Simulation2DDialog::BuildContactMask()
             } else {
                 m_viewHalfSize = std::abs(micro.xMax - micro.xMin) * 0.5f;
             }
-
-            std::cout << "[3. GPU -> UI] Synced Target Micro Config: X[" << micro.xMin
-                      << ", " << micro.xMax << "], Z[" << micro.zMin << ", " << micro.zMax
-                      << "]\n";
-            std::cout << "[3. GPU -> UI] Final UI Camera: Center(" << m_viewCenter.x
-                      << ", " << m_viewCenter.y << "), HalfSize: " << m_viewHalfSize
-                      << "\n";
-            std::cout << "================================================\n\n";
         }
     }
 }

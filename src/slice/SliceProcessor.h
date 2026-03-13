@@ -87,6 +87,7 @@ private:
     lve::LveModel* m_grndWheelModel = nullptr;
     glm::mat4 m_blankMatrix{1.f};
     std::vector<glm::mat4> m_grndWheelInstances;
+    std::vector<Plane> m_planes;
 
     std::unique_ptr<SliceResourceContext> m_context = nullptr;
     std::unique_ptr<SliceRasterizer> m_rasterizer = nullptr;
