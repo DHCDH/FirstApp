@@ -46,17 +46,6 @@ void main()
     uint global_i = plnIdx * push.maxPoints + i;
     vec2 p = points[global_i];
 
-    // --- 并发寻找距离圆心最远的点 ---
-    uint distBits = floatBitsToUint(dot(p, p));
-    while (true) {
-        uint oldDistBits = tips[plnIdx].maxDistBits;
-        if (distBits <= oldDistBits) break;
-        if (atomicCompSwap(tips[plnIdx].maxDistBits, oldDistBits, distBits) == oldDistBits) {
-            tips[plnIdx].tipIndex = i;
-            break;
-        }
-    }
-
     // --- 寻找当前点最近的4个邻居 ---
     float d0 = 9999., d1 = 9999., d2 = 9999., d3 = 9999.;
     uint n0 = i, n1 = i, n2 = i, n3 = i;

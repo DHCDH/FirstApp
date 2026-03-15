@@ -49,6 +49,7 @@ private:
 
     // --- 用户输入控件 ---
     QLineEdit* m_editDiameter;
+    QLineEdit* m_editSliceNum;
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
 

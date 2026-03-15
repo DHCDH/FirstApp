@@ -177,17 +177,26 @@ void main()
     float worldY = push.mapInfo.y + finalPos.y * push.mapInfo.w;
     vec2 worldPos = vec2(worldX, worldY);
 
-    // --- 剔除棒料外圆弧轮廓点 ---
-    // (因为 dir 是主梯度方向，外侧一定在 pos+dir 或 pos-dir)
-    uint valPlus  = texelFetch(inputMask, pos + dir, 0).r;
-    uint valMinus = texelFetch(inputMask, pos - dir, 0).r;
-    // 找到外部邻居的值 (只要不是3，就是外部)
-    uint neighborVal = (valPlus != 3u) ? valPlus : valMinus;
-    // 逻辑判定：
-    // 如果外部是 2u (砂轮)，说明我们撞到了棒料的外皮 (Intersection <-> Wheel 边界) -> 剔除
-    // 如果外部是 1u (棒料)，说明我们撞到了砂轮的切削面 (Intersection <-> Blank 边界) -> 保留
-    if (neighborVal == 2u) { 
-        return; // 剔除棒料外圆弧
+    uint valPlus = texelFetch(inputMask, pos + dir, 0).r;
+    ivec2 outStep = (valPlus != 3u) ? dir : -dir;
+
+    bool found1u = false;
+    bool found2u = false;
+
+    for (int d = 1; d <= 3; d++) {
+        uint val = texelFetch(inputMask, pos + outStep * d, 0).r;
+        if (val == 1u) {
+            found1u = true;
+            break;
+        }
+        if (val == 2u) {
+            found2u = true;
+            break;
+        }
+    }
+
+    if (found2u || !found1u) {
+        return; 
     }
 
     // 计算并原子更新芯厚点

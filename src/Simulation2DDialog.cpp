@@ -32,15 +32,17 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
     m_editDiameter = new QLineEdit("10.", this);
+    m_editSliceNum = new QLineEdit("50", this);
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
     m_editNormal = new QLineEdit("1.0, 0.0, 0.0", this);
-
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
 
     controlLayout->addWidget(checkDisplayWireframe);
     controlLayout->addWidget(new QLabel("Diameter", this));
     controlLayout->addWidget(m_editDiameter);
+    controlLayout->addWidget(new QLabel("Number of Slices", this));
+    controlLayout->addWidget(m_editSliceNum);
     controlLayout->addWidget(new QLabel("Point", this));
     controlLayout->addWidget(m_editPoint);
     controlLayout->addWidget(new QLabel("Normal", this));
@@ -175,7 +177,7 @@ void Simulation2DDialog::BuildContactMask()
     if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS) {
         bool isFullAnalysis = this->property("isFullAnalysis").toBool();
         if (isFullAnalysis) {
-            int n = 50;
+            int n = m_editSliceNum->text().toDouble();
             float step = 30. / (float)n;
             for (int i = 0; i <= n; i++) {
                 Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
