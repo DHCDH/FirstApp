@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QCheckBox>
 
 #include "slice/SliceView.h"
 
@@ -35,8 +36,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_editSliceNum = new QLineEdit("50", this);
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
     m_editNormal = new QLineEdit("1.0, 0.0, 0.0", this);
+    m_checkAnalysis = new QCheckBox("Analyze Single Slice", this);
+    m_checkAnalysis->setChecked(false);
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
-    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
+    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Analyze", this);
 
     controlLayout->addWidget(checkDisplayWireframe);
     controlLayout->addWidget(new QLabel("Diameter", this));
@@ -47,6 +50,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(m_editPoint);
     controlLayout->addWidget(new QLabel("Normal", this));
     controlLayout->addWidget(m_editNormal);
+    controlLayout->addWidget(m_checkAnalysis);
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addStretch();
@@ -113,8 +117,13 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         std::cout << "plane change"
                   << "\n";
         this->setProperty("isFullAnalysis", false);     // 标记为单截面
-        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
-        m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+        if (m_checkAnalysis->isChecked()) {
+            m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
+            m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+        } else {
+            m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
+            m_runningMode = RunningMode::DISPLAY_ONLY;
+        }
         BuildContactMask();
     });
 }

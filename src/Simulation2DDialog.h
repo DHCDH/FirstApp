@@ -13,6 +13,7 @@ class QTimer;
 class GrindingWheel;
 class Blank;
 class QLineEdit;
+class QCheckBox;
 
 class Simulation2DDialog : public QDialog
 {
@@ -52,6 +53,7 @@ private:
     QLineEdit* m_editSliceNum;
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
+    QCheckBox* m_checkAnalysis;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
