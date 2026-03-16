@@ -44,7 +44,8 @@ layout(push_constant) uniform Push{
     int isRightCut;
 }push;
 
-// 读取原始二值(1.0 == 交集， 0.0 == 砂轮/棒料/背景)
+// 读取点p在图形管线得到的颜色掩码图（1u, 2u, 3u）中的值
+// return: 1.0 == 交集， 0.0 == 砂轮/棒料/背景
 float getRawVal(ivec2 p) {
     // 掩码中3u代表交集
     return (texelFetch(inputMask, p, 0).r == 3u) ? 1. : 0.;
@@ -112,16 +113,19 @@ vec3 getFusedGradient(ivec2 center) {
 
 void main()
 {
-    // 获取当前像素坐标(u, v)
-    ivec2 texSize = textureSize(inputMask, 0);
+    // 获取当前像素坐标
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-
-    // 边界剔除
+    // --- 查询纹理大小 ---
+    // inputMask为画图阶段得到的存储(1u, 2u, 3u)的结果图
+    // texSize.x为图像宽度，.y为图像高度
+    ivec2 texSize = textureSize(inputMask, 0);
+    
+    //  --- 边界剔除，保证后续卷积计算的安全 ---
     // 由于使用5x5核（半径=2），必须留出2个像素的边框
     if (pos.x < 2 || pos.y < 2 || pos.x >= texSize.x - 2 || pos.y >= texSize.y - 2) 
         return;
 
-    // 快速粗筛
+    // --- 快速粗筛 ---
     // 只有在交集(3u)和其他(0u)交界的地方才有梯度
     // 检查中心点及其4邻域，如果全为0或全为1，说明在平坦区域，直接跳过
     float c = getRawVal(pos);
@@ -155,19 +159,19 @@ void main()
     float gC = getFusedGradient(pos + dir).z;
 
     // 非极大值抑制 (Non-Maximum Suppression)
-    // 只有当 B 点的梯度大于等于两侧邻居时，才说明 B 是边缘的“山峰”
-    // 注意：二值图像经过平滑后，峰值可能横跨两个像素，这里用 >= 保证不漏点
+    // 保证了 gB 是局部最大值，因此 (gA + gC - 2.0 * gB) 必然是一个负数
     if (gB < gA || gB <= gC) return;
 
-    // Devernay亚像素校正
+    // 真正的 Devernay 抛物线亚像素校正
+    // 拟合 f(x) = ax^2 + bx + c，求导 f'(x)=0 的极值点
     float denom = gA + gC - 2.0 * gB;
     float eta = 0.0;
-    // 修改为重心法
-    // 公式： ( -1*gA + 0*gB + 1*gC ) / ( gA + gB + gC )
-    float sumG = gA + gB + gC;
-    if (sumG > 0.001) {
-        eta = (gC - gA) / sumG; 
+
+    // 防止分母极小导致浮点数溢出爆炸 (虽然 NMS 保证了分母不为 0)
+    if (abs(denom) > 0.0001) {
+        eta = (gA - gC) / (2.0 * denom);
     }
+    
     // 限制偏移量在 [-0.5, 0.5] 之间，防止跑偏
     eta = clamp(eta, -0.5, 0.5);
 
