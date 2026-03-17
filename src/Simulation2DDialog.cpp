@@ -244,6 +244,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 #if 1
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 1.f;
+    //std::cout << "w = " << w << " h = " << h << " renderScale = " << renderScale << "\n";
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
@@ -253,6 +254,8 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 #endif
+
+    // std::cout << "pixels: " << config.nX << " x " << config.nZ << "\n";
 
     float xHalf, zHalf;
 

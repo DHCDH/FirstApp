@@ -11,9 +11,14 @@ layout(push_constant) uniform Push {
 } push;
 
 void main() {
+
+    // 当前正在渲染的像素点，距离设定的截面的物理距离
     float dis = dot(vWorldPos - push.point, push.normal);
+    
+    // 像素点位于截面前方，则丢弃
     if(dis > 0.) {
         discard;
     }
+    
     outMask = 1u;
 }

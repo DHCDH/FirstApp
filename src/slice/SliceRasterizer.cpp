@@ -519,6 +519,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
     // --- 设置内存屏障与计算着色器 ---
     std::vector<VkImageMemoryBarrier> barriers;
 
+    // 立即停止所有画图写入操作，变成只读状态
     VkImageMemoryBarrier stencilBarrier{};
     stencilBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     stencilBarrier.image = context.m_depthStencilImage;

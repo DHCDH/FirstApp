@@ -286,9 +286,10 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
     config.rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
     config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
 
-    config.depthStencilInfo.depthTestEnable = VK_TRUE;
-    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
+    // 关闭深度测试
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;  // mark
+    //config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+    //config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;
@@ -345,9 +346,10 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilBackPipeline(
     config.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT;
     config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
 
-    config.depthStencilInfo.depthTestEnable = VK_TRUE;
-    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
+    // 关闭深度测试
+    config.depthStencilInfo.depthTestEnable = VK_FALSE; // MARK
+    //config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+    //config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;

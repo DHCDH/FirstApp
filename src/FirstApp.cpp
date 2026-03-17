@@ -498,11 +498,13 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
     flushSeg();
 
     // 插值
+    #if 1
     for (int i = 0; i < m_toolpaths.size(); i++) {
         m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
 
         std::cout << "toolpath[" << i << "].size: " << m_toolpaths[i].size << " \n";
     }
+    #endif
 
     return 0;
 }
