@@ -72,8 +72,13 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     InitSliceView(device, hwnd, hinstance);
 
-    //connect(m_renderTimer, &QTimer::timeout, [this]() { BuildContactMask(); });
-    //m_renderTimer->start(16);
+    QTimer* pollTimer = new QTimer(this);
+    connect(pollTimer, &QTimer::timeout, this, [this]() {
+        if (m_sliceView) {
+            m_sliceView->PollAnalysis();
+        }
+    });
+    pollTimer->start(16);  // 约 60Hz 的轮询频率
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         if (m_grndWheel && m_blank) {

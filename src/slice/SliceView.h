@@ -34,6 +34,8 @@ public:
 
     void SetModel(lve::LveModel* blank, lve::LveModel* grndWheel);
 
+    void PollAnalysis();
+
 public:
     void SetDisplayWireframe(const bool& display)
     {
@@ -52,8 +54,20 @@ public:
     {
         return m_processor->GetLastMicroConfigs();
     }
+    bool IsWaitingForAnalysis() const
+    {
+        return m_isWaitingForAnalysis;
+    }
+    void SetWaitingForAnalysis(bool isWaiting)
+    {
+        m_isWaitingForAnalysis = isWaiting;
+    }
+    uint32_t GetAnalysisPlaneCount() const
+    {
+        return m_analysisPlaneCount;
+    }
 
-private:
+public:
     void InitDisplayResources();
     void RecreateDisplayDescriptorSet();
     bool ProcessAnalysisResult(uint32_t numPlanes);

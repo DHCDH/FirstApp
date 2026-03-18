@@ -1,6 +1,9 @@
 ﻿#pragma once
 
 #include <iostream>
+#include <chrono>
+#include <iostream>
+#include <string>
 
 #include "lve/LveFrameInfo.h"
 #include "lve/LveTextureManager.h"
@@ -140,3 +143,29 @@ inline void PrintVec3(const glm::vec3& v, const std::string& name = "")
     std::cout << name << "(";
     std::cout << v.x << " " << v.y << " " << v.z << ")\n";
 }
+
+class ScopedTimer
+{
+public:
+    ScopedTimer(const std::string& name) : m_name(name)
+    {
+        m_start = std::chrono::high_resolution_clock::now();
+    }
+
+    ~ScopedTimer()
+    {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto durationUs =
+            std::chrono::duration_cast<std::chrono::microseconds>(end - m_start).count();
+        std::cout << " [Profiler] " << m_name << " takes: " << durationUs / 1000.0
+                  << " ms\n";
+    }
+
+private:
+    std::string m_name;
+    std::chrono::time_point<std::chrono::high_resolution_clock> m_start;
+};
+
+#define CONCAT_IMPL(x, y) x##y
+#define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
+#define PROFILE_SCOPE(name) ScopedTimer MACRO_CONCAT(timer, __LINE__)(name)

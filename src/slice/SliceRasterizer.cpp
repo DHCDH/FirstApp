@@ -77,6 +77,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        const SliceViewConfig& viewConfig,
                                        bool isAnalysisRequested)
 {
+    PROFILE_SCOPE("CPU_ProcessAllPlanes");
+
     uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
     if (numPlanes == 0) {
         throw std::runtime_error("No plane to process");
@@ -129,177 +131,18 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
         return;
     }
 
-    VkCommandBuffer scoutCmd = m_lveDevice.beginSingleTimeCommands();
-
-    {
-        GlobalUbo scoutBaseUbo;
-        void* scoutUboMapped = context.m_cameraUboBuffer->GetMappedMemory();
-        if (scoutUboMapped) std::memcpy(&scoutBaseUbo, scoutUboMapped, sizeof(GlobalUbo));
-
-        // 强制覆盖当前的 UBO
-        vkCmdUpdateBuffer(scoutCmd,
-                          context.m_cameraUboBuffer->GetBuffer(),
-                          0,
-                          sizeof(GlobalUbo),
-                          &scoutBaseUbo);
-
-        // 屏障：确保覆盖完成后，后续的 RenderMask 才能读取
-        VkBufferMemoryBarrier scoutUboBarrier{};
-        scoutUboBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        scoutUboBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        scoutUboBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-        scoutUboBarrier.buffer = context.m_cameraUboBuffer->GetBuffer();
-        scoutUboBarrier.size = sizeof(GlobalUbo);
-        vkCmdPipelineBarrier(
-            scoutCmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0,
-            nullptr,
-            1,
-            &scoutUboBarrier,
-            0,
-            nullptr);
-    }
-
-    // --- 初始化所有BBox的极值 ---
-    std::vector<BBoxData> initBBoxes(numPlanes, {0xFFFFFFFF, 0xFFFFFFFF, 0, 0});
-    vkCmdUpdateBuffer(scoutCmd,
-                      context.m_bboxBuffer->GetBuffer(),
-                      0,
-                      sizeof(BBoxData) * numPlanes,
-                      initBBoxes.data());
-
-    VkBufferMemoryBarrier clearBarrier{};
-    clearBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    clearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    clearBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    clearBarrier.buffer = context.m_bboxBuffer->GetBuffer();
-    clearBarrier.size = VK_WHOLE_SIZE;
-    vkCmdPipelineBarrier(scoutCmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         1,
-                         &clearBarrier,
-                         0,
-                         nullptr);
-
-    for (uint32_t i = 0; i < numPlanes; i++) {
-        if (m_renderSystem) {
-            m_renderSystem->RenderMask(scoutCmd,
-                                       renderPassData,
-                                       rasterizerData,
-                                       frameData.planes[i]);
-        }
-
-        VkImageMemoryBarrier scoutImageBarrier{};
-        scoutImageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        scoutImageBarrier.image = context.m_blankMaskImage;
-        scoutImageBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        scoutImageBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        scoutImageBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        scoutImageBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        scoutImageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(scoutCmd,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr,
-                             1,
-                             &scoutImageBarrier);
-
-        if (m_renderSystem) {
-            m_renderSystem->ComputeBBox(scoutCmd,
-                                        context.GetBBoxDescriptorSet(),
-                                        context.m_width,
-                                        context.m_height,
-                                        i);
-        }
-
-        // --- 内部循环屏障，防止多个截面的 Shader 读写踩踏 ---
-        VkBufferMemoryBarrier loopBarrier{};
-        loopBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        loopBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        loopBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        loopBarrier.buffer = context.m_bboxBuffer->GetBuffer();
-        loopBarrier.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(scoutCmd,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             1,
-                             &loopBarrier,
-                             0,
-                             nullptr);
-    }
-
-    // --- 将BBox数组拷贝回CPU ---
-    VkBufferMemoryBarrier bboxToTransferBarrier{};
-    bboxToTransferBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    bboxToTransferBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    bboxToTransferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    bboxToTransferBarrier.buffer = context.m_bboxBuffer->GetBuffer();
-    bboxToTransferBarrier.size = VK_WHOLE_SIZE;
-    vkCmdPipelineBarrier(scoutCmd,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         1,
-                         &bboxToTransferBarrier,
-                         0,
-                         nullptr);
-
-    VkBufferCopy copyRegion{};
-    copyRegion.size = sizeof(BBoxData) * numPlanes;
-    vkCmdCopyBuffer(scoutCmd,
-                    context.m_bboxBuffer->GetBuffer(),
-                    context.m_bboxReadbackBuffer->GetBuffer(),
-                    1,
-                    &copyRegion);
-
-    VkBufferMemoryBarrier bboxReadBarrier{};
-    bboxReadBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    bboxReadBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    bboxReadBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    bboxReadBarrier.buffer = context.m_bboxReadbackBuffer->GetBuffer();
-    bboxReadBarrier.size = VK_WHOLE_SIZE;
-    vkCmdPipelineBarrier(scoutCmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_HOST_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         1,
-                         &bboxReadBarrier,
-                         0,
-                         nullptr);
-
-    // 强制暂停，等待缓冲区数据写入完成
-    m_lveDevice.endSingleTimeCommands(scoutCmd);
-
-    // --- CPU为每个截面单独配发相机 ---
     context.m_bboxReadbackBuffer->Map();
     void* mappedData = context.m_bboxReadbackBuffer->GetMappedMemory();
     std::vector<BBoxData> gpuBounds(numPlanes);
-    std::memcpy(gpuBounds.data(), mappedData, sizeof(BBoxData) * numPlanes);
+    if (mappedData) {
+        std::memcpy(gpuBounds.data(), mappedData, sizeof(BBoxData) * numPlanes);
+    }
     context.m_bboxReadbackBuffer->Unmap();
 
     GlobalUbo baseUbo;
     void* uboMapped = context.m_cameraUboBuffer->GetMappedMemory();
     if (uboMapped) std::memcpy(&baseUbo, uboMapped, sizeof(GlobalUbo));
-
+    
     float scout_dx =
         (viewConfig.xMax - viewConfig.xMin) / static_cast<float>(context.m_width);
     float scout_dz =
@@ -308,31 +151,31 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     bool hasAnyIntersection = false;
     SliceViewConfig firstValidMicroConfig = viewConfig;
 
-    // --- 找出所有有交集的截面并计算bbox ---
+    // --- 根据上一帧的 BBox 算出当前帧的相机配置 ---
     for (uint32_t i = 0; i < numPlanes; i++) {
         uint32_t minX = gpuBounds[i].minX;
         uint32_t maxX = gpuBounds[i].maxX;
         uint32_t minY = gpuBounds[i].minY;
         uint32_t maxY = gpuBounds[i].maxY;
 
-        // --- 判断bbox是否无效 ---
+        // 容错：第一帧或无效BBox时使用默认大视角
         if (minX == 0xFFFFFFFF || maxX <= minX || maxY <= minY) {
             updatedViewConfigs[i].nX = 0;
             continue;
         }
 
-        float worldMinX = viewConfig.xMin + gpuBounds[i].minX * scout_dx;
-        float worldMaxX = viewConfig.xMin + gpuBounds[i].maxX * scout_dx;
-        float worldMinZ = viewConfig.zMax + gpuBounds[i].minY * scout_dz;
-        float worldMaxZ = viewConfig.zMax + gpuBounds[i].maxY * scout_dz;
+        float worldMinX = viewConfig.xMin + minX * scout_dx;
+        float worldMaxX = viewConfig.xMin + maxX * scout_dx;
+        float worldMinZ = viewConfig.zMax + minY * scout_dz;
+        float worldMaxZ = viewConfig.zMax + maxY * scout_dz;
 
         float centerX = (worldMinX + worldMaxX) * 0.5f;
         float centerZ = (worldMinZ + worldMaxZ) * 0.5f;
         float halfX = std::abs((worldMaxX - worldMinX)) * 0.5f;
         float halfZ = std::abs((worldMaxZ - worldMinZ)) * 0.5f;
 
-        float maxHalf = std::max({halfX, halfZ, 1.f}) * 1.1f;  // 留10%边距
-
+        // 🔥 将安全边距提升到 1.15 倍，包容 1 帧的砂轮移动位移
+        float maxHalf = std::max({halfX, halfZ, 1.f}) * 1.15f;
         float aspect = static_cast<float>(viewConfig.xMax - viewConfig.xMin) /
                        static_cast<float>(viewConfig.zMax - viewConfig.zMin);
 
@@ -375,6 +218,15 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     m_lastMicroConfigs = updatedViewConfigs;
 
     if (isAnalysisRequested) {
+        // --- 清空BBox缓冲 ---
+        std::vector<BBoxData> initBBoxes(numPlanes, {0xFFFFFFFF, 0xFFFFFFFF, 0, 0});
+        vkCmdUpdateBuffer(commandBuffer,
+                          context.m_bboxBuffer->GetBuffer(),
+                          0,
+                          sizeof(BBoxData) * numPlanes,
+                          initBBoxes.data());
+
+
         // 清空全局计数器缓冲
         vkCmdFillBuffer(commandBuffer,
                         context.m_counterBuffer->GetBuffer(),
@@ -389,21 +241,20 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                         VK_WHOLE_SIZE,
                         0);
 
-        std::array<VkBufferMemoryBarrier, 2> clearBarriers{};
+        std::array<VkBufferMemoryBarrier, 3> clearBarriers{};
 
         clearBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
         clearBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         clearBarriers[0].dstAccessMask =
             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        clearBarriers[0].buffer = context.m_counterBuffer->GetBuffer();
+        clearBarriers[0].buffer = context.m_bboxBuffer->GetBuffer();
         clearBarriers[0].size = VK_WHOLE_SIZE;
 
-        clearBarriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        clearBarriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        clearBarriers[1].dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        clearBarriers[1].buffer = context.m_tipInfoBuffer->GetBuffer();
-        clearBarriers[1].size = VK_WHOLE_SIZE;
+        clearBarriers[1] = clearBarriers[0];
+        clearBarriers[1].buffer = context.m_counterBuffer->GetBuffer();
+
+        clearBarriers[2] = clearBarriers[0];
+        clearBarriers[2].buffer = context.m_tipInfoBuffer->GetBuffer();
 
         vkCmdPipelineBarrier(commandBuffer,
                              VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -562,6 +413,15 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
         return;
     }
 
+    // --- 计算本截面的BBox供下一帧使用 ---
+    if (m_renderSystem) {
+        m_renderSystem->ComputeBBox(commandBuffer,
+                                    context.GetBBoxDescriptorSet(),
+                                    context.m_width,
+                                    context.m_height,
+                                    planeIdx);
+    }
+
     // 重置GPU计算结果buffer
     ResultData resultData{};
     resultData.coreRadiusSqBits = 0xFFFFFFFF;
@@ -621,7 +481,7 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
 void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
                                       SliceResourceContext& context, uint32_t numPlane)
 {
-    VkBufferMemoryBarrier computeToTransferBarriers[3] = {};
+    VkBufferMemoryBarrier computeToTransferBarriers[4] = {};
 
     computeToTransferBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     computeToTransferBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -635,13 +495,16 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
     computeToTransferBarriers[2] = computeToTransferBarriers[0];
     computeToTransferBarriers[2].buffer = context.m_sortedPointsBuffer->GetBuffer();
 
+    computeToTransferBarriers[3] = computeToTransferBarriers[0];
+    computeToTransferBarriers[3].buffer = context.m_bboxBuffer->GetBuffer();
+
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0,
                          0,
                          nullptr,
-                         3,
+                         4,
                          computeToTransferBarriers,
                          0,
                          nullptr);
@@ -676,12 +539,25 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
                     1,
                     &copyPoints);
 
-    VkBufferMemoryBarrier transferToHostBarrier{};
-    transferToHostBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    transferToHostBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    transferToHostBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    transferToHostBarrier.buffer = context.m_readbackBuffer->GetBuffer();
-    transferToHostBarrier.size = VK_WHOLE_SIZE;
+    VkBufferCopy copyBBox{};
+    copyBBox.srcOffset = 0;
+    copyBBox.dstOffset = 0;
+    copyBBox.size = sizeof(BBoxData) * numPlane;
+    vkCmdCopyBuffer(commandBuffer,
+                    context.m_bboxBuffer->GetBuffer(),
+                    context.m_bboxReadbackBuffer->GetBuffer(),
+                    1,
+                    &copyBBox);
+
+    VkBufferMemoryBarrier transferToHostBarriers[2] = {};
+    transferToHostBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    transferToHostBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    transferToHostBarriers[0].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    transferToHostBarriers[0].buffer = context.m_readbackBuffer->GetBuffer();
+    transferToHostBarriers[0].size = VK_WHOLE_SIZE;
+
+    transferToHostBarriers[1] = transferToHostBarriers[0];
+    transferToHostBarriers[1].buffer = context.m_bboxReadbackBuffer->GetBuffer();
 
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -689,8 +565,8 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
                          0,
                          0,
                          nullptr,
-                         1,
-                         &transferToHostBarrier,
+                         2,
+                         transferToHostBarriers,
                          0,
                          nullptr);
 

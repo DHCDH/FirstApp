@@ -116,6 +116,16 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 {
     if (!m_window) return;
 
+    PollAnalysis();
+
+    if (m_isWaitingForAnalysis) {
+        // ProcessAnalysisResult 内部会调用 GetAnalysisResult。
+        // 它发现 fence 没亮会立刻返回 false，绝不卡顿！如果亮了，就解析数据。
+        if (ProcessAnalysisResult(m_analysisPlaneCount)) {
+            m_isWaitingForAnalysis = false;  // 拿到数据了，解除等待状态
+        }
+    }
+
     // --- 处理窗口大小变化 ---
     if (m_window->WasWindowResized()) {
         m_window->ResetWindowResizedFlag();
@@ -173,23 +183,6 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     VkFence computeFence = m_processor->GetComputeFence();
 
     m_renderer->EndFrame(m_processor->GetComputeFence());
-
-    // --- 后台线程等待fence并触发UI回调 ---
-    if (requestThisFrame && computeFence != VK_NULL_HANDLE) {
-        VkDevice vkDevice = m_device.device();
-        uint32_t planeCount = m_analysisPlaneCount;
-
-        std::thread([this, vkDevice, computeFence, planeCount]() {
-            vkWaitForFences(vkDevice, 1, &computeFence, VK_TRUE, UINT64_MAX);
-            // --- 通过Qt安全队列把任务扔回主线程 ---
-            QMetaObject::invokeMethod(
-                qApp,
-                [this, planeCount] {
-                this->ProcessAnalysisResult(planeCount);
-                this->m_isWaitingForAnalysis = false;
-            }, Qt::QueuedConnection);
-        }).detach();
-    }
 }
 
 bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
@@ -235,6 +228,16 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
     }
     // fence未就绪，继续等待
     return false;
+}
+
+void SliceView::PollAnalysis()
+{
+    if (m_isWaitingForAnalysis) {
+        // 去探查底层 Fence
+        if (ProcessAnalysisResult(m_analysisPlaneCount)) {
+            m_isWaitingForAnalysis = false;  // 拿到数据，解除等待
+        }
+    }
 }
 
 void SliceView::RunFrame()
