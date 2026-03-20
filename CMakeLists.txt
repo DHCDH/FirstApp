@@ -34,6 +34,9 @@ file(GLOB_RECURSE ALGORITHM_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE SLICE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.h")
+file(GLOB_RECURSE SOLVER_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/solver/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/solver/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -49,6 +52,7 @@ set(PROJECT_SOURCES
     ${ENTITIES_SOURCES}
     ${ALGORITHM_SOURCES}
     ${SLICE_SOURCES}
+    ${SOLVER_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -69,10 +73,12 @@ target_link_libraries(${TARGET_NAME}
 set(DEPENDENCIES "${CMAKE_SOURCE_DIR}/dependencies/")
 set(VENDOR "${CMAKE_SOURCE_DIR}/src/vendor")
 set(LVE "${CMAKE_SOURCE_DIR}/src/lve")
+set(ALGO "${CMAKE_SOURCE_DIR}/src/algorithm")
 
 target_link_libraries(${TARGET_NAME} PRIVATE "${DEPENDENCIES}/vulkan/lib/vulkan-1.lib")
 
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${ALGO}
     ${DEPENDENCIES}/vulkan/include
     ${VENDOR}/glm
     ${VENDOR}/tiny_object_loader

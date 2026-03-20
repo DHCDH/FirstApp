@@ -8,6 +8,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& context)
     : m_lveDevice(lveDevice)
 {
@@ -142,7 +144,7 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     GlobalUbo baseUbo;
     void* uboMapped = context.m_cameraUboBuffer->GetMappedMemory();
     if (uboMapped) std::memcpy(&baseUbo, uboMapped, sizeof(GlobalUbo));
-    
+
     float scout_dx =
         (viewConfig.xMax - viewConfig.xMin) / static_cast<float>(context.m_width);
     float scout_dz =
@@ -197,7 +199,7 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
             if (hasAnyIntersection) {
                 updatedViewConfigs[i] = firstValidMicroConfig;
                 // 没有交集，直接使用默认视角
-                //updatedViewConfigs[i] = viewConfig;
+                // updatedViewConfigs[i] = viewConfig;
             } else {
                 updatedViewConfigs[i] = viewConfig;
             }
@@ -225,7 +227,6 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                           0,
                           sizeof(BBoxData) * numPlanes,
                           initBBoxes.data());
-
 
         // 清空全局计数器缓冲
         vkCmdFillBuffer(commandBuffer,
@@ -531,8 +532,10 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
 
     VkBufferCopy copyPoints{};
     copyPoints.srcOffset = 0;
-    copyPoints.dstOffset = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES;
-    copyPoints.size = sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;  // 假设 maxPoints 是 50000
+    copyPoints.dstOffset =
+        sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES;
+    copyPoints.size =
+        sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;  // 假设 maxPoints 是 50000
     vkCmdCopyBuffer(commandBuffer,
                     context.m_sortedPointsBuffer->GetBuffer(),
                     context.m_readbackBuffer->GetBuffer(),
@@ -572,3 +575,5 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
 
     return;
 }
+
+}  // namespace slice

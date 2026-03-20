@@ -5,6 +5,8 @@
 #include "../Global.h"
 #include "SliceResourceContext.h"
 
+namespace slice
+{
 class SliceAnalyzer
 {
 public:
@@ -39,3 +41,5 @@ private:
 
     std::vector<glm::vec2> m_contourPoints;
 };
+
+}  // namespace slice

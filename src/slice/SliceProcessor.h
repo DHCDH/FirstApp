@@ -8,6 +8,8 @@
 #include "SliceRasterizer.h"
 #include "SliceAnalyzer.h"
 
+namespace slice
+{
 // 资源分配
 class SliceProcessor
 {
@@ -95,3 +97,5 @@ private:
 
     std::unique_ptr<lve::LveCamera> m_camera;
 };
+
+}  // namespace slice

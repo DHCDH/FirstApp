@@ -11,6 +11,8 @@
 #include "SliceProcessor.h"
 #include "systems/SliceOverlayRenderSystem.h"
 
+namespace slice
+{
 class SliceView
 {
 public:
@@ -96,9 +98,10 @@ private:
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
-    bool m_isWaitingForAnalysis = false;    // 是否挂起等待GPU
-    uint32_t m_analysisPlaneCount = 0;      // 记住派发了多少个面
+    bool m_isWaitingForAnalysis = false;  // 是否挂起等待GPU
+    uint32_t m_analysisPlaneCount = 0;    // 记住派发了多少个面
 
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;
 };
+}  // namespace slice

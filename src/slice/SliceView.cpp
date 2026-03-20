@@ -12,6 +12,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
                      void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h,
                      std::string name)
@@ -107,7 +109,7 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
 
     // 如果物理分辨率变了，你需要通知 Processor 里的 Context Resize
     // 需要你在 Processor 里加一个 Resize 接口透传到 Context
-     m_processor->Resize(m_viewConfig.nX, m_viewConfig.nZ);
+    m_processor->Resize(m_viewConfig.nX, m_viewConfig.nZ);
 
     RecreateDisplayDescriptorSet();
 }
@@ -134,7 +136,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
 
     // --- 检查当前帧是否触发了Analysis请求 ---
     bool requestThisFrame = false;
-    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS && !m_isWaitingForAnalysis) {
+    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE && !m_isWaitingForAnalysis) {
         requestThisFrame = true;
         m_isWaitingForAnalysis = true;
         m_analysisPlaneCount = static_cast<uint32_t>(frameData.planes.size());
@@ -266,3 +268,5 @@ SliceView::~SliceView()
         m_surface = VK_NULL_HANDLE;
     }
 }
+
+}  // namespace slice

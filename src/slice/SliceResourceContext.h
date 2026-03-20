@@ -10,6 +10,8 @@
 #include "LveDevice.h"
 #include "LveModel.h"
 
+namespace slice
+{
 class SliceRasterizer;
 class SliceAnalyzer;
 
@@ -23,8 +25,8 @@ struct ResultData {
 
     uint32_t coreRadiusSqBits{std::numeric_limits<
         uint32_t>::max()};  // 芯厚半径平方的位数据，设为float的最大值位表示
-    float rakeAngle;                // 前角
-    float slotAngle;                // 槽宽角
+    float rakeAngle;        // 前角
+    float slotAngle;        // 槽宽角
 
     float _pad;
 };
@@ -35,7 +37,6 @@ struct BBoxData {
     uint32_t maxX;
     uint32_t maxY;
 };
-
 
 constexpr uint32_t MAX_PLANES = 300;
 constexpr uint32_t MAX_POINTS = 50000;
@@ -170,3 +171,5 @@ private:
     // 回读专用staging buffer
     std::unique_ptr<lve::LveBuffer> m_readbackBuffer = nullptr;
 };
+
+}  // namespace slice

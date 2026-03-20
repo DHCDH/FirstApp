@@ -12,8 +12,8 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QCheckBox>
-
-#include "slice/SliceView.h"
+#include "integration/NumericalIntegrator.h"
+#include "integration/AdaptiveSimpsonStrategy.h"
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
@@ -40,6 +40,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_checkAnalysis->setChecked(false);
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Analyze", this);
+    QPushButton* btnOptimize = new QPushButton("Optimize", this);
 
     controlLayout->addWidget(checkDisplayWireframe);
     controlLayout->addWidget(new QLabel("Diameter", this));
@@ -53,6 +54,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(m_checkAnalysis);
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
+    controlLayout->addWidget(btnOptimize);
     controlLayout->addStretch();
 
     /*初始化防抖定时器*/
@@ -102,9 +104,13 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     connect(btnDisplayAndAnalysis, &QPushButton::clicked, this, [this]() {
         this->setProperty("isFullAnalysis", true);
-        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
-        m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
+        m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
         BuildContactMask();
+    });
+
+    connect(btnOptimize, &QPushButton::clicked, this, [this]() {
+        void OptimizeGrindingWheelPose();
     });
 
     // --- 为输入框创建一个400毫秒的防抖定时器 ---
@@ -123,8 +129,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
                   << "\n";
         this->setProperty("isFullAnalysis", false);     // 标记为单截面
         if (m_checkAnalysis->isChecked()) {
-            m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYSIS);
-            m_runningMode = RunningMode::DISPLAY_AND_ANALYSIS;
+            m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
+            m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
         } else {
             m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
             m_runningMode = RunningMode::DISPLAY_ONLY;
@@ -138,7 +144,7 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 {
     SliceViewConfig config = UpdateView();
 
-    m_sliceView = std::make_unique<SliceView>(device,
+    m_sliceView = std::make_unique<slice::SliceView>(device,
                                               config,
                                               hwnd,
                                               hinstance,
@@ -158,7 +164,7 @@ void Simulation2DDialog::UpdateEntitiesData(
 
 void Simulation2DDialog::BuildContactMask()
 {
-    bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS);
+    bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE);
 
     if (wasAnalysisRequested) {
         // 不管是全量还是单截面分析，先把雷达拉回到刚好能包住整根棒料的范围！
@@ -188,7 +194,7 @@ void Simulation2DDialog::BuildContactMask()
     // ---准备帧数据 ---
     SliceFrameData frameData{};
     frameData.displayPlane = FetchDisplayPlane();
-    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYSIS) {
+    if (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE) {
         bool isFullAnalysis = this->property("isFullAnalysis").toBool();
         if (isFullAnalysis) {
             int n = m_editSliceNum->text().toDouble();
@@ -310,6 +316,24 @@ Plane Simulation2DDialog::FetchDisplayPlane()
     };
 
     return {fetch_value(inputN), fetch_value(inputP)};
+}
+
+void Simulation2DDialog::OptimizeGrindingWheelPose()
+{
+    this->setProperty("isOptimization", true);
+    m_sliceView->SetRunningMode(RunningMode::OPTIMIZE);
+    m_runningMode = RunningMode::OPTIMIZE;
+
+    auto integrator = std::make_unique<NumericalIntegrator>();
+    integrator->SetStrategy(
+        std::make_unique<AdaptiveSimpsonStrategy>(1e-10, 1e-10, 1e-2, 1e-12, 0.5));
+    m_arcProjectionSolver.SetIntegrator(std::move(integrator))
+        .SetCutterParameters(CutterParameters{})
+        .SetGrindingWheelParameters(GrindingWheelParameters{});
+
+    std::vector<glm::mat4> grndWheelMatrix = m_arcProjectionSolver.CalculateGrindingWheelPose();
+
+
 }
 
 void Simulation2DDialog::resizeEvent(QResizeEvent* event)

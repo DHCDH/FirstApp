@@ -119,7 +119,8 @@ enum class SliceDisplayMode : uint32_t
 enum class RunningMode : uint32_t
 {
     DISPLAY_ONLY = 0,
-    DISPLAY_AND_ANALYSIS = 1
+    DISPLAY_AND_ANALYZE = 1,
+    OPTIMIZE = 2
 };
 
 struct ToolPath {

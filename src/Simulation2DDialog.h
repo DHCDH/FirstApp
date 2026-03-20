@@ -7,8 +7,9 @@
 
 #include "entities\GrindingWheel.h"
 #include "entities\Blank.h"
+#include "slice/SliceView.h"
+#include "solver/ArcProjectionSolver.h"
 
-class SliceView;
 class QTimer;
 class GrindingWheel;
 class Blank;
@@ -28,7 +29,7 @@ public:
     void BuildContactMask();
 
 private:
-    std::unique_ptr<SliceView> m_sliceView = nullptr;
+    std::unique_ptr<slice::SliceView> m_sliceView = nullptr;
     QTimer* m_renderTimer = nullptr;
     QWidget* m_renderWidget = nullptr;
     QTimer* m_resizeTimer = nullptr;    // 防抖定时器
@@ -54,6 +55,8 @@ private:
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
     QCheckBox* m_checkAnalysis;
+
+    ArcProjectionSolver m_arcProjectionSolver;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);

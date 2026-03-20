@@ -2,6 +2,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceProcessor::SliceProcessor(LveDevice& lveDevice, uint32_t width, uint32_t height)
     : m_lveDevice{lveDevice}
 {
@@ -100,7 +102,10 @@ bool SliceProcessor::GetAnalysisResult(uint32_t numPlanes,
         return false;
     }
 
-    return m_analyzer->DownloadGPUCalculateResult(*m_context, numPlanes, m_planes, results);
+    return m_analyzer->DownloadGPUCalculateResult(*m_context,
+                                                  numPlanes,
+                                                  m_planes,
+                                                  results);
 }
 
 const std::vector<glm::vec2>& SliceProcessor::GetContourPoints() const
@@ -121,3 +126,5 @@ void SliceProcessor::Resize(uint32_t width, uint32_t height)
 }
 
 SliceProcessor::~SliceProcessor() = default;
+
+}  // namespace slice

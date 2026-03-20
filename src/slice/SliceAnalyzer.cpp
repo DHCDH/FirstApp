@@ -6,6 +6,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceAnalyzer::SliceAnalyzer(lve::LveDevice& device, SliceResourceContext& context)
     : m_lveDevice(device)
 {
@@ -80,7 +82,8 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
 
             for (uint32_t p = 0; p < count; p++) {
                 glm::vec2 pos = srcBegin[i * MAX_POINTS + p];
-                outFile << "(" << pos.x << ", " << pos.y << ")" << "\n";
+                outFile << "(" << pos.x << ", " << pos.y << ")"
+                        << "\n";
             }
         }
 
@@ -105,3 +108,5 @@ SliceAnalyzer::~SliceAnalyzer()
         vkDestroyFence(m_lveDevice.device(), m_fence, nullptr);
     }
 }
+
+}  // namespace slice

@@ -6,6 +6,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
                                            uint32_t height)
     : m_lveDevice(lveDevice), m_width(width), m_height(height)
@@ -470,7 +472,8 @@ void SliceResourceContext::CreateComputeResources()
         .Build(m_bboxDescriptorSet);
 
     // 创建staging buffer
-    VkDeviceSize totalReadbackSize = sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES +
+    VkDeviceSize totalReadbackSize = sizeof(ResultData) * MAX_PLANES +
+                                     sizeof(uint32_t) * MAX_PLANES +
                                      sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;
     m_readbackBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
@@ -598,3 +601,5 @@ SliceResourceContext::~SliceResourceContext()
         m_maskSampler = VK_NULL_HANDLE;
     }
 }
+
+}  // namespace slice
