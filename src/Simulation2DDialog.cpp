@@ -12,8 +12,6 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QCheckBox>
-#include "integration/NumericalIntegrator.h"
-#include "integration/AdaptiveSimpsonStrategy.h"
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
@@ -324,14 +322,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
     m_sliceView->SetRunningMode(RunningMode::OPTIMIZE);
     m_runningMode = RunningMode::OPTIMIZE;
 
-    auto integrator = std::make_unique<NumericalIntegrator>();
-    integrator->SetStrategy(
-        std::make_unique<AdaptiveSimpsonStrategy>(1e-10, 1e-10, 1e-2, 1e-12, 0.5));
-    m_arcProjectionSolver.SetIntegrator(std::move(integrator))
-        .SetCutterParameters(CutterParameters{})
-        .SetGrindingWheelParameters(GrindingWheelParameters{});
-
-    std::vector<glm::mat4> grndWheelMatrix = m_arcProjectionSolver.CalculateGrindingWheelPose();
+    
 
 
 }

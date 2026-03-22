@@ -19,9 +19,11 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
 {
     PROFILE_SCOPE("Arc projection");
 
-    uint32_t numU1 = 100;
+    uint32_t numU1 = 1;
     uint32_t numU0c = 100;
     uint32_t numLambda = 100;
+
+    m_transform.reserve(numU1 * numLambda * numU0c);
 
     double stepU1 = m_c.cuttingEdgeLength / static_cast<double>(numU1);
     //double stepU0c = m_gw.width / static_cast<double>(numU0c);

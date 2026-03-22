@@ -38,6 +38,8 @@ struct CutterParameters
 
 };
 
+
+// 参考了圆弧投影的论文，并非使用圆弧投影法
 class ArcProjectionSolver
 {
 public:

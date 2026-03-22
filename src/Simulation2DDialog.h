@@ -8,7 +8,7 @@
 #include "entities\GrindingWheel.h"
 #include "entities\Blank.h"
 #include "slice/SliceView.h"
-#include "solver/ArcProjectionSolver.h"
+#include "solver/GrindingWheelPoseOptimizer.h"
 
 class QTimer;
 class GrindingWheel;
@@ -56,13 +56,15 @@ private:
     QLineEdit* m_editNormal;
     QCheckBox* m_checkAnalysis;
 
-    ArcProjectionSolver m_arcProjectionSolver;
+    GrindingWheelPoseOptimizer m_optimizer;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
 
     Plane FetchDisplayPlane();
+
+    void OptimizeGrindingWheelPose();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

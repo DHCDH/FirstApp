@@ -151,8 +151,11 @@ void GrindingWheel::CalculateGrindingWheelInstances(
             #endif
 
             instances.emplace_back(instance);
+
+            if (i > 400) break;
         }
         //std::cout << "===count: " << count << "\n";
+
         count++;
     }
 

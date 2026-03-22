@@ -26,9 +26,11 @@ void SliceRasterizer::UpdateInstances(const std::vector<glm::mat4>& instanceData
 {
     m_grndWheelInstancesCount = static_cast<uint32_t>(instanceData.size());
     if (m_grndWheelInstancesCount == 0) {
-        std::cout << "Instance count: " << m_grndWheelInstancesCount << "\n";
+        std::cerr << "Instance count: " << m_grndWheelInstancesCount << "\n";
         return;
     }
+
+    std::cout << "Instance count: " << m_grndWheelInstancesCount << "\n";
 
     VkDeviceSize bufferSize = sizeof(glm::mat4) * m_grndWheelInstancesCount;
     uint32_t instanceSize = sizeof(glm::mat4);
