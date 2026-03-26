@@ -361,10 +361,10 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     SliceViewConfig macroConfig{};
     float radius = m_editDiameter->text().toFloat() / 2.0f;
-    macroConfig.xMin = -radius * 1.5f;
-    macroConfig.xMax = radius * 1.5f;
-    macroConfig.zMin = -radius * 1.5f;
-    macroConfig.zMax = radius * 1.5f;
+    macroConfig.xMin = -radius * 1.1f;
+    macroConfig.xMax = radius * 1.1f;
+    macroConfig.zMin = -radius * 1.1f;
+    macroConfig.zMax = radius * 1.1f;
     macroConfig.nX = 1024;
     macroConfig.nZ = 1024;
 

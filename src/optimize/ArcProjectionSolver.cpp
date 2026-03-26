@@ -29,6 +29,7 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
     m_transform.reserve(numU1 * numLambda * numU0c);
 
     // --- 测试用矩阵 ---
+    #if 0
     {
         glm::mat4 Mtw0(
             glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
@@ -48,6 +49,7 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
          m_transform.push_back(Mtw1);
          return m_transform;
     }
+    #endif
 
     double stepU1 = m_c.cuttingEdgeLength / static_cast<double>(numU1);
     //double stepU0c = m_gw.width / static_cast<double>(numU0c);

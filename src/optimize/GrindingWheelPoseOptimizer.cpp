@@ -144,6 +144,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     OptimizePoseRenderSystem& wheelRenderSystem, const SliceViewConfig& viewConfig,
     Plane plane, BatchedWheelPushConstants wheelPushData)
 {
+    PROFILE_SCOPE("Run Optimization");
+
     uint32_t totalPoses = static_cast<uint32_t>(m_transformMatrixes.size());
     if (totalPoses == 0) return;
 
@@ -165,6 +167,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
         uint32_t curBatchSize = std::min((uint32_t)BATCH_LAYER_COUNT, totalPoses - i);
 
+#ifdef BBOX
         // 将BATCH_LAYER_COUNT数量的位姿矩阵填进SSBO
         memcpy(m_poseSSBOBuffer->GetMappedMemory(),
                m_transformMatrixes.data() + i,
@@ -177,6 +180,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
         std::vector<CameraData> macroCameras(BATCH_LAYER_COUNT, macroCamData);
         context.UpdateGlobalSSBO(macroCameras.data(),
                                  sizeof(CameraData) * BATCH_LAYER_COUNT);
+        
 
         VkCommandBuffer cmdScout = m_lveDevice.beginSingleTimeCommands();
 
@@ -314,6 +318,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
         // 阻塞等待
         m_lveDevice.endSingleTimeCommands(cmdScout);
+        
 
         // --- 根据BBox计算MicroCamera ---
         std::vector<CameraData> microCameras(BATCH_LAYER_COUNT);
@@ -427,7 +432,181 @@ void GrindingWheelPoseOptimizer::RunOptimization(
         m_lveDevice.endSingleTimeCommands(cmdPrecise);
 
         RENDERDOC_END;
+#else
+        // 将BATCH_LAYER_COUNT数量的位姿矩阵填进SSBO
+        memcpy(m_poseSSBOBuffer->GetMappedMemory(),
+               m_transformMatrixes.data() + i,
+               curBatchSize * sizeof(glm::mat4));
 
+        // ==========================================================
+        // 1. 计算宏观相机并更新SSBO (完全无视 BBox)
+        // ==========================================================
+        CameraData macroCamData = CalculateMicroCamera({0xFFFFFFFF, 0, 0, 0},
+                                                       viewConfig,
+                                                       context.GetWidth(),
+                                                       context.GetHeight(),
+                                                       plane);
+        std::vector<CameraData> macroCameras(BATCH_LAYER_COUNT, macroCamData);
+
+        // 单向轻量级写入，不产生任何阻塞
+        context.UpdateGlobalSSBO(macroCameras.data(),
+                                 sizeof(CameraData) * BATCH_LAYER_COUNT);
+
+        // ==========================================================
+        // 2. 准备精确渲染阶段 (Precise Pass) 所需的全部变量
+        // ==========================================================
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = context.GetMaskRenderPass();
+        renderPassInfo.framebuffer = context.GetBlankMaskFramebuffer();
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = {context.GetWidth(), context.GetHeight()};
+        std::array<VkClearValue, 2> clearValues{};
+        clearValues[0].color.uint32[0] = 0u;
+        clearValues[1].depthStencil = {1.0f, 0};
+        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+        renderPassInfo.pClearValues = clearValues.data();
+
+        VkViewport viewport{0.0f,
+                            0.0f,
+                            (float)context.GetWidth(),
+                            (float)context.GetHeight(),
+                            0.f,
+                            1.f};
+        VkRect2D scissor{{0, 0}, {context.GetWidth(), context.GetHeight()}};
+
+        VkImageMemoryBarrier colorBarrier{};
+        colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        colorBarrier.image = context.GetBlankMaskImage();
+        colorBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,
+                                         0,
+                                         1,
+                                         0,
+                                         BATCH_LAYER_COUNT};
+        colorBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        colorBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        colorBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        // ==========================================================
+        // 3. 开启 CommandBuffer 并记录精确渲染指令
+        // ==========================================================
+        VkCommandBuffer cmdPrecise = m_lveDevice.beginSingleTimeCommands();
+
+        vkCmdBeginRenderPass(cmdPrecise, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdSetViewport(cmdPrecise, 0, 1, &viewport);
+        vkCmdSetScissor(cmdPrecise, 0, 1, &scissor);
+
+        OptimizePlaneInfo planeInfo{cmdPrecise,
+                                    context.GetGlobalDescriptorSet(),
+                                    plane.normal,
+                                    plane.point};
+        OptimizeDrawInfo blankInfo{cmdPrecise,
+                                   m_blank,
+                                   glm::mat4(1.0f),
+                                   context.GetGlobalDescriptorSet(),
+                                   plane.normal,
+                                   plane.point};
+
+        maskRenderSystem.BindPlaneInjectionPipeline(cmdPrecise);
+        maskRenderSystem.RenderPlaneInjection(planeInfo);
+
+        maskRenderSystem.BindBlankStencilPipeline(cmdPrecise);
+        maskRenderSystem.RenderBlank(blankInfo);
+        maskRenderSystem.BindBlankColorPipeline(cmdPrecise);
+        maskRenderSystem.RenderBlank(blankInfo);
+
+        wheelRenderSystem.RenderBatchWheels(cmdPrecise,
+                                            wheelPushData,
+                                            curBatchSize,
+                                            context.GetGlobalDescriptorSet(),
+                                            m_SSBODescriptorSet);
+        vkCmdEndRenderPass(cmdPrecise);
+
+        // 渲染完毕后，转换图像布局供 Compute Shader 读取
+        vkCmdPipelineBarrier(cmdPrecise,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &colorBarrier);
+
+        // ==========================================================
+        // 4. 清空结果缓冲，派发 Compute Shader (特征提取)
+        // ==========================================================
+        vkCmdFillBuffer(cmdPrecise,
+                        context.GetCounterBuffer()->GetBuffer(),
+                        0,
+                        VK_WHOLE_SIZE,
+                        0);
+
+        ResultData initResult{};
+        initResult.coreRadiusSqBits = 0xFFFFFFFF;
+        std::vector<ResultData> initResults(BATCH_LAYER_COUNT, initResult);
+        vkCmdUpdateBuffer(cmdPrecise,
+                          context.GetResultBuffer()->GetBuffer(),
+                          0,
+                          sizeof(ResultData) * BATCH_LAYER_COUNT,
+                          initResults.data());
+
+        VkBufferMemoryBarrier resClearBarrier{};
+        resClearBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        resClearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        resClearBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        resClearBarrier.buffer = context.GetResultBuffer()->GetBuffer();
+        resClearBarrier.size = VK_WHOLE_SIZE;
+
+        VkBufferMemoryBarrier counterClearBarrier{};
+        counterClearBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        counterClearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        counterClearBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        counterClearBarrier.buffer = context.GetCounterBuffer()->GetBuffer();
+        counterClearBarrier.size = VK_WHOLE_SIZE;
+
+        std::array<VkBufferMemoryBarrier, 2> barriers = {resClearBarrier,
+                                                         counterClearBarrier};
+
+        vkCmdPipelineBarrier(cmdPrecise,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             static_cast<uint32_t>(barriers.size()),
+                             barriers.data(),
+                             0,
+                             nullptr);
+
+        // 派发ComputeFlute提取特征
+        SliceComputeInfo computeInfo{context.GetContourDescriptorSet(),
+                                     context.GetWidth(),
+                                     context.GetHeight(),
+                                     MAX_POINTS,
+                                     0,
+                                     plane.normal,
+                                     plane.point,
+                                     glm::vec4(0.f)};
+        maskRenderSystem.ComputeFlute(cmdPrecise,
+                                      computeInfo,
+                                      context.GetGlobalDescriptorSet(),
+                                      context.GetTipInfoBuffer());
+
+        RENDERDOC_START;
+
+        // 唯一的一次 CPU 阻塞等待：等待最终特征提取计算完毕
+        m_lveDevice.endSingleTimeCommands(cmdPrecise);
+
+        RENDERDOC_END;
+
+        // --- 获取最优解 ---
+
+#endif
         // --- 获取最优解 ---
         for (uint32_t j = 0; j < curBatchSize; ++j) {
             float score = EvaluateFitness(mappedResults[j]);
@@ -446,7 +625,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     float sq = std::bit_cast<float>(m_bestResult.coreRadiusSqBits);
     std::cout << "core radius: " << std::sqrt(sq) << "\n";
     std::cout << "slot angle: " << m_bestResult.slotAngle << "\n";
-    std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
+    //std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
 
     std::cout << "\n========== [ Result ] Best Pose Matrix ==========\n";
     for (int row = 0; row < 4; ++row) {
@@ -464,6 +643,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     context.GetResultBuffer()->Unmap();
 
     WriteToolPath();
+
+    std::cout << "BATCH_LAYER_COUNT : " << BATCH_LAYER_COUNT << "\n";
 }
 
 float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
@@ -489,7 +670,7 @@ float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
     // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
 
     float weightSlot = 1.f;
-    float weightCore = 20.f;
+    float weightCore = 5.f;
 
     float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
 
