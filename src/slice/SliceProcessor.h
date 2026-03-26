@@ -4,12 +4,10 @@
 
 #include "../Global.h"
 #include "LveDevice.h"
-#include "SliceResourceContext.h"
-#include "SliceRasterizer.h"
 #include "SliceAnalyzer.h"
+#include "SliceRasterizer.h"
+#include "SliceResourceContext.h"
 
-namespace slice
-{
 // 资源分配
 class SliceProcessor
 {
@@ -97,5 +95,3 @@ private:
 
     std::unique_ptr<lve::LveCamera> m_camera;
 };
-
-}  // namespace slice

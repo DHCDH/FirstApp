@@ -670,7 +670,7 @@ float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
     // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
 
     float weightSlot = 1.f;
-    float weightCore = 10.f;
+    float weightCore = 30.f;
 
     float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
 

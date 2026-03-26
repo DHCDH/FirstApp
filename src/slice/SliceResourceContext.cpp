@@ -6,8 +6,6 @@
 
 using namespace lve;
 
-namespace slice
-{
 SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
                                            uint32_t height)
     : m_lveDevice(lveDevice), m_width(width), m_height(height)
@@ -601,5 +599,3 @@ SliceResourceContext::~SliceResourceContext()
         m_maskSampler = VK_NULL_HANDLE;
     }
 }
-
-}  // namespace slice

@@ -12,11 +12,10 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 
+#include "slice/SliceView.h"
+
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
-    : QDialog(parent),
-      m_renderWidget(new QWidget(this)),
-      m_renderTimer(new QTimer(this)),
-      m_lveDevice(device)
+    : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this)), m_lveDevice(device)
 {
     this->setWindowTitle("2D Simulation");
     this->resize(1920, 1080);
@@ -33,13 +32,11 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
     m_editDiameter = new QLineEdit("10.", this);
-    m_editSliceNum = new QLineEdit("50", this);
+    m_editSliceNum = new QLineEdit("1", this);
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
     m_editNormal = new QLineEdit("1.0, 0.0, 0.0", this);
-    m_checkAnalysis = new QCheckBox("Analyze Single Slice", this);
-    m_checkAnalysis->setChecked(false);
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
-    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Analyze", this);
+    QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
 
     controlLayout->addWidget(checkDisplayWireframe);
@@ -51,7 +48,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(m_editPoint);
     controlLayout->addWidget(new QLabel("Normal", this));
     controlLayout->addWidget(m_editNormal);
-    controlLayout->addWidget(m_checkAnalysis);
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
@@ -74,13 +70,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     InitSliceView(device, hwnd, hinstance);
 
-    QTimer* pollTimer = new QTimer(this);
-    connect(pollTimer, &QTimer::timeout, this, [this]() {
-        if (m_sliceView) {
-            m_sliceView->PollAnalysis();
-        }
-    });
-    pollTimer->start(16);  // 约 60Hz 的轮询频率
+    // connect(m_renderTimer, &QTimer::timeout, [this]() { BuildContactMask(); });
+    // m_renderTimer->start(16);
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         if (m_grndWheel && m_blank) {
@@ -109,10 +100,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         BuildContactMask();
     });
 
-    connect(btnOptimize, &QPushButton::clicked, this, [this]() {
-        OptimizeGrindingWheelPose();
-    });
-
     // --- 为输入框创建一个400毫秒的防抖定时器 ---
     QTimer* inputTimer = new QTimer(this);
     inputTimer->setSingleShot(true);
@@ -128,14 +115,13 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         std::cout << "plane change"
                   << "\n";
         this->setProperty("isFullAnalysis", false);  // 标记为单截面
-        if (m_checkAnalysis->isChecked()) {
-            m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
-            m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
-        } else {
-            m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
-            m_runningMode = RunningMode::DISPLAY_ONLY;
-        }
+        m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
+        m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
         BuildContactMask();
+    });
+
+    connect(btnOptimize, &QPushButton::clicked, this, [this]() {
+        OptimizeGrindingWheelPose();
     });
 }
 
@@ -144,13 +130,13 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 {
     SliceViewConfig config = UpdateView();
 
-    m_sliceView = std::make_unique<slice::SliceView>(device,
-                                                     config,
-                                                     hwnd,
-                                                     hinstance,
-                                                     width(),
-                                                     height(),
-                                                     "2D Simulation");
+    m_sliceView = std::make_unique<SliceView>(device,
+                                              config,
+                                              hwnd,
+                                              hinstance,
+                                              width(),
+                                              height(),
+                                              "2D Simulation");
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
@@ -254,8 +240,6 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 #if 1
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 1.f;
-    // std::cout << "w = " << w << " h = " << h << " renderScale = " << renderScale <<
-    // "\n";
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
@@ -265,8 +249,6 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 #endif
-
-    // std::cout << "pixels: " << config.nX << " x " << config.nZ << "\n";
 
     float xHalf, zHalf;
 
@@ -330,7 +312,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         throw std::runtime_error("Grinding wheel or blank not set");
     }
 
-        if (!m_optContext) {
+    if (!m_optContext) {
         std::cout << "[System] Initializing Optimizer Core for the first time... (May "
                      "cause a slight stutter)"
                   << "\n";

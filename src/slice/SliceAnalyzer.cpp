@@ -6,8 +6,6 @@
 
 using namespace lve;
 
-namespace slice
-{
 SliceAnalyzer::SliceAnalyzer(lve::LveDevice& device, SliceResourceContext& context)
     : m_lveDevice(device)
 {
@@ -108,5 +106,3 @@ SliceAnalyzer::~SliceAnalyzer()
         vkDestroyFence(m_lveDevice.device(), m_fence, nullptr);
     }
 }
-
-}  // namespace slice

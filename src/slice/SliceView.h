@@ -1,18 +1,17 @@
 ﻿#pragma once
 
+#include <vulkan/vulkan.h>
+
 #include <chrono>
 #include <memory>
-#include <vulkan/vulkan.h>
 
 #include "../Global.h"
 #include "LveRenderer.h"
+#include "SliceProcessor.h"
 #include "systems/SliceDisplaySystem.h"
 #include "systems/SliceMaskRenderSystem.h"
-#include "SliceProcessor.h"
 #include "systems/SliceOverlayRenderSystem.h"
 
-namespace slice
-{
 class SliceView
 {
 public:
@@ -36,8 +35,6 @@ public:
 
     void SetModel(lve::LveModel* blank, lve::LveModel* grndWheel);
 
-    void PollAnalysis();
-
 public:
     void SetDisplayWireframe(const bool& display)
     {
@@ -56,20 +53,8 @@ public:
     {
         return m_processor->GetLastMicroConfigs();
     }
-    bool IsWaitingForAnalysis() const
-    {
-        return m_isWaitingForAnalysis;
-    }
-    void SetWaitingForAnalysis(bool isWaiting)
-    {
-        m_isWaitingForAnalysis = isWaiting;
-    }
-    uint32_t GetAnalysisPlaneCount() const
-    {
-        return m_analysisPlaneCount;
-    }
 
-public:
+private:
     void InitDisplayResources();
     void RecreateDisplayDescriptorSet();
     bool ProcessAnalysisResult(uint32_t numPlanes);
@@ -104,4 +89,3 @@ private:
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;
 };
-}  // namespace slice

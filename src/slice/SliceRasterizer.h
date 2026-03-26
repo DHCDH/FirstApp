@@ -6,8 +6,6 @@
 #include "SliceResourceContext.h"
 #include "systems/SliceMaskRenderSystem.h"
 
-namespace slice
-{
 // 离屏渲染/光栅化器
 class SliceRasterizer
 {
@@ -62,5 +60,3 @@ private:
 
     std::vector<SliceViewConfig> m_lastMicroConfigs;
 };
-
-}  // namespace slice

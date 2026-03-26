@@ -2,22 +2,20 @@
 
 #include <QDialog>
 #include <QLabel>
-
 #include <memory>
 
-#include "entities\GrindingWheel.h"
 #include "entities\Blank.h"
-#include "slice/SliceView.h"
+#include "entities\GrindingWheel.h"
 #include "optimize/GrindingWheelPoseOptimizer.h"
 #include "optimize/OptimizeResourceContext.h"
 #include "optimize/OptimizeMaskRenderSystem.h"
 #include "optimize/OptimizePoseRenderSystem.h"
 
+class SliceView;
 class QTimer;
 class GrindingWheel;
 class Blank;
 class QLineEdit;
-class QCheckBox;
 
 class Simulation2DDialog : public QDialog
 {
@@ -28,24 +26,23 @@ public:
     ~Simulation2DDialog();
 
     void UpdateEntitiesData(const GrindingWheel& grndWheel, const Blank& blank,
-        const std::vector<glm::mat4>& grndWheelInstances);
+                            const std::vector<glm::mat4>& grndWheelInstances);
     void BuildContactMask();
 
 private:
-    std::unique_ptr<slice::SliceView> m_sliceView = nullptr;
+    lve::LveDevice& m_lveDevice;
+    std::unique_ptr<SliceView> m_sliceView = nullptr;
     QTimer* m_renderTimer = nullptr;
     QWidget* m_renderWidget = nullptr;
-    QTimer* m_resizeTimer = nullptr;    // 防抖定时器
-
-    lve::LveDevice& m_lveDevice;
+    QTimer* m_resizeTimer = nullptr;  // 防抖定时器
 
     const Blank* m_blank = nullptr;
     const GrindingWheel* m_grndWheel = nullptr;
     std::vector<glm::mat4> m_grndWheelInstances;
 
-    double m_viewHalfSize{ 8. };
+    double m_viewHalfSize{8.};
 
-    glm::vec3 m_normal{ 1., 0., 0. };   // 截平面的法向
+    glm::vec3 m_normal{1., 0., 0.};  // 截平面的法向
 
     RunningMode m_runningMode = RunningMode::DISPLAY_ONLY;
 
@@ -59,7 +56,6 @@ private:
     QLineEdit* m_editSliceNum;
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
-    QCheckBox* m_checkAnalysis;
 
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
