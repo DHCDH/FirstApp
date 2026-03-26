@@ -1,0 +1,124 @@
+#version 450
+
+struct TipData {
+    uint maxDistBits;
+    uint tipIndex;
+};
+
+layout (local_size_x = 1) in;   // 单线程
+
+// binding = 1: 轮廓点buffer
+layout(std430, set = 0, binding = 1) buffer OutPoints {
+    vec2 points[];
+};
+
+// binding = 2: 第一阶段提取出的点数量
+layout(std430, set = 0, binding = 2) buffer Counter {
+    uint count[];
+};
+
+// 存储每个点最近的4个邻居索引
+layout(std430, set = 0, binding = 4) buffer KNN {
+    uint knn[];
+};
+
+// 存储最远点信息
+layout(std430, set = 0, binding = 5) buffer TipInfo {
+    TipData tips[];
+};
+
+layout(std430, set = 0, binding = 6) buffer TempSorted {
+    vec2 tempPoints[];
+};
+
+layout(push_constant) uniform Push {
+    uint maxPoints;                     
+    layout(offset = 16) vec3 normal;    
+    layout(offset = 32) vec3 point;     
+    layout(offset = 48) vec4 mapInfo;   
+    layout(offset = 64) int isRightCut;
+} push;
+
+// --- 使用共享内存作为位图，标记点是否被访问过 ---
+// 0: 未访问；1: 已访问
+// 512个uint可以标记16384个点
+shared uint visited[2048];
+
+bool isVisited(uint idx) {
+    // n1 = idx / 32: idx在第n1个uint
+    // n2 = (1u << (idx % 32)): idx在第n1个uint的第n2位
+    return (visited[idx / 32] & (1u << (idx % 32))) != 0;
+}
+
+void setVisited(uint idx) {
+    visited[idx / 32] |= (1u << (idx % 32));
+}
+
+void main()
+{
+    uint plnIdx = uint(gl_GlobalInvocationID.z);
+    uint validCount = count[plnIdx];
+    if (validCount == 0) return;
+
+    // --- 初始化位图 ---
+    for (uint i = 0; i < 2048; i++) {
+        visited[i] = 0;
+    }
+
+    // --- 寻找最远点 ---
+    uint curr = 0;
+    float maxDistSq = -1.0;
+    for (uint i = 0; i < validCount; i++) {
+        uint global_i = plnIdx * push.maxPoints + i;
+        float d = dot(points[global_i], points[global_i]);
+        if (d > maxDistSq) {
+            maxDistSq = d;
+            curr = i;
+        }
+    }
+
+    for (uint step = 0; step < validCount; step++) {
+
+        uint globalStep = plnIdx * push.maxPoints + step;
+        uint globalCurr = plnIdx * push.maxPoints + curr;
+
+        tempPoints[globalStep] = points[globalCurr];
+        setVisited(curr);
+
+        if (step == validCount - 1) break;
+
+        uint nextIdx = 0xFFFFFFFF;
+        uint knnBase = plnIdx * push.maxPoints * 4 + curr * 4;
+        for (uint k = 0; k < 4; k++) {
+            uint n = knn[knnBase + k];
+            if (!isVisited(n)) {
+                nextIdx = n;
+                break;
+            }
+        }
+
+        // --- 如果4个邻居全部被访问过，执行一次全局搜索 ---
+        if (nextIdx == 0xFFFFFFFF) {
+            float minDist = 99999.0;
+            vec2 pCurr = points[globalCurr];
+            for (uint i = 0; i < validCount; i++) {
+                if (!isVisited(i)) {
+                    uint global_i = plnIdx * push.maxPoints + i;
+                    float d = dot(pCurr - points[global_i], pCurr - points[global_i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        nextIdx = i;
+                    }
+                }
+            }
+
+            if (nextIdx != 0xFFFFFFFF && minDist > 0.2) {
+                count[plnIdx] = step + 1; // 覆盖全局有效点数，丢弃后面所有噪点
+                break;
+            }
+        }
+        curr = nextIdx;
+    }
+    
+
+}

@@ -16,5 +16,8 @@ public:
 private:
     std::string m_filepath{
         "D:/Data/Study/vulkan/FirstApp/res/models/blanks/blank_flat_D10_L70.obj"};
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/blanks/flat/blank_flat_D10_L50_Z/"
+    //    "blank_flat_D10_L50_Z.obj"};
     uint32_t m_id{114514};
 };

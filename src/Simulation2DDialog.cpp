@@ -11,10 +11,12 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
-#include <QCheckBox>
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
-    : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this))
+    : QDialog(parent),
+      m_renderWidget(new QWidget(this)),
+      m_renderTimer(new QTimer(this)),
+      m_lveDevice(device)
 {
     this->setWindowTitle("2D Simulation");
     this->resize(1920, 1080);
@@ -108,7 +110,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     });
 
     connect(btnOptimize, &QPushButton::clicked, this, [this]() {
-        void OptimizeGrindingWheelPose();
+        OptimizeGrindingWheelPose();
     });
 
     // --- 为输入框创建一个400毫秒的防抖定时器 ---
@@ -125,7 +127,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     connect(inputTimer, &QTimer::timeout, [this]() {
         std::cout << "plane change"
                   << "\n";
-        this->setProperty("isFullAnalysis", false);     // 标记为单截面
+        this->setProperty("isFullAnalysis", false);  // 标记为单截面
         if (m_checkAnalysis->isChecked()) {
             m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
             m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
@@ -143,12 +145,12 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
     SliceViewConfig config = UpdateView();
 
     m_sliceView = std::make_unique<slice::SliceView>(device,
-                                              config,
-                                              hwnd,
-                                              hinstance,
-                                              width(),
-                                              height(),
-                                              "2D Simulation");
+                                                     config,
+                                                     hwnd,
+                                                     hinstance,
+                                                     width(),
+                                                     height(),
+                                                     "2D Simulation");
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
@@ -219,7 +221,6 @@ void Simulation2DDialog::BuildContactMask()
     if (wasAnalysisRequested) {
         auto microConfigs = m_sliceView->GetLastMicroConfigs();
         if (!microConfigs.empty()) {
-
             // --- 避免对焦到可能没有交集的displayPlane
 
             auto micro = microConfigs.back();
@@ -253,7 +254,8 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 #if 1
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 1.f;
-    //std::cout << "w = " << w << " h = " << h << " renderScale = " << renderScale << "\n";
+    // std::cout << "w = " << w << " h = " << h << " renderScale = " << renderScale <<
+    // "\n";
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
@@ -318,13 +320,73 @@ Plane Simulation2DDialog::FetchDisplayPlane()
 
 void Simulation2DDialog::OptimizeGrindingWheelPose()
 {
+    std::cout << "Enter function: " << __FUNCTION__ << "\n";
+
     this->setProperty("isOptimization", true);
     m_sliceView->SetRunningMode(RunningMode::OPTIMIZE);
     m_runningMode = RunningMode::OPTIMIZE;
 
-    
+    if (!m_blank || !m_grndWheel) {
+        throw std::runtime_error("Grinding wheel or blank not set");
+    }
 
+        if (!m_optContext) {
+        std::cout << "[System] Initializing Optimizer Core for the first time... (May "
+                     "cause a slight stutter)"
+                  << "\n";
 
+        uint32_t texWidth = 1024;
+        uint32_t texHeight = 1024;
+
+        m_optContext = std::make_unique<optimize::OptimizeResourceContext>(m_lveDevice,
+                                                                           texWidth,
+                                                                           texHeight);
+        m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
+            m_lveDevice,
+            m_optContext->GetMaskRenderPass(),
+            m_optContext->GetGlobalDescriptorSetLayout(),
+            m_optContext->GetContourComputeSetLayout(),
+            m_optContext->GetBBoxComputeSetLayout());
+    }
+
+    optimize::GrindingWheelPoseOptimizer optimizer(m_lveDevice,
+                                                   *m_blank->GetModel(),
+                                                   *m_grndWheel->GetModel());
+    optimize::OptimizePoseRenderSystem poseSystem(
+        m_lveDevice,
+        *m_grndWheel->GetModel(),
+        m_optContext->GetMaskRenderPass(),
+        m_optContext->GetGlobalDescriptorSetLayout(),
+        optimizer.GetSSBODescriptorSetLayout());
+
+    SliceViewConfig macroConfig{};
+    float radius = m_editDiameter->text().toFloat() / 2.0f;
+    macroConfig.xMin = -radius * 1.5f;
+    macroConfig.xMax = radius * 1.5f;
+    macroConfig.zMin = -radius * 1.5f;
+    macroConfig.zMax = radius * 1.5f;
+    macroConfig.nX = 1024;
+    macroConfig.nZ = 1024;
+
+    Plane plane{{1.f, 0.f, 0.f}, {0.f, 0.f, 0.f}};
+
+    optimize::BatchedWheelPushConstants pushData{};
+    pushData.normal = plane.normal;
+    pushData.point = plane.point;
+    pushData.stepX = 0.1f;
+    pushData.tanHelixAngle = static_cast<float>(tan(30.f * glm::pi<float>() / 180.f));
+    pushData.radius = 5.0f;
+    pushData.stepsPerPose = 400;
+
+    optimizer.RunOptimization(*m_optContext,
+                              *m_optMaskSystem,
+                              poseSystem,
+                              macroConfig,
+                              plane,
+                              pushData);
+
+    glm::mat4 bestPose = optimizer.GetBestPose();
+    float bestScore = optimizer.GetBestScore();
 }
 
 void Simulation2DDialog::resizeEvent(QResizeEvent* event)

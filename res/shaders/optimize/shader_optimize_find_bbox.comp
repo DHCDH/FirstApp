@@ -1,0 +1,38 @@
+#version 450
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout (binding = 0) uniform usampler2DArray inputMask;
+
+struct BBox {
+    uint minX;
+    uint minY;
+    uint maxX;
+    uint maxY;
+};
+
+// 记录全局最小/最大像素坐标
+layout (std430, binding = 1) buffer BBoxBuffer {
+    BBox bboxes[];
+};
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    uint layer = gl_GlobalInvocationID.z;
+
+    ivec2 size = textureSize(inputMask, 0).xy;
+
+    if (pos.x >= size.x || pos.y >= size.y) {
+        return;
+    }
+
+    uint val = texelFetch(inputMask, ivec3(pos.x, pos.y, int(layer)), 0).r;
+
+    if (val == 3u) {
+        atomicMin(bboxes[layer].minX, pos.x);
+        atomicMin(bboxes[layer].minY, pos.y);
+        atomicMax(bboxes[layer].maxX, pos.x);
+        atomicMax(bboxes[layer].maxY, pos.y);
+    }
+}

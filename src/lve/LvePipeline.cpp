@@ -163,8 +163,6 @@ void LvePipeline::CreateGraphicsPipeline(const std::string& vertFilepath,
     pipelineInfo.basePipelineIndex = -1;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
-    std::cout << "CreateGraphicsPipeline: bindingDescriptions = "
-              << configInfo.bindingDescriptions.size() << std::endl;
     for (size_t i = 0; i < configInfo.bindingDescriptions.size(); ++i) {
         std::cout << "  [" << i
                   << "] binding=" << configInfo.bindingDescriptions[i].binding

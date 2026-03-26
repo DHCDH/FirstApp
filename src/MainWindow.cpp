@@ -84,7 +84,7 @@ void MainWindow::InitUI()
             this,
             tr("选择 toolpath 文件"),
             QString(),
-            tr("Toolpath Files (*.toolpath);;All Files (*.*)"));
+            tr("Toolpath Files (*.txt);;All Files (*.*)"));
         if (qPath.isEmpty())
             QMessageBox::critical(this, tr("警告"), tr("输入正确刀轨文件"));
 

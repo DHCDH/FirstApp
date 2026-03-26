@@ -1,0 +1,243 @@
+#version 450
+
+struct ResultData {
+    vec2 coreRadiusPoint;
+    vec2 tipPoint;
+    vec2 tangent;
+
+    vec2 normal;
+    vec2 point;
+
+    uint coreRadiusSqBits;    // 芯厚半径平方
+    float rakeAngle;
+    float slotAngle;
+
+    float _pad;
+};
+
+struct CameraData {
+    mat4 projView;
+    vec4 mapInfo;
+};
+
+// 保持 Z 的 local size 为 1，在 C++ 端派发 Z=256 的工作组
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) uniform usampler2DArray inputMask;
+
+// 绑定1：存储坐标的Buffer
+layout(std430, binding = 1) buffer OutPoints{
+    vec2 points[];
+};
+
+// 绑定2：原子计数器
+layout(std430, binding = 2) buffer Counter {
+    uint count[];
+};
+
+// 绑定3：存储计算结果
+layout(std430, set = 0, binding = 3) buffer OutputBuffer {
+    ResultData allResults[];
+}outputBuffer;
+
+layout(std430, set = 1, binding = 0) readonly buffer CameraSSBO {
+    CameraData cameras[];
+} cameraData;
+
+layout(push_constant) uniform Push{
+    uint maxPoints;                     // offset 0
+    layout(offset = 16) vec3 normal;    // offset 16
+    layout(offset = 32) vec3 point;     // offset 32
+    layout(offset = 48) vec4 mapInfo;   // offset 48    占位，不再使用
+    layout(offset = 64) int isRightCut; // offset 64
+}push;
+
+// 读取点p在图形管线得到的颜色掩码图（1u, 2u, 3u）中的值
+// return: 1.0 == 交集， 0.0 == 砂轮/棒料/背景
+float getRawVal(ivec2 p, int layer) {
+    // 掩码中3u代表交集
+    return (texelFetch(inputMask, ivec3(p.x, p.y, layer), 0).r == 3u) ? 1. : 0.;
+}
+
+// 5x5融合算子
+// 直接对原始二值数据操作，一次性完成“模糊+求导”
+vec3 getFusedGradient(ivec2 center, int layer) {
+    // 5x5 Sobel X 核 (自带高斯平滑效果)
+    //  1  2  0  -2  -1
+    //  4  8  0  -8  -4
+    //  6 12  0 -12  -6
+    //  4  8  0  -8  -4
+    //  1  2  0  -2  -1
+
+    float Gx = 0.0;
+    float Gy = 0.0;
+
+    // 循环展开或使用循环处理 5x5 区域
+    // 这里的权重是标准 5x5 Sobel，也可以视为 Sigma≈1.4 的高斯导数
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            // 获取原始二值 (0.0 或 1.0)
+            float val = getRawVal(center + ivec2(x, y), layer);
+            
+            if (val == 0.0) continue; // 稀疏优化：背景点不贡献梯度
+
+            // --- X 方向权重 ---
+            float wX = 0.0;
+            // 列加权 (1, 4, 6, 4, 1) * 行差分 (1, 2, 0, -2, -1)
+            if (x == -2) wX = 1.0; else if (x == -1) wX = 2.0;
+            else if (x == 1) wX = -2.0; else if (x == 2) wX = -1.0;
+            
+            if (wX != 0.0) {
+                // 叠加 Y 方向的高斯平滑权重
+                float smoothY = 0.0;
+                if (abs(y) == 2) smoothY = 1.0;
+                else if (abs(y) == 1) smoothY = 4.0;
+                else if (y == 0) smoothY = 6.0;
+                
+                Gx += val * wX * smoothY;
+            }
+
+            // --- Y 方向权重 (逻辑与 X 对称) ---
+            float wY = 0.0;
+            if (y == -2) wY = 1.0; else if (y == -1) wY = 2.0;
+            else if (y == 1) wY = -2.0; else if (y == 2) wY = -1.0;
+
+            if (wY != 0.0) {
+                float smoothX = 0.0;
+                if (abs(x) == 2) smoothX = 1.0;
+                else if (abs(x) == 1) smoothX = 4.0;
+                else if (x == 0) smoothX = 6.0;
+                
+                Gy += val * wY * smoothX;
+            }
+        }
+    }
+
+    float mag = sqrt(Gx*Gx + Gy*Gy);
+    return vec3(Gx, Gy, mag);
+}
+
+
+void main()
+{
+    // 获取当前像素坐标
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    int layer = int(gl_GlobalInvocationID.z);
+    uint plnIdx = uint(layer);
+
+    // --- 查询纹理大小 ---
+    // inputMask为画图阶段得到的存储(1u, 2u, 3u)的结果图
+    // texSize.x为图像宽度，.y为图像高度
+    ivec2 texSize = textureSize(inputMask, 0).xy;
+    //  --- 边界剔除，保证后续卷积计算的安全 ---
+    // 由于使用5x5核（半径=2），必须留出2个像素的边框
+    if (pos.x < 2 || pos.y < 2 || pos.x >= texSize.x - 2 || pos.y >= texSize.y - 2) 
+        return;
+
+    // --- 快速粗筛 ---
+    // 只有在交集(3u)和其他(0u)交界的地方才有梯度
+    // 检查中心点及其4邻域，如果全为0或全为1，说明在平坦区域，直接跳过
+    float c = getRawVal(pos, layer);
+    float l = getRawVal(pos + ivec2(-1, 0), layer);
+    float r = getRawVal(pos + ivec2( 1, 0), layer);
+    float u = getRawVal(pos + ivec2( 0,-1), layer);
+    float d = getRawVal(pos + ivec2( 0, 1), layer);
+    float sum = c + l + r + u + d;
+    if(sum == 0. || sum == 5.) 
+        return;
+
+    // 计算当前点的平滑梯度
+    vec3 gradB = getFusedGradient(pos, layer);
+    float gB = gradB.z;
+
+    // 阈值过滤
+    // 过滤掉微小的噪声梯度
+    if (gB < 10.)
+        return;
+
+    // 确定梯度主方向
+    ivec2 dir;
+    if (abs(gradB.x) > abs(gradB.y)) {
+        dir = ivec2(sign(gradB.x), 0); // 水平梯度主导 -> 边缘是垂直的 -> 沿水平寻找峰值
+    } else {
+        dir = ivec2(0, sign(gradB.y)); // 垂直梯度主导
+    }
+
+    // 获取梯度方向的邻居梯度
+    float gA = getFusedGradient(pos - dir, layer).z;
+    float gC = getFusedGradient(pos + dir, layer).z;
+
+    // 非极大值抑制 (Non-Maximum Suppression)
+    // 保证了 gB 是局部最大值，因此 (gA + gC - 2.0 * gB) 必然是一个负数
+    if (gB < gA || gB <= gC) return;
+
+    // 真正的 Devernay 抛物线亚像素校正
+    // 拟合 f(x) = ax^2 + bx + c，求导 f'(x)=0 的极值点
+    float denom = gA + gC - 2.0 * gB;
+    float eta = 0.0;
+
+    // 防止分母极小导致浮点数溢出爆炸 (虽然 NMS 保证了分母不为 0)
+    if (abs(denom) > 0.0001) {
+        eta = (gA - gC) / (2.0 * denom);
+    }
+    
+    // 限制偏移量在 [-0.5, 0.5] 之间，防止跑偏
+    eta = clamp(eta, -0.5, 0.5);
+
+    // 输出最终亚像素坐标
+    vec2 finalPos = vec2(pos) + vec2(dir) * eta;
+    vec4 trueMapInfo = cameraData.cameras[plnIdx].mapInfo;
+    float worldX = trueMapInfo.x + finalPos.x * trueMapInfo.z;
+    float worldY = trueMapInfo.y + finalPos.y * trueMapInfo.w;
+    vec2 worldPos = vec2(worldX, worldY);
+
+    uint valPlus = texelFetch(inputMask, ivec3(pos + dir, layer), 0).r;
+    ivec2 outStep = (valPlus != 3u) ? dir : -dir;
+
+    bool found1u = false;
+    bool found2u = false;
+
+    for (int d = 1; d <= 3; d++) {
+        uint val = texelFetch(inputMask, ivec3(pos + outStep * d, layer), 0).r;
+        if (val == 1u) {
+            found1u = true;
+            break;
+        }
+        if (val == 2u) {
+            found2u = true;
+            break;
+        }
+    }
+
+    if (found2u || !found1u) {
+        return; 
+    }
+
+    // 计算并原子更新芯厚点
+    float distSq = dot(worldPos, worldPos);
+    uint distUint = floatBitsToUint(distSq);
+
+    uint localIndex = atomicAdd(count[plnIdx], 1);
+    if (localIndex < push.maxPoints) {
+        uint globalIndex = plnIdx * push.maxPoints + localIndex;
+        points[globalIndex] = worldPos;
+    }
+
+    while (true) {
+        // 读取当前的全局最小值
+        uint oldDistBits = outputBuffer.allResults[plnIdx].coreRadiusSqBits;
+        if (distUint >= oldDistBits) {
+            break;
+        }
+
+        uint prev = atomicCompSwap(outputBuffer.allResults[plnIdx].coreRadiusSqBits, oldDistBits, distUint);
+
+        if (prev == oldDistBits) {
+            // 只有成功更新了距离的线程，才有资格更新坐标点
+            outputBuffer.allResults[plnIdx].coreRadiusPoint = worldPos;
+            break; // 任务完成，退出循环
+        }
+    }
+
+}

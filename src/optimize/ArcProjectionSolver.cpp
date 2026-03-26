@@ -3,6 +3,9 @@
 #include <gtc/constants.hpp>
 #include <iostream>
 #include <exception>
+#include <fstream>
+#include <iomanip>
+#include <string>
 
 #include "../Global.h"
 
@@ -24,6 +27,27 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
     uint32_t numLambda = 100;
 
     m_transform.reserve(numU1 * numLambda * numU0c);
+
+    // --- 测试用矩阵 ---
+    {
+        glm::mat4 Mtw0(
+            glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
+            glm::vec4(-0.847834f, 0.530262f, 0.000000f, 0.0f),  // 第 1 列 (Y轴)
+            glm::vec4(0.079996f, 0.127906f, 0.988555f, 0.0f),   // 第 2 列 (Z轴)
+            glm::vec4(-23.972912f, 21.821777f, 42.935730f, 1.0f)  // 第 3 列 (平移位置)
+        );
+
+        glm::mat4 Mtw1(
+            glm::vec4(0.544639f, -0.794706f, 0.267974f, 0.0f),  // 第 0 列 (X轴/法向)
+            glm::vec4(0.838671f, 0.516088f, -0.174024f, 0.0f),  // 第 1 列 (Y轴)
+            glm::vec4(0.f, 0.319522f, 0.947579f, 0.0f),         // 第 2 列 (Z轴)
+            glm::vec4(-15.8955f, -24.5346f, -45.4575f, 1.0f)  // 第 3 列 (平移位置)
+        );
+
+         m_transform.push_back(Mtw0);
+         m_transform.push_back(Mtw1);
+         return m_transform;
+    }
 
     double stepU1 = m_c.cuttingEdgeLength / static_cast<double>(numU1);
     //double stepU0c = m_gw.width / static_cast<double>(numU0c);
@@ -49,6 +73,9 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
     }
 
     std::cout << "Transform matrixes vector size: " << m_transform.size() << "\n";
+
+    ExportTransformsToTXT();
+    ExportToolPathToTXT();
 
     return m_transform;
 }
@@ -125,7 +152,17 @@ void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
     Mtw[3][2] = a_z;  // 这里注意对应 Mtt 的平移反向
     Mtw[3][3] = 1.0f;
 
-    m_transform.push_back(Mtw);
+    // 论文砂轮和刀具轴向均是Z轴，但工程中刀具和砂轮模型轴向均是X轴，需要进行变换
+    glm::mat4 R =
+        glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 finalMtw;
+    finalMtw = R * Mtw * glm::inverse(R);
+
+    m_tp.size += 1;
+    m_tp.normals.push_back(glm::vec3(finalMtw[0]));
+    m_tp.points.push_back(glm::vec3(finalMtw[3]));
+
+    m_transform.push_back(finalMtw);
 }
 
 // Eq.2，通过积分求解θ(u1)
@@ -237,12 +274,90 @@ double ArcProjectionSolver::CalculateNormalRakeAngle(double u1, const glm::dvec4
                          (b_t.x * r_t1.y - b_t.y * r_t1.x) * sin(gamma_r);
 
     if (fabs(denominator) < EPS_DBL) {
-        std::cout << "ComputeNormalRakeAngle: error"
-                  << "\n";
+        //std::cout << "ComputeNormalRakeAngle: error"
+        //          << "\n";
         return 0.0;
     }
 
     return std::atan(numerator / denominator);  // 注意象限？
+}
+
+void ArcProjectionSolver::ExportTransformsToTXT()
+{
+    std::string filename =
+        "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\transformMatrixes\\mtw.txt";
+
+    std::ofstream outFile(filename);
+
+    if (!outFile.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing.\n";
+        return;
+    }
+
+    // 设置输出格式：固定小数位数，保证对齐和精度
+    outFile << std::fixed << std::setprecision(6);
+
+    for (size_t i = 0; i < m_transform.size(); ++i) {
+        outFile << "Point " << i << ":\n";
+        const glm::mat4& mat = m_transform[i];
+
+        // 按照行主序 (Row-Major) 输出，方便人类阅读和其他软件(如 Matlab/Python)解析
+        // GLM 的索引方式是 mat[col][row]
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                // 设置位宽为 12，右对齐，保证负号和数字看起来整齐
+                outFile << std::setw(12) << mat[col][row] << " ";
+            }
+            outFile << "\n";
+        }
+        outFile << "----------------------------------------------------\n";
+    }
+
+    outFile.close();
+    std::cout << "Successfully exported " << m_transform.size() << " matrices to "
+              << filename
+              << "\n";
+}
+
+void ArcProjectionSolver::ExportToolPathToTXT()
+{
+    std::string filename =
+        "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\transformMatrixes\\tp.txt";
+
+    std::ofstream outFile(filename);
+
+    if (!outFile.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing.\n";
+        return;
+    }
+
+    // 安全性检查：取 size、points.size() 和 normals.size() 中的最小值，防止越界崩溃
+    size_t actualSize = std::min({m_tp.size, m_tp.points.size(), m_tp.normals.size()});
+
+    if (actualSize == 0) {
+        std::cerr << "Warning: The ToolPath is empty. No data to export.\n";
+        outFile.close();
+        return;
+    }
+
+    // 设置输出格式：固定小数位数，保证对齐
+    outFile << std::fixed << std::setprecision(6);
+    outFile << "px          py          pz          nx          ny          nz\n";
+    outFile << "----------------------------------------------------------------------\n";
+
+    for (size_t i = 0; i < actualSize; ++i) {
+        // 输出位置 (p)
+        outFile << std::setw(11) << m_tp.points[i].x << "," << std::setw(11)
+                << m_tp.points[i].y << "," << std::setw(11) << m_tp.points[i].z << ",";
+
+        // 输出法向 (n)
+        outFile << std::setw(11) << m_tp.normals[i].x << "," << std::setw(11)
+                << m_tp.normals[i].y << "," << std::setw(11) << m_tp.normals[i].z << "\n";
+    }
+
+    outFile.close();
+    std::cout << "Successfully exported " << actualSize << " path points to " << filename
+              << "\n";
 }
 
 ArcProjectionSolver ::~ArcProjectionSolver()

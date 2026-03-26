@@ -8,7 +8,10 @@
 #include "entities\GrindingWheel.h"
 #include "entities\Blank.h"
 #include "slice/SliceView.h"
-#include "solver/GrindingWheelPoseOptimizer.h"
+#include "optimize/GrindingWheelPoseOptimizer.h"
+#include "optimize/OptimizeResourceContext.h"
+#include "optimize/OptimizeMaskRenderSystem.h"
+#include "optimize/OptimizePoseRenderSystem.h"
 
 class QTimer;
 class GrindingWheel;
@@ -34,6 +37,8 @@ private:
     QWidget* m_renderWidget = nullptr;
     QTimer* m_resizeTimer = nullptr;    // 防抖定时器
 
+    lve::LveDevice& m_lveDevice;
+
     const Blank* m_blank = nullptr;
     const GrindingWheel* m_grndWheel = nullptr;
     std::vector<glm::mat4> m_grndWheelInstances;
@@ -56,7 +61,8 @@ private:
     QLineEdit* m_editNormal;
     QCheckBox* m_checkAnalysis;
 
-    GrindingWheelPoseOptimizer m_optimizer;
+    std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
+    std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);

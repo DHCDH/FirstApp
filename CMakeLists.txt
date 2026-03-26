@@ -22,6 +22,9 @@ find_package(Qt${QT_VERSION_MAJOR}
 )
 qt_standard_project_setup()
 
+file(GLOB_RECURSE GLOBAL_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/global/*.cpp" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/global/*.h")
 file(GLOB_RECURSE LVE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.cpp" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/lve/*.h")
@@ -34,9 +37,9 @@ file(GLOB_RECURSE ALGORITHM_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE SLICE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/slice/*.h")
-file(GLOB_RECURSE SOLVER_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/solver/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/solver/*.h")
+file(GLOB_RECURSE OPTIMIZE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/optimize/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/optimize/*.h")
 
 set(PROJECT_SOURCES
     src/main.cpp
@@ -52,7 +55,8 @@ set(PROJECT_SOURCES
     ${ENTITIES_SOURCES}
     ${ALGORITHM_SOURCES}
     ${SLICE_SOURCES}
-    ${SOLVER_SOURCES}
+    ${OPTIMIZE_SOURCES}
+    ${GLOBAL_SOURCES}
 )
 
 qt_add_executable(${TARGET_NAME} ${PROJECT_SOURCES})
@@ -74,6 +78,7 @@ set(DEPENDENCIES "${CMAKE_SOURCE_DIR}/dependencies/")
 set(VENDOR "${CMAKE_SOURCE_DIR}/src/vendor")
 set(LVE "${CMAKE_SOURCE_DIR}/src/lve")
 set(ALGO "${CMAKE_SOURCE_DIR}/src/algorithm")
+set(GLOB "${CMAKE_SOURCE_DIR}/src/global")
 
 target_link_libraries(${TARGET_NAME} PRIVATE "${DEPENDENCIES}/vulkan/lib/vulkan-1.lib")
 
@@ -85,7 +90,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${VENDOR}/stb_image
     ${VENDOR}/entt
     ${VENDOR}/tinynurbs
+    ${VENDOR}/renderdoc
     ${LVE}
+    ${GLOB}
 )
 
 #将模型资源复制到输出目录

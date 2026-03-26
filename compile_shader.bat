@@ -38,4 +38,31 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\calculate
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_find_bbox.comp -o res\shaders\spv\shader_find_bbox.comp.spv
 
 
+REM optimize
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_align.comp -o res\shaders\spv\optimize\shader_align.comp.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_blank.vert -o res\shaders\spv\optimize\shader_optimize_blank.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_blank.frag -o res\shaders\spv\optimize\shader_optimize_blank.frag.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_empty.frag -o res\shaders\spv\optimize\shader_optimize_empty.frag.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_extract_contour.comp -o res\shaders\spv\optimize\shader_optimize_extract_contour.comp.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_find_bbox.comp -o res\shaders\spv\optimize\shader_optimize_find_bbox.comp.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_generate_wheels.vert -o res\shaders\spv\optimize\shader_optimize_generate_wheels.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_generate_wheels.frag -o res\shaders\spv\optimize\shader_optimize_generate_wheels.frag.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_plane.vert -o res\shaders\spv\optimize\shader_optimize_plane.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_plane.frag -o res\shaders\spv\optimize\shader_optimize_plane.frag.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_resolve.frag -o res\shaders\spv\optimize\shader_optimize_resolve.frag.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_rake_angle.comp -o res\shaders\spv\optimize\shader_rake_angle.comp.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_sort_contour.comp -o res\shaders\spv\optimize\shader_sort_contour.comp.spv
+
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_trace.comp -o res\shaders\spv\optimize\shader_trace.comp.spv
+
 pause

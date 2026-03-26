@@ -1,0 +1,125 @@
+#version 450 
+
+struct ResultData {
+    vec2 coreRadiusPoint;
+    vec2 tipPoint;
+    vec2 tangent;
+
+    vec2 normal;
+    vec2 point;
+
+    uint coreRadiusSqBits;    // 芯厚半径平方
+    float rakeAngle;
+    float slotAngle;
+
+    float _pad;
+};
+
+layout(local_size_x = 1) in;
+
+layout(std430, set = 0, binding = 2) buffer Counter {
+    uint count[];
+};
+
+layout(std430, set = 0, binding = 7) buffer FinalPoints {
+    vec2 finalPoints[];
+};
+
+layout(std430, set = 0, binding = 3) buffer OutputBuffer {
+    ResultData allResults[];
+}outputBuffer;
+
+layout(push_constant) uniform Push{
+    uint maxPoints;
+    uint planeIndex;
+    vec3 normal;
+    vec3 point;
+    vec4 mapInfo;
+    int isRightCut;
+}push;
+
+void main() 
+{
+    uint plnIdx = uint(gl_GlobalInvocationID.z);
+    uint validCount = count[plnIdx];
+
+    if(validCount < 50) return;
+
+    // --- 获取槽宽角 ---
+    uint global_0 = plnIdx * push.maxPoints + 0;
+    uint global_end = plnIdx * push.maxPoints + validCount - 1;
+    vec2 tipVec = finalPoints[global_0];               // 第一个点
+    vec2 heelVec = finalPoints[global_end]; // 最后一个点
+    tipVec = normalize(tipVec);
+    heelVec = normalize(heelVec);
+    float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
+    outputBuffer.allResults[plnIdx].slotAngle = degrees(slotAngleRad);
+
+    
+    // 点数过少无法拟合
+    if (validCount < 50) return;
+
+    // 用于拟合曲线的点数
+    uint N = min(100, validCount);
+
+    // --- 累积弦长参数化 ---
+    float t[100];
+    t[0] = 0.;
+    float totalLen = 0.;
+    for (uint i = 1; i < N; i++) {
+        uint g_curr = plnIdx * push.maxPoints + i;
+        uint g_prev = plnIdx * push.maxPoints + i - 1;
+        totalLen += distance(finalPoints[g_curr], finalPoints[g_prev]);
+        t[i] = totalLen;
+    }
+
+    if (totalLen > 0.0001) {
+        for (uint i = 0; i < N; i++) {
+            t[i] /= totalLen;
+        }
+    }
+
+    // --- 构建3x3最小二乘法矩阵 (M^T * M) * X = M^T * P ---
+    float S0 = float(N);
+    float S1 = 0.0, S2 = 0.0, S3 = 0.0, S4 = 0.0;
+    float Rx0 = 0.0, Rx1 = 0.0, Rx2 = 0.0; // X 坐标的等式右侧
+    float Ry0 = 0.0, Ry1 = 0.0, Ry2 = 0.0; // Y 坐标的等式右侧
+
+    for(uint i = 0; i < N; ++i) {
+        float ti = t[i];
+        float t2 = ti * ti;
+        float t3 = t2 * ti;
+        float t4 = t3 * ti;
+
+        S1 += ti;  S2 += t2;  S3 += t3;  S4 += t4;
+
+        vec2 p = finalPoints[plnIdx * push.maxPoints + i];
+        Rx0 += p.x;       Rx1 += p.x * ti;       Rx2 += p.x * t2;
+        Ry0 += p.y;       Ry1 += p.y * ti;       Ry2 += p.y * t2;
+    }
+
+    // --- 计算 3x3 矩阵的行列式 ---
+    float det = S0 * (S2 * S4 - S3 * S3) - S1 * (S1 * S4 - S3 * S2) + S2 * (S1 * S3 - S2 * S2);
+    if (abs(det) < 1e-6) return; // 奇异矩阵保护
+
+    // 4. 利用伴随矩阵直接求逆，解出系数 B
+    float A10 = S2 * S3 - S1 * S4;
+    float A11 = S0 * S4 - S2 * S2;
+    float A12 = S1 * S2 - S0 * S3;
+
+    // 得到 t=0 处的切线向量 (bx, by)
+    float bx = (A10 * Rx0 + A11 * Rx1 + A12 * Rx2) / det;
+    float by = (A10 * Ry0 + A11 * Ry1 + A12 * Ry2) / det;
+
+    vec2 T = normalize(vec2(bx, by));
+    vec2 P0 = finalPoints[global_0];
+    vec2 R = normalize(-P0);
+
+    float crossVal = R.x * T.y - R.y * T.x;
+    float dotVal = dot(R, T);
+    float angleRad = atan(crossVal, dotVal);
+
+    outputBuffer.allResults[plnIdx].tipPoint = P0;
+    outputBuffer.allResults[plnIdx].tangent = T;
+    outputBuffer.allResults[plnIdx].rakeAngle = degrees(angleRad);
+}
