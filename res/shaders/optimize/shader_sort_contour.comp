@@ -7,52 +7,49 @@ struct TipData {
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-// binding = 1: 轮廓点buffer
-layout(std430, set = 0, binding = 1) buffer OutPoints {
-    vec2 points[];
-};
-
-// binding = 2: 第一阶段提取出的点数量
-layout(std430, set = 0, binding = 2) buffer Counter {
-    uint count[];
-};
-
-// 存储每个点最近的4个邻居索引
-layout(std430, set = 0, binding = 4) buffer KNN {
-    uint knn[];
-};
-
-// 存储最远点信息
-layout (std430, set = 0, binding = 5) buffer TipInfo {
-    TipData tips[];
-};
+layout(std430, set = 0, binding = 1) buffer OutPoints { vec2 points[]; };
+layout(std430, set = 0, binding = 2) buffer Counter { uint count[]; };
+layout(std430, set = 0, binding = 4) buffer KNN { uint knn[]; };
+layout (std430, set = 0, binding = 5) buffer TipInfo { TipData tips[]; };
 
 layout(push_constant) uniform Push {
-    uint maxPoints;                     // offset 0
-    layout(offset = 16) vec3 normal;    // offset 16
-    layout(offset = 32) vec3 point;     // offset 32
-    layout(offset = 48) vec4 mapInfo;   // offset 48
-    layout(offset = 64) int isRightCut; // offset 64
+    uint maxPoints;                     
+    layout(offset = 16) vec3 normal;    
+    layout(offset = 32) vec3 point;     
+    layout(offset = 48) vec4 mapInfo;   
+    layout(offset = 64) int isRightCut; 
 } push;
+
+// 💥 申请 16KB 的极速片内共享内存
+shared vec2 sharedPoints[2048]; 
 
 void main()
 {
-    uint i = gl_GlobalInvocationID.x;   // 当前执行线程在整个grid中的索引
+    uint i = gl_GlobalInvocationID.x;   
     uint plnIdx = uint(gl_GlobalInvocationID.z);
     uint validCount = count[plnIdx];
+    
+    // 💥 协作加载：让当前工作组的 256 个线程一起把数据从慢速 SSBO 搬进极速 Shared 内存
+    uint localId = gl_LocalInvocationID.x;
+    for (uint idx = localId; idx < validCount && idx < 2048; idx += 256) {
+        sharedPoints[idx] = points[plnIdx * push.maxPoints + idx];
+    }
+    
+    // 必须等待所有线程都搬运完毕！
+    barrier();
+
     if (i >= validCount) return;
 
-    uint global_i = plnIdx * push.maxPoints + i;
-    vec2 p = points[global_i];
+    vec2 p = sharedPoints[i];
 
-    // --- 寻找当前点最近的4个邻居 ---
     float d0 = 9999., d1 = 9999., d2 = 9999., d3 = 9999.;
     uint n0 = i, n1 = i, n2 = i, n3 = i;
     for (uint j = 0; j < validCount; j++) {
         if (i == j) continue;
 
-        uint global_j = plnIdx * push.maxPoints + j;
-        float d = dot(p - points[global_j], p - points[global_j]);
+        // 💥 从极速共享内存中读取！这直接决定了 Shader 的生死速度！
+        vec2 pj = sharedPoints[j];
+        float d = dot(p - pj, p - pj);
 
         if (d < d0) {
             d3 = d2; n3 = n2;
@@ -67,11 +64,10 @@ void main()
             d3 = d2; n3 = n2;
             d2 = d;  n2 = j;
         } else if (d < d3) {
-            d3 = d; n3 = j;
+            d3 = d;  n3 = j;
         }
     }
 
-    // --- 写入KNN拓扑表 ---
     uint knnBase = plnIdx * push.maxPoints * 4 + i * 4;
     knn[knnBase + 0] = n0;
     knn[knnBase + 1] = n1;
