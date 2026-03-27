@@ -498,7 +498,7 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
     flushSeg();
 
     // 插值
-    #if 1
+    #if 0
     for (int i = 0; i < m_toolpaths.size(); i++) {
         m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
 

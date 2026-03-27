@@ -661,16 +661,19 @@ float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
     }
 
     float targetSlotAngle = 65.0f;
+    float targetArcLength = 5.f * glm::radians(targetSlotAngle);
     float targetCoreRadius = 3.0f;
     // float targetRakeAngle = 10.0f;
 
-    float slotAngleError = std::abs(result.slotAngle - targetSlotAngle);
+    float resultArcLength = glm::radians(result.slotAngle) * 5.f;
+
+    float slotAngleError = std::abs(resultArcLength - targetArcLength);
     float coreRadiusError = std::abs(coreRadius - targetCoreRadius);
     // ArcProjection已经的计算已经保证了前角和螺旋角
     // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
 
     float weightSlot = 1.f;
-    float weightCore = 20.f;
+    float weightCore = 1.f;
 
     float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
 
@@ -692,8 +695,8 @@ void GrindingWheelPoseOptimizer::WriteToolPath()
 
     outFile << std::fixed << std::setprecision(6);
 
-    int num = 600;
-    float stepX = 0.5f;
+    int num = 20;
+    float stepX = 0.2f;
     for (int stepIndex = 0; stepIndex < num; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
         float stepDist = static_cast<float>(stepIndex) * stepX;

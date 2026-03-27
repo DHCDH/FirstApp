@@ -54,6 +54,7 @@ void MainWindow::InitRenderWidget()
 
     /*创建vulkanApp，传入Qt窗口句柄*/
     m_vulkanApp = std::make_unique<FirstApp>(hwnd, hinstance, 800, 600, "Vulkan App");
+    m_vulkanApp->ReadToolPath("D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt");
 
     /*启动渲染循环*/
     connect(m_renderTimer, &QTimer::timeout, [this]() { m_vulkanApp->RunFrame(); });

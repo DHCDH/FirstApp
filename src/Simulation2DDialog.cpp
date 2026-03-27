@@ -352,13 +352,14 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     Plane plane{{1.f, 0.f, 0.f}, {0.f, 0.f, 0.f}};
 
+    // 调整砂轮实例数量
     optimize::BatchedWheelPushConstants pushData{};
     pushData.normal = plane.normal;
     pushData.point = plane.point;
-    pushData.stepX = 0.2f;
+    pushData.stepX = 0.5f;
     pushData.tanHelixAngle = static_cast<float>(tan(30.f * glm::pi<float>() / 180.f));
     pushData.radius = 5.0f;
-    pushData.stepsPerPose = 200;
+    pushData.stepsPerPose = 10;
 
     optimizer.RunOptimization(*m_optContext,
                               *m_optMaskSystem,
