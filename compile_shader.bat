@@ -65,4 +65,6 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_trace.comp -o res\shaders\spv\optimize\shader_trace.comp.spv
 
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_flute_width.comp -o res\shaders\spv\optimize\shader_optimize_flute_width.comp.spv
+
 pause

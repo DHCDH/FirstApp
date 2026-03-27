@@ -83,7 +83,7 @@ void MainWindow::InitUI()
         const QString qPath = QFileDialog::getOpenFileName(
             this,
             tr("选择 toolpath 文件"),
-            QString(),
+            QString("D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff"),
             tr("Toolpath Files (*.txt);;All Files (*.*)"));
         if (qPath.isEmpty())
             QMessageBox::critical(this, tr("警告"), tr("输入正确刀轨文件"));

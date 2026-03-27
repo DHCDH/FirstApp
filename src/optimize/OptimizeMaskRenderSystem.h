@@ -47,6 +47,10 @@ public:
     void ComputeFlute(VkCommandBuffer commandBuffer, const SliceComputeInfo& computeInfo,
                       VkDescriptorSet globalDescriptorSet, lve::LveBuffer* tipInfoBuffer);
 
+    void ComputeFlute(VkCommandBuffer commandBuffer,
+                                           const SliceComputeInfo& computeInfo,
+                                           VkDescriptorSet globalDescriptorSet);
+
     void BindPlaneInjectionPipeline(VkCommandBuffer commandBuffer);
     void BindBlankStencilPipeline(VkCommandBuffer commandBuffer);
     void BindBlankColorPipeline(VkCommandBuffer commandBuffer);
@@ -83,6 +87,8 @@ private:
     // BBox 专属管线
     VkPipelineLayout m_bboxPipelineLayout;
     std::unique_ptr<lve::LvePipeline> m_bboxPipeline;
+
+    std::unique_ptr<lve::LvePipeline> m_fluteWidthPipeline;
 };
 
 }  // namespace optimize

@@ -594,8 +594,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                                      glm::vec4(0.f)};
         maskRenderSystem.ComputeFlute(cmdPrecise,
                                       computeInfo,
-                                      context.GetGlobalDescriptorSet(),
-                                      context.GetTipInfoBuffer());
+                                      context.GetGlobalDescriptorSet());
+                                      //context.GetTipInfoBuffer());
 
         RENDERDOC_START;
 
@@ -670,7 +670,7 @@ float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
     // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
 
     float weightSlot = 1.f;
-    float weightCore = 30.f;
+    float weightCore = 20.f;
 
     float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
 

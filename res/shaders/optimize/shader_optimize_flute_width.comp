@@ -1,0 +1,75 @@
+#version 450
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct ResultData {
+    vec2 coreRadiusPoint;
+    vec2 tipPoint;
+    vec2 tangent;
+    vec2 normal;
+    vec2 point;
+    uint coreRadiusSqBits;
+    float rakeAngle;
+    float slotAngle;
+    float _pad;
+};
+
+// 绑定 1：读取 Extract 阶段提取的无序点云
+layout(std430, set = 0, binding = 1) readonly buffer OutPoints { vec2 points[]; };
+// 绑定 2：读取该层点云的数量
+layout(std430, set = 0, binding = 2) readonly buffer Counter { uint count[]; };
+// 绑定 3：写入最终的槽宽角结果
+layout(std430, set = 0, binding = 3) buffer OutputBuffer { ResultData results[]; };
+
+layout(push_constant) uniform Push{
+    uint maxPoints;
+    layout(offset = 16) vec3 normal;
+    layout(offset = 32) vec3 point;
+    layout(offset = 48) vec4 mapInfo;
+    layout(offset = 64) int isRightCut;
+}push;
+
+void main() 
+{
+    uint plnIdx = gl_GlobalInvocationID.z;
+    uint validCount = count[plnIdx];
+
+    // 如果点太少，无法构成有效槽型
+    if(validCount < 2) return;
+
+    uint offset = plnIdx * push.maxPoints;
+
+    // --- 第 1 步：找距离原点最远的点 A ---
+    float maxRadiusSq = -1.0;
+    vec2 pointA = vec2(0.0);
+    for(uint i = 0; i < validCount; i++) {
+        vec2 p = points[offset + i];
+        float rSq = dot(p, p);
+        if(rSq > maxRadiusSq) {
+            maxRadiusSq = rSq;
+            pointA = p;
+        }
+    }
+
+    // --- 第 2 步：找距离点 A 最远的点 B ---
+    float maxDistSqToA = -1.0;
+    vec2 pointB = pointA;
+    for(uint i = 0; i < validCount; i++) {
+        vec2 p = points[offset + i];
+        float distSq = dot(p - pointA, p - pointA);
+        if(distSq > maxDistSqToA) {
+            maxDistSqToA = distSq;
+            pointB = p;
+        }
+    }
+
+    // --- 第 3 步：计算槽宽角 ---
+    // 两个边缘点到原点的向量夹角即为槽宽角
+    vec2 dirA = normalize(pointA);
+    vec2 dirB = normalize(pointB);
+    float slotAngleRad = acos(clamp(dot(dirA, dirB), -1.0, 1.0));
+
+    // 写入结果（芯厚已经在 Extract 阶段写好了，这里只补充角度）
+    results[plnIdx].slotAngle = degrees(slotAngleRad);
+    results[plnIdx].rakeAngle = 0.0; // 彻底废除前角计算
+}

@@ -371,7 +371,7 @@ void OptimizeResourceContext::CreateComputeResources()
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
+#if 0
     // --- 获取前角所需buffer ---
     m_knnBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                               sizeof(uint32_t) * 4,
@@ -463,6 +463,63 @@ void OptimizeResourceContext::CreateComputeResources()
         .WriteBuffer(6, &tempSortedInfo)
         .WriteBuffer(7, &finalPointsInfo)
         .Build(m_contourDescriptorSet);
+#else
+
+
+    m_contourComputeSetLayout =
+        LveDescriptorSetLayout::Builder(m_lveDevice)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+
+    // 👈 修改 2：描述符池的 Storage Buffer 数量从 8 降到 4
+    m_computeDescriptorPool =
+        LveDescriptorPool::Builder(m_lveDevice)
+            .SetMaxSets(2)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4)
+            .Build();
+
+    auto pointsInfo = m_contourPointsBuffer->DescriptorInfo();
+    auto counterInfo = m_counterBuffer->DescriptorInfo();
+    auto resultBufferInfo = m_resultBuffer->DescriptorInfo();
+    auto imageInfo = VkDescriptorImageInfo{m_maskSampler,
+                                           m_blankMaskView,
+                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+
+    LveDescriptorWriter(*m_contourComputeSetLayout, *m_computeDescriptorPool)
+        .WriteImage(0, &imageInfo)
+        .WriteBuffer(1, &pointsInfo)
+        .WriteBuffer(2, &counterInfo)
+        .WriteBuffer(3, &resultBufferInfo)
+        // 删掉 WriteBuffer(4) 到 (7)
+        .Build(m_contourDescriptorSet);
+#endif
+    m_bboxBuffer = std::make_unique<LveBuffer>(m_lveDevice,
+                                               sizeof(BBoxData),
+                                               BATCH_LAYER_COUNT,
+                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_bboxReadbackBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(BBoxData),
+        BATCH_LAYER_COUNT,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    m_bboxComputeSetLayout =
+        LveDescriptorSetLayout::Builder(m_lveDevice)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
 
     auto bboxInfo = m_bboxBuffer->DescriptorInfo();
     LveDescriptorWriter(*m_bboxComputeSetLayout, *m_computeDescriptorPool)

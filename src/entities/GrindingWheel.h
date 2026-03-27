@@ -38,11 +38,13 @@ public:
         const std::vector<ToolPath>& toolPaths);
 
 private:
-    std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/1A1_D100_W10.obj"};
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/1A1_D100_W10.obj"};
     //std::string m_filepath{
     //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
     //    "wheel_d100_w10_r0.1_Z/wheel_d100_w10_r0.1_Z.obj"};
+    std::string m_filepath{
+        "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half.obj"};
     bool m_motionEnabled = false;
     uint32_t m_id{114514};
     HelixMotion m_helixMotion;

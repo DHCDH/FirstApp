@@ -12,6 +12,8 @@ lve::LveObject GrindingWheel::CreateObject()
 {
     // std::shared_ptr<lve::LveModel> lveModel =
     // lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
+    std::cout << "Read grinding wheel model"
+              << "\n";
     p_model = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
     auto grindingWheel = lve::LveObject::CreateObject();
     grindingWheel.model = p_model;

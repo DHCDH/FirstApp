@@ -166,6 +166,7 @@ void LveDevice::createLogicalDevice()
     VkPhysicalDeviceVulkan12Features deviceFeatures12{};
     deviceFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     deviceFeatures12.shaderOutputLayer = VK_TRUE;
+    deviceFeatures12.shaderOutputViewportIndex = VK_TRUE;
     deviceFeatures12.pNext = nullptr;
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{};

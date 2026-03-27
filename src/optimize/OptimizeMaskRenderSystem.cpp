@@ -237,7 +237,7 @@ void OptimizeMaskRenderSystem::CreateComputePipeline()
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_optimize_extract_contour.comp.spv",
         configInfo);
-
+#if 0
     m_knnPipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_sort_contour.comp.spv",
@@ -256,6 +256,11 @@ void OptimizeMaskRenderSystem::CreateComputePipeline()
     m_rakeAnglePipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_rake_angle.comp.spv",
+        configInfo);
+#endif
+    m_fluteWidthPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/optimize/shader_optimize_flute_width.comp.spv",
         configInfo);
 }
 
@@ -429,24 +434,100 @@ void OptimizeMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
                              nullptr);
     };
 
+    m_fluteWidthPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
+
+    #if 0
     // KNN 建图：X 轴管点数，Z 轴并发 256 次
     uint32_t groupCount = (computeInfo.maxPoints + 255) / 256;
     m_knnPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  // 👈 挪到 Z 轴
+    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  
     insert_compute_barrier();
 
     // Trace 单线程寻迹：X、Y=1，Z 轴并发 256 次
     m_tracePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);  // 👈 挪到 Z 轴
+    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);  
     insert_compute_barrier();
 
     // Align 对齐：X 轴管点数，Z 轴并发 256 次
     m_alignPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  // 👈 挪到 Z 轴
+    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  
     insert_compute_barrier();
 
     // RakeAngle 前角计算：X、Y=1，Z 轴并发 256 次
     m_rakeAnglePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
+    #endif
+}
+
+void OptimizeMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
+                                            const SliceComputeInfo& computeInfo,
+                                            VkDescriptorSet globalDescriptorSet)
+{
+    m_extractContourPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    OptimizeComputePushConstants push{computeInfo.maxPoints,
+                                      computeInfo.normal,
+                                      computeInfo.point,
+                                      computeInfo.mapInfo,
+                                      0};
+
+    std::array<VkDescriptorSet, 2> sets{computeInfo.descriptorSet, globalDescriptorSet};
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_computePipelineLayout,
+                            0,
+                            static_cast<uint32_t>(sets.size()),
+                            sets.data(),
+                            0,
+                            nullptr);
+    vkCmdPushConstants(commandBuffer,
+                       m_computePipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       0,
+                       sizeof(OptimizeComputePushConstants),
+                       &push);
+
+    uint32_t groupCountX = (computeInfo.width + 15) / 16;
+    uint32_t groupCountY = (computeInfo.height + 15) / 16;
+
+    // 💥 第一步特征提取：Z 轴并发 256 次！
+    vkCmdDispatch(commandBuffer, groupCountX, groupCountY, BATCH_LAYER_COUNT);
+
+    VkMemoryBarrier stageBarrier{};
+    stageBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    stageBarrier.srcAccessMask =
+        VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    stageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1,
+        &stageBarrier,
+        0,
+        nullptr,
+        0,
+        nullptr);
+
+    VkMemoryBarrier computeBarrier{};
+    computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    computeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    auto insert_compute_barrier = [&]() {
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             1,
+                             &computeBarrier,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr);
+    };
+
+    m_fluteWidthPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
 }
 
