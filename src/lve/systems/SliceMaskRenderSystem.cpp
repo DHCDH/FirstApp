@@ -1012,8 +1012,6 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                     plane.normal,
                                     plane.point};
         const uint32_t BATCH_SIZE = 100;
-        std::cout << "Grinding wheel instances count: "
-                  << renderPassData.grndWheelInstancesCount << "\n";
         for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
              i += BATCH_SIZE) {
             // 计算当前批次大小

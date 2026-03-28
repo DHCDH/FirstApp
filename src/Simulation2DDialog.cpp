@@ -1,5 +1,6 @@
 ﻿#include "Simulation2DDialog.h"
 
+#include <fstream>
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -11,8 +12,13 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QFileDialog>
+#include <QMessageBox>
 
 #include "slice/SliceView.h"
+#include "algorithm/DualNURBSCurveInterpolator.h"
+
+const std::filesystem::path DEFAULT_TOOL_PATH = "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this)), m_lveDevice(device)
@@ -29,6 +35,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QVBoxLayout* controlLayout = new QVBoxLayout();
     controlLayout->setContentsMargins(5, 5, 5, 5);
     mainLayout->addLayout(controlLayout);
+
+    QPushButton* btnToolPath = new QPushButton("Tool Path", this);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
     m_editDiameter = new QLineEdit("10.", this);
@@ -122,6 +130,20 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     connect(btnOptimize, &QPushButton::clicked, this, [this]() {
         OptimizeGrindingWheelPose();
+    });
+
+    connect(btnToolPath, &QPushButton::clicked, this, [this]() {
+        const QString qPath = QFileDialog::getOpenFileName(
+            this,
+            tr("选择 toolpath 文件"),
+            QString("D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff"),
+            tr("Toolpath Files (*.txt);;All Files (*.*)"));
+        if (qPath.isEmpty())
+            QMessageBox::critical(this, tr("警告"), tr("输入正确刀轨文件"));
+
+        std::filesystem::path path = std::filesystem::u8path(qPath.toUtf8().constData());
+        UpdateToolPath(path);
+        UpdateGrindingWheelInstances();
     });
 }
 
@@ -370,6 +392,93 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     glm::mat4 bestPose = optimizer.GetBestPose();
     float bestScore = optimizer.GetBestScore();
+
+    UpdateToolPath(DEFAULT_TOOL_PATH);
+    UpdateGrindingWheelInstances();
+}
+
+int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
+{
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in) {
+        std::cerr << "Failed to open file: " << path.string() << "\n";
+        return -1;
+    }
+
+    m_toolpaths.clear();
+
+    ToolPath current;
+    bool inSeg = false;  // 读取到new seg才开始收集
+
+    auto flushSeg = [&]() {
+        if (!current.points.empty() || !current.normals.empty()) {
+            if (current.points.size() != current.normals.size()) {
+                std::cerr << "points/normals size mismatch in a segment"
+                          << "\n";
+                current = ToolPath{};
+                return;
+            }
+
+            current.size = current.points.size();
+            m_toolpaths.emplace_back(current);
+            current = ToolPath();
+        }
+        return;
+    };
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        if (line.empty()) continue;
+
+        if (line == "new seg") {
+            flushSeg();
+            inSeg = true;
+            continue;
+        }
+
+        if (!inSeg) continue;
+
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream iss(line);
+
+        float x, y, z, nx, ny, nz;
+        if (!(iss >> x >> y >> z >> nx >> ny >> nz)) {
+            std::cerr << "Warning: bad data line (skip): " << line << "\n";
+            continue;  // 或者 return -2;
+        }
+
+        current.points.push_back({x, y, z});
+        current.normals.push_back({nx, ny, nz});
+    }
+
+    flushSeg();
+
+// 插值
+#if 1
+    for (int i = 0; i < m_toolpaths.size(); i++) {
+        m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
+
+        std::cout << "toolpath[" << i << "].size: " << m_toolpaths[i].size << " \n";
+    }
+#endif
+
+    std::cout << "Parse tool path succeed: " << path.string() << "\n";
+
+    return 0;
+}
+
+void Simulation2DDialog::UpdateToolPath(std::filesystem::path path)
+{
+    m_toolpaths.clear();
+    ReadToolPath(path);
+}
+
+void Simulation2DDialog::UpdateGrindingWheelInstances()
+{
+    m_grndWheelInstances.clear();
+    m_grndWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, m_toolpaths);
 }
 
 void Simulation2DDialog::resizeEvent(QResizeEvent* event)

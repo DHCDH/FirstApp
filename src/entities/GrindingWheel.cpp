@@ -101,7 +101,7 @@ lve::TransformComponent GrindingWheel::EvaluateAtTime(const float& t)
 }
 
 void GrindingWheel::CalculateGrindingWheelInstances(
-    std::vector<glm::mat4>& instances, const std::vector<ToolPath>& toolPaths)
+    std::vector<glm::mat4>& instances, const std::vector<ToolPath>& toolPaths) const
 {
     lve::TransformComponent transform{};
     size_t totalSize = 0;

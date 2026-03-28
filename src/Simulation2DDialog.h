@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QLabel>
 #include <memory>
+#include <filesystem>
 
 #include "entities\Blank.h"
 #include "entities\GrindingWheel.h"
@@ -60,6 +61,9 @@ private:
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
+    /*刀轨*/
+    std::vector<ToolPath> m_toolpaths;
+
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
@@ -67,6 +71,10 @@ private:
     Plane FetchDisplayPlane();
 
     void OptimizeGrindingWheelPose();
+
+    int ReadToolPath(std::filesystem::path path);
+    void UpdateToolPath(std::filesystem::path path);
+    void UpdateGrindingWheelInstances();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
