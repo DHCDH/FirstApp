@@ -96,8 +96,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 #将模型资源复制到输出目录
-add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+#[[add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/res"
         "$<TARGET_FILE_DIR:${TARGET_NAME}>/res/models"
-)
+)]]
