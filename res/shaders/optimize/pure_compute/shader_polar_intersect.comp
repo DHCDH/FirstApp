@@ -1,5 +1,5 @@
 #version 450
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 const uint ZMAP_RESOLUTION = 3600;
 const float PI = 3.14159265359;
@@ -129,20 +129,21 @@ void main() {
             vec2 AP = P - p2A;
             float t = dot(AP, AB) / dot(AB, AB);
 
-            if(t >= -0.01 && t <= 1.01) {
+        if (t >= -0.01 && t <= 1.01) {
                 uint val = floatBitsToUint(r);
-                uint baseIdx = (poseIdx * ZMAP_RESOLUTION * 2) + (safeIdx * 2);
-
-                // 保留最小r
-                atomicMin(zMap[baseIdx], val);
-
-                // 保留最大r
-                uint initVal = floatBitsToUint(1000.);  // C++端初始值填入了1000
-                uint oldVal = atomicCompSwap(zMap[baseIdx + 1], initVal, val);
                 
-                if(oldVal != initVal) {
-                    atomicMax(zMap[baseIdx + 1], val);
-                }
+                // 🌟 核心修改 1：获取数组一半的长度（作为 maxR 的偏移量）
+                // glsl 中直接用 .length() 就能获取 SSBO 的总元素个数
+                uint halfSize = zMap.length() / 2;
+                
+                // 🌟 核心修改 2：连续计算索引
+                uint baseIdx = poseIdx * ZMAP_RESOLUTION + safeIdx;
+                
+                // 1. 前半段存 minR (保持原生 atomicMin)
+                atomicMin(zMap[baseIdx], val);
+                
+                // 2. 后半段存 maxR (彻底抛弃 CompSwap，直接原生 atomicMax 轰炸！)
+                atomicMax(zMap[baseIdx + halfSize], val);
             }
         }
     }

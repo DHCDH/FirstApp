@@ -1,5 +1,7 @@
 ﻿#include "OptimizeMaskRenderSystem.h"
 
+#include "OptimizeResourceContext.h"
+
 using namespace lve;
 
 namespace optimize
@@ -75,7 +77,7 @@ void OptimizeMaskRenderSystem::ComputePolarIntersect(VkCommandBuffer cmd,
                        &push);
 
     // X轴处理三角形，Y轴处理步数，Z轴处理层数(并发位姿)
-    uint32_t groupX = (push.numTriangles + 63) / 64;
+    uint32_t groupX = (push.numTriangles + 255) / 256;
     vkCmdDispatch(cmd, groupX, push.stepsPerPose, BATCH_LAYER_COUNT);
 }
 

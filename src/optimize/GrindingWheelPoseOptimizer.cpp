@@ -211,13 +211,26 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
         VkCommandBuffer cmdCompute = m_lveDevice.beginSingleTimeCommands();
 
+        VkDeviceSize halfSize =
+            BATCH_LAYER_COUNT * ZMAP_RESOLUTION * sizeof(uint32_t);
+
+        // 前半部分，存储theta对应minR
         float initR = 1000.0f;
         uint32_t initBits = std::bit_cast<uint32_t>(initR);
         vkCmdFillBuffer(cmdCompute,
                         context.GetZMapBuffer()->GetBuffer(),
                         0,
-                        VK_WHOLE_SIZE,
+                        halfSize,
                         initBits);
+
+        // 后半部分，存储theta对应maxR
+        float zeroR = 0.f;
+        uint32_t zeroBits = std::bit_cast<uint32_t>(zeroR);
+        vkCmdFillBuffer(cmdCompute,
+                        context.GetZMapBuffer()->GetBuffer(),
+                        halfSize,
+                        halfSize,
+                        zeroBits);
 
         ResultData initResult{};
         initResult.coreRadiusSqBits = 0xFFFFFFFF;

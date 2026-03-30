@@ -13,6 +13,8 @@
 namespace optimize 
 {
 constexpr uint32_t MAX_POINTS = 50000;
+const uint32_t BATCH_LAYER_COUNT = 512;
+constexpr uint32_t ZMAP_RESOLUTION = 3600;  // 360度分成3600份，每个theta同时存储对应的rMin和rMax
 
 struct CameraData {
     glm::mat4 projView;

@@ -22,7 +22,7 @@ void OptimizeResourceContext::CreateComputeResources()
     // 1. Z-Map Buffer: 256层 * 3600个uint
     m_zMapBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                                sizeof(uint32_t),
-                                               BATCH_LAYER_COUNT * 3600 * 2,
+                                               BATCH_LAYER_COUNT * ZMAP_RESOLUTION * 2,
                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
