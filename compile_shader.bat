@@ -67,4 +67,9 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\shader_optimize_flute_width.comp -o res\shaders\spv\optimize\shader_optimize_flute_width.comp.spv
 
+REM pure compute
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\pure_compute\shader_polar_intersect.comp -o res\shaders\spv\optimize\pure_compute\shader_polar_intersect.comp.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\pure_compute\shader_polar_evaluate.comp -o res\shaders\spv\optimize\pure_compute\shader_polar_evaluate.comp.spv
+
+
 pause

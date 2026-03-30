@@ -1,0 +1,149 @@
+#version 450
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+const uint ZMAP_RESOLUTION = 3600;
+const float PI = 3.14159265359;
+
+struct Triangle {
+    vec4 v0; vec4 v1; vec4 v2;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TriBuffer { Triangle triangles[]; };
+layout(std430, set = 0, binding = 1) buffer ZMapBuffer { 
+    uint zMap[]; 
+};
+layout(std430, set = 0, binding = 2) readonly buffer BasePose { mat4 poses[]; };
+
+layout(push_constant) uniform Push {
+    layout(offset = 0) vec3 planeNormal;
+    layout(offset = 16) vec3 planePoint;
+    layout(offset = 32) vec3 planeU;
+    layout(offset = 48) vec3 planeV;
+    layout(offset = 64) float stepX;
+    layout(offset = 68) float tanHelixAngle;
+    layout(offset = 72) float radius;
+    layout(offset = 76) uint stepsPerPose;
+    layout(offset = 80) uint numTriangles;
+} push;
+
+shared mat4 finalModel;
+
+float calcRadius(vec2 A, vec2 B, float theta) {
+    float crossP = A.x * B.y - B.x * A.y;
+    float denom = cos(theta) * (A.y - B.y) + sin(theta) * (B.x - A.x);
+    if (abs(denom) < 1e-6) return 99999.0;
+    float r = -crossP / denom;
+    return r > 0.0 ? r : 99999.0;
+}
+
+void main() {
+    uint triIdx = gl_GlobalInvocationID.x;
+    uint stepIdx = gl_GlobalInvocationID.y;
+    uint poseIdx = gl_GlobalInvocationID.z;
+
+    if (triIdx >= push.numTriangles || stepIdx >= push.stepsPerPose) return;
+
+    // 1. 只让0号线程计算螺旋运动矩阵，然后存入共享内存
+    if(gl_LocalInvocationID.x == 0) {
+        float stepDist = float(stepIdx) * push.stepX;
+        float theta = (stepDist * push.tanHelixAngle) / push.radius;
+        mat4 transX = mat4(1.0); transX[3][0] = stepDist;
+        mat4 rotX = mat4(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, cos(theta), sin(theta), 0.0,
+            0.0, -sin(theta), cos(theta), 0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+        // mat4 finalModel = (transX * rotX) * poses[poseIdx];
+        finalModel = (transX * rotX) * poses[poseIdx];
+    }
+
+    barrier();
+
+    // 2. 将三角形变换到当前世界坐标系
+    Triangle tri = triangles[triIdx];
+    vec3 v0 = (finalModel * tri.v0).xyz;
+    vec3 v1 = (finalModel * tri.v1).xyz;
+    vec3 v2 = (finalModel * tri.v2).xyz;
+
+    // 3. 计算各个顶点到截面的距离 (SDF)
+    float d0 = dot(v0 - push.planePoint, push.planeNormal);
+    float d1 = dot(v1 - push.planePoint, push.planeNormal);
+    float d2 = dot(v2 - push.planePoint, push.planeNormal);
+
+    // 【核心修正】：只处理穿过截面的三角形！
+    // 如果全部大于0，或全部小于0，说明三角形完全在平面的一侧，直接剔除！
+    if ((d0 > 0.0 && d1 > 0.0 && d2 > 0.0) || (d0 < 0.0 && d1 < 0.0 && d2 < 0.0)) {
+        return; 
+    }
+
+    // 4. 稳健的纯逻辑求交 (防止除以0导致NaN)
+    bool s0 = d0 >= 0.0;
+    bool s1 = d1 >= 0.0;
+    bool s2 = d2 >= 0.0;
+
+    vec3 pA, pB;
+    if (s0 == s1) {
+        // v2 是独立的一侧，交点在 v2-v0 和 v2-v1 上
+        pA = mix(v2, v0, d2 / (d2 - d0));
+        pB = mix(v2, v1, d2 / (d2 - d1));
+    } else if (s0 == s2) {
+        // v1 是独立的一侧
+        pA = mix(v1, v0, d1 / (d1 - d0));
+        pB = mix(v1, v2, d1 / (d1 - d2));
+    } else {
+        // v0 是独立的一侧
+        pA = mix(v0, v1, d0 / (d0 - d1));
+        pB = mix(v0, v2, d0 / (d0 - d2));
+    }
+
+    // 5. 投影这两个绝对精确的交点到 2D 局部坐标系
+    vec2 p2A = vec2(dot(pA - push.planePoint, push.planeU), dot(pA - push.planePoint, push.planeV));
+    vec2 p2B = vec2(dot(pB - push.planePoint, push.planeU), dot(pB - push.planePoint, push.planeV));
+
+    // 6. 极坐标映射与 Z-Map 光栅化
+    float thA = atan(p2A.y, p2A.x); 
+    float thB = atan(p2B.y, p2B.x);
+    
+    float fIdxA = (thA + PI) / (2.0 * PI) * float(ZMAP_RESOLUTION);
+    float fIdxB = (thB + PI) / (2.0 * PI) * float(ZMAP_RESOLUTION);
+
+    // 环形接缝处理
+    if (abs(fIdxA - fIdxB) > float(ZMAP_RESOLUTION) / 2.0) {
+        if (fIdxA < fIdxB) fIdxA += float(ZMAP_RESOLUTION);
+        else fIdxB += float(ZMAP_RESOLUTION);
+    }
+
+    int startIdx = int(floor(min(fIdxA, fIdxB)));
+    int endIdx = int(ceil(max(fIdxA, fIdxB)));
+
+    for (int i = startIdx; i <= endIdx; i++) {
+        uint safeIdx = uint(i) % ZMAP_RESOLUTION;
+        float curTh = float(safeIdx) / float(ZMAP_RESOLUTION) * (2.0 * PI) - PI;
+        
+        // 计算当前角度射线的准确相交半径
+        float r = calcRadius(p2A, p2B, curTh);
+        if (r < 99998.0) {
+            vec2 P = vec2(r * cos(curTh), r * sin(curTh));
+            vec2 AB = p2B - p2A;
+            vec2 AP = P - p2A;
+            float t = dot(AP, AB) / dot(AB, AB);
+
+            if(t >= -0.01 && t <= 1.01) {
+                uint val = floatBitsToUint(r);
+                uint baseIdx = (poseIdx * ZMAP_RESOLUTION * 2) + (safeIdx * 2);
+
+                // 保留最小r
+                atomicMin(zMap[baseIdx], val);
+
+                // 保留最大r
+                uint initVal = floatBitsToUint(1000.);  // C++端初始值填入了1000
+                uint oldVal = atomicCompSwap(zMap[baseIdx + 1], initVal, val);
+                
+                if(oldVal != initVal) {
+                    atomicMax(zMap[baseIdx + 1], val);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,103 @@
+#version 450
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint ZMAP_RESOLUTION = 3600;
+
+struct ResultData {
+    vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
+    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float _pad;
+};
+
+// 🌟 核心修改：统一改成一维数组，与 intersect 保持绝对一致
+layout(std430, set = 0, binding = 1) readonly buffer ZMapBuffer { 
+    uint zMap[]; 
+};
+
+layout(std430, set = 0, binding = 3) buffer OutputBuffer { ResultData results[]; };
+
+layout(push_constant) uniform Push {
+    layout(offset = 0) vec3 planeNormal;
+    layout(offset = 16) vec3 planePoint;
+    layout(offset = 32) vec3 planeU;
+    layout(offset = 48) vec3 planeV;
+    layout(offset = 64) float stepX;
+    layout(offset = 68) float tanHelixAngle;
+    layout(offset = 72) float radius;
+    layout(offset = 76) uint stepsPerPose;
+    layout(offset = 80) uint numTriangles;
+} push;
+
+void main() {
+    if (gl_LocalInvocationID.x != 0) return;
+    
+    uint poseIdx = gl_GlobalInvocationID.z;
+    float globalMinR = 99999.;
+    
+    float surfaceThreshold = push.radius - 0.001;
+
+    int firstRight = -1;
+    int lastRight = -1;
+    int firstLeft = -1;
+    int lastLeft = -1;
+
+    for (int i = 0; i < ZMAP_RESOLUTION; i++) {
+        uint baseIdx = (poseIdx * ZMAP_RESOLUTION * 2) + (i * 2);
+        float rMin = uintBitsToFloat(zMap[baseIdx]);
+        float rMax = uintBitsToFloat(zMap[baseIdx + 1]);
+
+        // 计算芯厚
+        if(rMin < push.radius) {
+            if(rMin < globalMinR) {
+                globalMinR = rMin;
+            }
+        }
+
+        if(rMin < push.radius && rMax > push.radius) {
+            rMax = push.radius;
+        }
+
+        bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
+
+        if(isSurfaceCut) {
+            if (i < ZMAP_RESOLUTION / 2) {
+                if(firstRight == -1) firstRight = i;
+                lastRight = i;
+            } else {
+                if(firstLeft == -1) firstLeft = i;
+                lastLeft = i;
+            }
+        }
+    }
+
+    float finalSlotAngle = 0.0;
+
+    if (firstRight != -1 && firstLeft != -1) {
+            // 情况 A：两个半区都有切口，必然跨轴
+            // 1. 计算跨越 180° 轴的距离
+            int distAcross180 = firstLeft - lastRight;
+            // 2. 计算跨越 0° 轴的距离
+            int distAcross0 = firstRight + (int(ZMAP_RESOLUTION) - lastLeft);
+
+            if (distAcross180 > distAcross0) {
+                // 跨越 180° 的距离比 0° 大得多，说明 180° 轴上是实体毛坯。
+                // 结论：槽口跨越了 0° 轴！
+                finalSlotAngle = float(lastRight + (ZMAP_RESOLUTION - firstLeft)) / float(ZMAP_RESOLUTION) * 360.0;
+            } else {
+                // 结论：槽口正常跨越了 180° 轴！
+                finalSlotAngle = float(lastLeft - firstRight) / float(ZMAP_RESOLUTION) * 360.0;
+            }
+    } 
+    else if (firstRight != -1) {
+            // 情况 B：仅在右半区
+            finalSlotAngle = float(lastRight - firstRight) / float(ZMAP_RESOLUTION) * 360.0;
+    } 
+    else if (firstLeft != -1) {
+            // 情况 C：仅在左半区
+            finalSlotAngle = float(lastLeft - firstLeft) / float(ZMAP_RESOLUTION) * 360.0;
+    }
+
+    results[poseIdx].slotAngle = finalSlotAngle;
+
+    results[poseIdx].coreRadiusSqBits = floatBitsToUint(globalMinR * globalMinR);
+
+}

@@ -31,12 +31,12 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
     // --- 测试用矩阵 ---
     #if 0
     {
-        glm::mat4 Mtw0(
-            glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
-            glm::vec4(-0.847834f, 0.530262f, 0.000000f, 0.0f),  // 第 1 列 (Y轴)
-            glm::vec4(0.079996f, 0.127906f, 0.988555f, 0.0f),   // 第 2 列 (Z轴)
-            glm::vec4(-23.972912f, 21.821777f, 42.935730f, 1.0f)  // 第 3 列 (平移位置)
-        );
+        //glm::mat4 Mtw0(
+        //    glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
+        //    glm::vec4(-0.847834f, 0.530262f, 0.000000f, 0.0f),  // 第 1 列 (Y轴)
+        //    glm::vec4(0.079996f, 0.127906f, 0.988555f, 0.0f),   // 第 2 列 (Z轴)
+        //    glm::vec4(-23.972912f, 21.821777f, 42.935730f, 1.0f)  // 第 3 列 (平移位置)
+        //);
 
         glm::mat4 Mtw1(
             glm::vec4(0.544639f, -0.794706f, 0.267974f, 0.0f),  // 第 0 列 (X轴/法向)
@@ -45,7 +45,7 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
             glm::vec4(-15.8955f, -24.5346f, -45.4575f, 1.0f)  // 第 3 列 (平移位置)
         );
 
-         m_transform.push_back(Mtw0);
+         //m_transform.push_back(Mtw0);
          m_transform.push_back(Mtw1);
          return m_transform;
     }

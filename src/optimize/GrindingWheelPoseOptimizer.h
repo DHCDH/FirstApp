@@ -12,6 +12,7 @@
 
 namespace optimize
 {
+
 class GrindingWheelPoseOptimizer
 {
 public:
@@ -24,7 +25,6 @@ public:
 
     void RunOptimization(OptimizeResourceContext& context,
                          OptimizeMaskRenderSystem& maskRenderSystem,
-                         OptimizePoseRenderSystem& wheelRenderSystem,
                          const SliceViewConfig& viewConfig, Plane plane,
                          BatchedWheelPushConstants wheelPushData);
 
@@ -52,6 +52,8 @@ private:
     float EvaluateFitness(const ResultData& result);
 
     void WriteToolPath();
+
+    std::vector<Triangle> ExtractTriangles(const lve::LveModel& model);
 
 private:
     std::vector<glm::mat4> m_transformMatrixes;

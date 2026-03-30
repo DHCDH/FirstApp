@@ -170,4 +170,4 @@ private:
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 #define PROFILE_SCOPE(name) ScopedTimer MACRO_CONCAT(timer, __LINE__)(name)
 
-const uint32_t BATCH_LAYER_COUNT = 128;
+const uint32_t BATCH_LAYER_COUNT = 256;

@@ -1,89 +1,114 @@
 ﻿#pragma once
 
-#include "LveDevice.h"
 #include "LveBuffer.h"
+#include "LveDevice.h"
 
-#define GLM_FORCE_RADIANS	// 无论在什么系统上，glm都会希望角度以弧度指定
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE	//深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
+#define GLM_FORCE_RADIANS  // 无论在什么系统上，glm都会希望角度以弧度指定
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE  //深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
 #include <glm.hpp>
-
-#include <vector>
 #include <memory>
+#include <vector>
 
-namespace lve {
-
+namespace lve
+{
 /*在CPU创建顶点数据，分配内存并将数据复制到GPU*/
-class LveModel {
-
+class LveModel
+{
 public:
+    struct Vertex {
+        glm::vec3 position{};
+        glm::vec3 color{};
+        glm::vec3 normal{};
+        glm::vec2 uv{};  // 二维纹理坐标
 
-	struct Vertex {
-		glm::vec3 position{};
-		glm::vec3 color{};
-		glm::vec3 normal{};
-		glm::vec2 uv{};	// 二维纹理坐标
+        static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions();
+        static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions();
 
-		static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions();
-		static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions();
+        bool operator==(const Vertex& other) const
+        {
+            return position == other.position && color == other.color &&
+                   normal == other.normal && uv == other.uv;
+        }
 
-		bool operator==(const Vertex& other) const {
-			return position == other.position && color == other.color && normal == other.normal && uv == other.uv;
-		}
-
-        Vertex(const glm::vec3& pos) : position(pos) {}
-		Vertex(const glm::vec3& pos, const glm::vec3& col) : position(pos), color(col) {}
+        Vertex(const glm::vec3& pos) : position(pos)
+        {
+        }
+        Vertex(const glm::vec3& pos, const glm::vec3& col) : position(pos), color(col)
+        {
+        }
         Vertex() = default;
-	};
+    };
 
-	struct Submesh {
-		uint32_t firstIndex;
-		uint32_t indexCount;
-		int materialId = -1;	//来自obj的material id
-	};
+    struct Submesh {
+        uint32_t firstIndex;
+        uint32_t indexCount;
+        int materialId = -1;  //来自obj的material id
+    };
 
-	struct Builder {
-		std::vector<Vertex> vertices{};
-		std::vector<uint32_t> indices{};
-		std::vector<Submesh> submeshes{};
+    struct Builder {
+        std::vector<Vertex> vertices{};
+        std::vector<uint32_t> indices{};
+        std::vector<Submesh> submeshes{};
 
-		void LoadModel(const std::string& filepath);
-	};
+        void LoadModel(const std::string& filepath);
+    };
 
-	LveModel(LveDevice& lveDevice, const Builder& builder);
-	~LveModel();
+    LveModel(LveDevice& lveDevice, const Builder& builder);
+    ~LveModel();
 
-	static std::unique_ptr<LveModel> CreateModelFromFile(LveDevice& lveDevice, const std::string& filepath);
+    static std::unique_ptr<LveModel> CreateModelFromFile(LveDevice& lveDevice,
+                                                         const std::string& filepath);
 
-	LveModel(const LveModel&) = delete;
-	LveModel& operator = (const LveModel&) = delete;
+    LveModel(const LveModel&) = delete;
+    LveModel& operator=(const LveModel&) = delete;
 
-	void Bind(VkCommandBuffer commandBuffer);
-	void Draw(VkCommandBuffer commandBuffer);
+    void Bind(VkCommandBuffer commandBuffer);
+    void Draw(VkCommandBuffer commandBuffer);
 
-	const std::vector<Submesh>& GetSubmeshes() const { return m_submeshes; }
-	uint32_t GetSubmeshCount() const { return static_cast<uint32_t>(m_submeshes.size()); }
-	void DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const;
+    const std::vector<Submesh>& GetSubmeshes() const
+    {
+        return m_submeshes;
+    }
+    uint32_t GetSubmeshCount() const
+    {
+        return static_cast<uint32_t>(m_submeshes.size());
+    }
+    void DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const;
 
-	void DrawInstanced(VkCommandBuffer commandBuffer, uint32_t instanceCount, uint32_t firstInstance = 0) const;
-	void DrawSubmeshInstanced(VkCommandBuffer commandBuffer, uint32_t submeshIndex, uint32_t instanceCount, uint32_t firstInstance = 0) const;
+    void DrawInstanced(VkCommandBuffer commandBuffer, uint32_t instanceCount,
+                       uint32_t firstInstance = 0) const;
+    void DrawSubmeshInstanced(VkCommandBuffer commandBuffer, uint32_t submeshIndex,
+                              uint32_t instanceCount, uint32_t firstInstance = 0) const;
+
+    const std::vector<Vertex>& GetVertices() const
+    {
+        return m_vertices;
+    }
+    const std::vector<uint32_t>& GetIndices() const
+    {
+        return m_indices;
+    }
 
 private:
-	void CreateVertexBuffer(const std::vector<Vertex>& vertices);
-	void CreateIndexBuffer(const std::vector<uint32_t>& indices);
+    void CreateVertexBuffer(const std::vector<Vertex>& vertices);
+    void CreateIndexBuffer(const std::vector<uint32_t>& indices);
 
-	LveDevice& m_lveDevice;
+    LveDevice& m_lveDevice;
 
-	/*顶点缓冲区*/
-	std::unique_ptr<LveBuffer> m_vertexBuffer;
-	uint32_t m_vertexCount;
+    /*顶点缓冲区*/
+    std::unique_ptr<LveBuffer> m_vertexBuffer;
+    uint32_t m_vertexCount;
 
-	bool m_hasIndexBuffer = false;
+    bool m_hasIndexBuffer = false;
 
-	/*索引缓冲区*/
-	std::unique_ptr<LveBuffer> m_indexBuffer;
-	uint32_t m_indexCount;
+    /*索引缓冲区*/
+    std::unique_ptr<LveBuffer> m_indexBuffer;
+    uint32_t m_indexCount;
 
-	std::vector<Submesh> m_submeshes;
+    std::vector<Submesh> m_submeshes;
+
+    std::vector<Vertex> m_vertices;
+    std::vector<uint32_t> m_indices;
 };
 
-}
+}  // namespace lve

@@ -347,21 +347,12 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                                                                            texHeight);
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
-            m_optContext->GetMaskRenderPass(),
-            m_optContext->GetGlobalDescriptorSetLayout(),
-            m_optContext->GetContourComputeSetLayout(),
-            m_optContext->GetBBoxComputeSetLayout());
+            m_optContext->GetContourComputeSetLayout());
     }
 
     optimize::GrindingWheelPoseOptimizer optimizer(m_lveDevice,
                                                    *m_blank->GetModel(),
                                                    *m_grndWheel->GetModel());
-    optimize::OptimizePoseRenderSystem poseSystem(
-        m_lveDevice,
-        *m_grndWheel->GetModel(),
-        m_optContext->GetMaskRenderPass(),
-        m_optContext->GetGlobalDescriptorSetLayout(),
-        optimizer.GetSSBODescriptorSetLayout());
 
     SliceViewConfig macroConfig{};
     float radius = m_editDiameter->text().toFloat() / 2.0f;
@@ -385,7 +376,6 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     optimizer.RunOptimization(*m_optContext,
                               *m_optMaskSystem,
-                              poseSystem,
                               macroConfig,
                               plane,
                               pushData);
