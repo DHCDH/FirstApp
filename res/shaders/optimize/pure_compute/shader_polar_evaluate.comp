@@ -1,7 +1,7 @@
 #version 450
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-const uint ZMAP_RESOLUTION = 7200;
+const uint ZMAP_RESOLUTION = 3600;
 
 struct ResultData {
     vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
@@ -34,17 +34,14 @@ void main() {
     uint poseIdx = gl_GlobalInvocationID.z;
     float globalMinR = 99999.;
     
-    float surfaceThreshold = push.radius - 0.001;
+    float surfaceThreshold = push.radius - 0.005;
 
-    int firstRight = -1;
-    int lastRight = -1;
-    int firstLeft = -1;
-    int lastLeft = -1;
+    int firstCut = -1;
+    int lastCut = -1;
 
     uint halfSize = zMap.length() / 2;
 
     for (int i = 0; i < ZMAP_RESOLUTION; i++) {
-        // 🌟 核心修改 2：连续索引，不再乘以 2
         uint baseIdx = poseIdx * ZMAP_RESOLUTION + i;
         
         // 🌟 核心修改 3：分段读取！
@@ -65,41 +62,17 @@ void main() {
         bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
 
         if(isSurfaceCut) {
-            if (i < ZMAP_RESOLUTION / 2) {
-                if(firstRight == -1) firstRight = i;
-                lastRight = i;
-            } else {
-                if(firstLeft == -1) firstLeft = i;
-                lastLeft = i;
-            }
+            if (firstCut == -1)
+                firstCut = i;
+            lastCut = i;
         }
     }
 
     float finalSlotAngle = 0.0;
 
-    if (firstRight != -1 && firstLeft != -1) {
-            // 情况 A：两个半区都有切口，必然跨轴
-            // 1. 计算跨越 180° 轴的距离
-            int distAcross180 = firstLeft - lastRight;
-            // 2. 计算跨越 0° 轴的距离
-            int distAcross0 = firstRight + (int(ZMAP_RESOLUTION) - lastLeft);
-
-            if (distAcross180 > distAcross0) {
-                // 跨越 180° 的距离比 0° 大得多，说明 180° 轴上是实体毛坯。
-                // 结论：槽口跨越了 0° 轴！
-                finalSlotAngle = float(lastRight + (ZMAP_RESOLUTION - firstLeft)) / float(ZMAP_RESOLUTION) * 360.0;
-            } else {
-                // 结论：槽口正常跨越了 180° 轴！
-                finalSlotAngle = float(lastLeft - firstRight) / float(ZMAP_RESOLUTION) * 360.0;
-            }
-    } 
-    else if (firstRight != -1) {
-            // 情况 B：仅在右半区
-            finalSlotAngle = float(lastRight - firstRight) / float(ZMAP_RESOLUTION) * 360.0;
-    } 
-    else if (firstLeft != -1) {
-            // 情况 C：仅在左半区
-            finalSlotAngle = float(lastLeft - firstLeft) / float(ZMAP_RESOLUTION) * 360.0;
+    if(firstCut != -1 && lastCut != -1) {
+        // 整个ZMAP_RESOLUTION代表180度
+        finalSlotAngle = float(lastCut - firstCut) / float(ZMAP_RESOLUTION) * 180.0;
     }
 
     if(globalMinR < push.radius) {
