@@ -13,12 +13,18 @@
 namespace optimize 
 {
 constexpr uint32_t MAX_POINTS = 50000;
-const uint32_t BATCH_LAYER_COUNT = 4096;
-constexpr uint32_t ZMAP_RESOLUTION = 3600;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
+const uint32_t BATCH_LAYER_COUNT = 2048;
+constexpr uint32_t ZMAP_RESOLUTION = 7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
 
 struct CameraData {
     glm::mat4 projView;
     glm::vec4 mapInfo;
+};
+
+struct PoseData {
+    glm::mat4 modelMatrix;
+    glm::vec4 projU;  // 根据砂轮候选位姿预算的局部X轴
+    glm::vec4 projV;  // 根据砂轮候选位姿预算的局部Y轴
 };
 
 struct ResultData {

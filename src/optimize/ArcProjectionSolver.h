@@ -9,6 +9,7 @@
 #include "LveDevice.h"
 #include "integration/NumericalIntegrator.h"
 #include "../Global.h"
+#include "OptimizeResourceContext.h"
 
 struct GrindingWheelParameters {
     double d1{100.};  // 大端圆直径
@@ -63,7 +64,7 @@ public:
     ArcProjectionSolver(const ArcProjectionSolver&) = delete;
     ArcProjectionSolver& operator=(const ArcProjectionSolver&) = delete;
 
-    std::vector<glm::mat4> CalculateGrindingWheelPose();
+    std::vector<optimize::PoseData> CalculateGrindingWheelPose();
 
     void ExportTransformsToTXT();
     void ExportToolPathToTXT();
@@ -82,6 +83,11 @@ public:
     ArcProjectionSolver& SetCutterParameters(CutterParameters c)
     {
         m_c = std::move(c);
+        return *this;
+    }
+    ArcProjectionSolver& SetPlane(Plane p)
+    {
+        m_plane = std::move(p);
         return *this;
     }
 
@@ -114,6 +120,7 @@ private:
     // std::vector<double> m_u1;
     // std::vector<double> m_u0c;
     // std::vector<double> m_lambda;
-    std::vector<glm::mat4> m_transform;
+    Plane m_plane;
+    std::vector<optimize::PoseData> m_poseData;
     ToolPath m_tp;
 };

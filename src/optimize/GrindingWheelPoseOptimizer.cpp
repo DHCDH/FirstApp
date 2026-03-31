@@ -64,11 +64,12 @@ void GrindingWheelPoseOptimizer::CalculateTransformMatrixes()
     ArcProjectionSolver arcProjectionSolver;
     arcProjectionSolver.SetIntegrator(std::move(integrator))
         .SetCutterParameters(CutterParameters{})
-        .SetGrindingWheelParameters(GrindingWheelParameters{});
+        .SetGrindingWheelParameters(GrindingWheelParameters{})
+        .SetPlane(Plane{});
 
-    m_transformMatrixes = arcProjectionSolver.CalculateGrindingWheelPose();
+    m_poseData = arcProjectionSolver.CalculateGrindingWheelPose();
 
-    std::cout << "[Optimizer] Generated " << m_transformMatrixes.size() << " poses.\n";
+    std::cout << "[Optimizer] Generated " << m_poseData.size() << " poses.\n";
 }
 
 CameraData GrindingWheelPoseOptimizer::CalculateMicroCamera(
@@ -146,7 +147,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 {
     PROFILE_SCOPE("Run Optimization");
 
-    uint32_t totalPoses = static_cast<uint32_t>(m_transformMatrixes.size());
+    uint32_t totalPoses = static_cast<uint32_t>(m_poseData.size());
     if (totalPoses == 0) return;
 
     std::cout << "[Optimizer] Starting GPU evaluation loop for " << totalPoses
@@ -215,7 +216,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
         // 将BATCH_LAYER_COUNT数量的位姿矩阵填进SSBO
         memcpy(context.GetPoseSSBOBuffer()->GetMappedMemory(),
-               m_transformMatrixes.data() + i,
+               m_poseData.data() + i,
                curBatchSize * sizeof(glm::mat4));
 
         if (i == 0) RENDERDOC_START;
@@ -337,7 +338,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
             batchBest.bestResult.coreRadiusSqBits != 0xFFFFFFFF) {
             m_bestScore = batchBest.bestResult.score;
             m_bestResult = batchBest.bestResult;
-            m_bestPose = m_transformMatrixes[i + batchBest.bestPoseIdx];
+            m_bestPose = m_poseData[i + batchBest.bestPoseIdx].modelMatrix;
         }
 
         if (i == 0) RENDERDOC_END;

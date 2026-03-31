@@ -18,7 +18,7 @@ ArcProjectionSolver::ArcProjectionSolver()
     // 先使用默认砂轮和刀具参数进行测试
 }
 
-std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
+std::vector<optimize::PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
 {
     PROFILE_SCOPE("Arc projection");
 
@@ -26,7 +26,7 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
     uint32_t numU0c = 200;
     uint32_t numLambda = 200;
 
-    m_transform.reserve(numU1 * numLambda * numU0c);
+    m_poseData.reserve(numU1 * numLambda * numU0c);
 
     // --- 测试用矩阵 ---
     #if 0
@@ -74,12 +74,12 @@ std::vector<glm::mat4> ArcProjectionSolver::CalculateGrindingWheelPose()
         break;
     }
 
-    std::cout << "Transform matrixes vector size: " << m_transform.size() << "\n";
+    std::cout << "Transform matrixes vector size: " << m_poseData.size() << "\n";
 
     ExportTransformsToTXT();
     ExportToolPathToTXT();
 
-    return m_transform;
+    return m_poseData;
 }
 
 // Eq.19-23 计算符合前角和螺旋角的砂轮位置
@@ -157,14 +157,26 @@ void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
     // 论文砂轮和刀具轴向均是Z轴，但工程中刀具和砂轮模型轴向均是X轴，需要进行变换
     glm::mat4 R =
         glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 finalMtw;
-    finalMtw = R * Mtw * glm::inverse(R);
+    glm::mat4 finalMtw = R * Mtw * glm::inverse(R);
 
     m_tp.size += 1;
     m_tp.normals.push_back(glm::vec3(finalMtw[0]));
     m_tp.points.push_back(glm::vec3(finalMtw[3]));
 
-    m_transform.push_back(finalMtw);
+    glm::vec3 baseCenter = glm::vec3(finalMtw[3]);  // 提取 3D 位移
+    glm::vec3 toWheel = baseCenter - m_plane.point;
+    // 计算投影到截面的局部坐标系
+    glm::vec3 projU_dir = toWheel - glm::dot(toWheel, m_plane.normal) * m_plane.normal;
+    glm::vec3 projU =
+        (glm::length(projU_dir) > 1e-6f) ? glm::normalize(projU_dir) : glm::vec3(1, 0, 0);
+    glm::vec3 projV = glm::cross(m_plane.normal, projU);
+
+    optimize::PoseData poseData;
+    poseData.modelMatrix = finalMtw;
+    poseData.projU = glm::vec4(projU, 0.0f);
+    poseData.projV = glm::vec4(projV, 0.0f);
+
+    m_poseData.push_back(poseData);
 }
 
 // Eq.2，通过积分求解θ(u1)
@@ -299,9 +311,9 @@ void ArcProjectionSolver::ExportTransformsToTXT()
     // 设置输出格式：固定小数位数，保证对齐和精度
     outFile << std::fixed << std::setprecision(6);
 
-    for (size_t i = 0; i < m_transform.size(); ++i) {
+    for (size_t i = 0; i < m_poseData.size(); ++i) {
         outFile << "Point " << i << ":\n";
-        const glm::mat4& mat = m_transform[i];
+        const glm::mat4& mat = m_poseData[i].modelMatrix;
 
         // 按照行主序 (Row-Major) 输出，方便人类阅读和其他软件(如 Matlab/Python)解析
         // GLM 的索引方式是 mat[col][row]
@@ -316,7 +328,7 @@ void ArcProjectionSolver::ExportTransformsToTXT()
     }
 
     outFile.close();
-    std::cout << "Successfully exported " << m_transform.size() << " matrices to "
+    std::cout << "Successfully exported " << m_poseData.size() << " matrices to "
               << filename
               << "\n";
 }

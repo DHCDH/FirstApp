@@ -40,7 +40,7 @@ void OptimizeResourceContext::CreateComputeResources()
     // Pose SSBO (从 Optimizer 移到了这里集中管理)
     m_poseSSBOBuffer = std::make_unique<LveBuffer>(
         m_lveDevice,
-        sizeof(glm::mat4),
+        sizeof(PoseData),
         BATCH_LAYER_COUNT,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);

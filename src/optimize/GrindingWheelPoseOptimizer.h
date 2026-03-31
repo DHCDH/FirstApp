@@ -56,7 +56,7 @@ private:
     std::vector<Triangle> ExtractTriangles(const lve::LveModel& model);
 
 private:
-    std::vector<glm::mat4> m_transformMatrixes;
+    std::vector<PoseData> m_poseData;
 
     lve::LveDevice& m_lveDevice;
     lve::LveModel& m_blank;
