@@ -1,0 +1,71 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct ResultData {
+    vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
+    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float score;
+};
+
+struct BestResultData {
+    uint bestPoseIdx;
+    uint pad_;
+    ResultData bestResult;
+};
+
+layout(std430, set = 0, binding = 3) readonly buffer OutputBuffer { ResultData results[]; };
+
+layout(std430, set = 0, binding = 4) writeonly buffer bestResultBuffer { BestResultData bestResultData; };
+
+layout(push_constant) uniform Push {
+    layout(offset = 0) vec3 planeNormal;
+    layout(offset = 16) vec3 planePoint;
+    layout(offset = 32) vec3 planeU;
+    layout(offset = 48) vec3 planeV;
+    layout(offset = 64) float stepX;
+    layout(offset = 68) float tanHelixAngle;
+    layout(offset = 72) float radius;
+    layout(offset = 76) uint stepsPerPose;
+    layout(offset = 80) uint numTriangles;
+    layout(offset = 84) uint curBatchSize;
+} push;
+
+shared float localScores[256];
+shared uint localIndices[256];
+
+void main() 
+{
+    uint tid = gl_LocalInvocationID.x;
+
+    float maxScore = -9999999.0;
+    uint bestIdx = 0;
+
+    for (uint i = tid; i < push.curBatchSize; i += 256) {
+        float s = results[i].score;
+        if (s > maxScore) {
+            maxScore = s;
+            bestIdx = i;
+        }
+    }
+
+    localScores[tid] = maxScore;
+    localIndices[tid] = bestIdx;
+    barrier();
+
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (tid < s) {
+            // 如果右边的分数比左边高，就把右边的分数和编号拷贝过来
+            if (localScores[tid + s] > localScores[tid]) {
+                localScores[tid] = localScores[tid + s];
+                localIndices[tid] = localIndices[tid + s];
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0) {
+        bestResultData.bestPoseIdx = localIndices[0];
+        // GLSL 支持结构体的直接赋值，它会底层帮你拷贝内存！
+        bestResultData.bestResult = results[localIndices[0]];
+    }
+}

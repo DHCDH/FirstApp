@@ -13,8 +13,8 @@
 namespace optimize 
 {
 constexpr uint32_t MAX_POINTS = 50000;
-const uint32_t BATCH_LAYER_COUNT = 512;
-constexpr uint32_t ZMAP_RESOLUTION = 3600;  // 360度分成3600份，每个theta同时存储对应的rMin和rMax
+const uint32_t BATCH_LAYER_COUNT = 4096;
+constexpr uint32_t ZMAP_RESOLUTION = 7200;  // 360度分成3600份，每个theta同时存储对应的rMin和rMax
 
 struct CameraData {
     glm::mat4 projView;
@@ -34,7 +34,13 @@ struct ResultData {
     float rakeAngle;        // 前角
     float slotAngle;        // 槽宽角
 
-    float _pad;
+    float score;
+};
+
+struct BestResultData {
+    uint32_t bestPoseIdx;
+    uint32_t pad_;
+    ResultData bestResult;
 };
 
 struct BBoxData {
@@ -88,6 +94,10 @@ public:
     {
         return m_poseSSBOBuffer.get();
     }
+    lve::LveBuffer* GetBestResultSSBOBuffer() const
+    {
+        return m_bestResultSSBOBuffer.get();
+    }
 
 private:
     void CreateComputeResources();
@@ -112,6 +122,8 @@ private:
     std::unique_ptr<lve::LveBuffer> m_triangleBuffer;
 
     std::unique_ptr<lve::LveBuffer> m_poseSSBOBuffer;
+
+    std::unique_ptr<lve::LveBuffer> m_bestResultSSBOBuffer;
 };
 
 }

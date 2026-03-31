@@ -1,11 +1,11 @@
 #version 450
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-const uint ZMAP_RESOLUTION = 3600;
+const uint ZMAP_RESOLUTION = 7200;
 
 struct ResultData {
     vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
-    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float _pad;
+    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float score;
 };
 
 // 🌟 核心修改：统一改成一维数组，与 intersect 保持绝对一致
@@ -25,6 +25,7 @@ layout(push_constant) uniform Push {
     layout(offset = 72) float radius;
     layout(offset = 76) uint stepsPerPose;
     layout(offset = 80) uint numTriangles;
+    layout(offset = 84) uint curBatchSize;
 } push;
 
 void main() {
@@ -101,8 +102,36 @@ void main() {
             finalSlotAngle = float(lastLeft - firstLeft) / float(ZMAP_RESOLUTION) * 360.0;
     }
 
-    results[poseIdx].slotAngle = finalSlotAngle;
+    if(globalMinR < push.radius) {
+        results[poseIdx].slotAngle = finalSlotAngle;
+        results[poseIdx].coreRadiusSqBits = floatBitsToUint(globalMinR * globalMinR);
 
-    results[poseIdx].coreRadiusSqBits = floatBitsToUint(globalMinR * globalMinR);
+
+        float coreRadius = globalMinR;
+        float score = -999999.0;
+
+        if (coreRadius <= 5.0) { // 对应你 C++ 里的剔除逻辑
+            // 这些目标参数甚至可以通过 push_constant 传进来，这里先写死演示
+            float targetSlotAngle = 65.0;
+            float targetArcLength = 5.0 * radians(targetSlotAngle);
+            float targetCoreRadius = 3.0;
+
+            float resultArcLength = radians(finalSlotAngle) * 5.0;
+
+            float slotAngleError = abs(resultArcLength - targetArcLength);
+            float coreRadiusError = abs(coreRadius - targetCoreRadius);
+
+            float weightSlot = 1.0;
+            float weightCore = 1.0;
+
+            score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
+        }
+        
+        results[poseIdx].score = score;
+    } else {
+        results[poseIdx].coreRadiusSqBits = 0xFFFFFFFF;
+        results[poseIdx].slotAngle = 0.0;
+        results[poseIdx].score = -999999.0; // 无效位姿给极低分
+    }
 
 }

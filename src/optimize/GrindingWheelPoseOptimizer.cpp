@@ -16,7 +16,7 @@ GrindingWheelPoseOptimizer::GrindingWheelPoseOptimizer(lve::LveDevice& device,
                                                        lve::LveModel& grndWheel)
     : m_lveDevice(device), m_blank(blank), m_grndWheel(grndWheel)
 {
-    InitSSBOResources();
+    // InitSSBOResources();
     CalculateTransformMatrixes();
 }
 
@@ -193,8 +193,19 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     push.numTriangles = static_cast<uint32_t>(triangles.size());
 
     // --- 映射读回内存 ---
-    context.GetResultBuffer()->Map();
-    ResultData* mappedResults = (ResultData*)context.GetResultBuffer()->GetMappedMemory();
+    context.GetBestResultSSBOBuffer()->Map();
+    BestResultData* mappedResults =
+        (BestResultData*)context.GetBestResultSSBOBuffer()->GetMappedMemory();
+
+    // --- 申请持久化的指令缓冲 ---
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = m_lveDevice.getCommandPool();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer cmdCompute;
+    vkAllocateCommandBuffers(m_lveDevice.device(), &allocInfo, &cmdCompute);
 
     for (uint32_t i = 0; i < totalPoses; i += BATCH_LAYER_COUNT) {
         std::cout << "\r[Optimizer] Processing batch: " << i << " / " << totalPoses
@@ -207,12 +218,15 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                m_transformMatrixes.data() + i,
                curBatchSize * sizeof(glm::mat4));
 
-        RENDERDOC_START;
+        if (i == 0) RENDERDOC_START;
 
-        VkCommandBuffer cmdCompute = m_lveDevice.beginSingleTimeCommands();
+        vkResetCommandBuffer(cmdCompute, 0);
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmdCompute, &beginInfo);
 
-        VkDeviceSize halfSize =
-            BATCH_LAYER_COUNT * ZMAP_RESOLUTION * sizeof(uint32_t);
+        VkDeviceSize halfSize = BATCH_LAYER_COUNT * ZMAP_RESOLUTION * sizeof(uint32_t);
 
         // 前半部分，存储theta对应minR
         float initR = 1000.0f;
@@ -232,6 +246,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                         halfSize,
                         zeroBits);
 
+#if 0
         ResultData initResult{};
         initResult.coreRadiusSqBits = 0xFFFFFFFF;
         std::vector<ResultData> initResults(BATCH_LAYER_COUNT, initResult);
@@ -240,6 +255,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                           0,
                           sizeof(ResultData) * BATCH_LAYER_COUNT,
                           initResults.data());
+#endif
 
         VkMemoryBarrier clearBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         clearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -277,21 +293,60 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                              nullptr);
 
         maskRenderSystem.ComputePolarEvaluate(cmdCompute,
-                                              context.GetContourDescriptorSet(), push);
+                                              context.GetContourDescriptorSet(),
+                                              push);
 
-        m_lveDevice.endSingleTimeCommands(cmdCompute);
+        push.curBatchSize = curBatchSize;
 
-        RENDERDOC_END;
+        // --- evaluate与reduce之间的屏障 ---
+        VkMemoryBarrier reduceBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        reduceBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        reduceBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmdCompute,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             1,
+                             &reduceBarrier,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr);
 
-        for (uint32_t j = 0; j < curBatchSize; ++j) {
-            float score = EvaluateFitness(mappedResults[j]);
-            if (score > m_bestScore) {
-                m_bestScore = score;
-                m_bestResult = mappedResults[j];
-                m_bestPose = m_transformMatrixes[i + j];
-            }
+        maskRenderSystem.ComputePolarReduce(cmdCompute,
+                                            context.GetContourDescriptorSet(),
+                                            push);
+
+        vkEndCommandBuffer(cmdCompute);
+
+        // 直接向 Graphics 队列提交任务 (Vulkan图形队列天然支持计算)
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmdCompute;
+
+        vkQueueSubmit(m_lveDevice.graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+
+        // 依然死等 GPU 算完这一批，再进入下一次循环
+        vkQueueWaitIdle(m_lveDevice.graphicsQueue());
+
+        BestResultData batchBest = mappedResults[0];
+
+        if (batchBest.bestResult.score > m_bestScore &&
+            batchBest.bestResult.coreRadiusSqBits != 0xFFFFFFFF) {
+            m_bestScore = batchBest.bestResult.score;
+            m_bestResult = batchBest.bestResult;
+            m_bestPose = m_transformMatrixes[i + batchBest.bestPoseIdx];
         }
+
+        if (i == 0) RENDERDOC_END;
     }
+
+    vkFreeCommandBuffers(m_lveDevice.device(),
+                         m_lveDevice.getCommandPool(),
+                         1,
+                         &cmdCompute);
 
     std::cout << "\n[Optimizer] All batches finished successfully!"
               << "\n";
@@ -300,6 +355,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     float sq = std::bit_cast<float>(m_bestResult.coreRadiusSqBits);
     std::cout << "core radius: " << std::sqrt(sq) << "\n";
     std::cout << "slot angle: " << m_bestResult.slotAngle << "\n";
+    std::cout << "score: " << m_bestResult.score << "\n";
     // std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
 
     std::cout << "\n========== [ Result ] Best Pose Matrix ==========\n";
@@ -314,7 +370,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     std::cout << "Best Score: " << m_bestScore << "\n";
     std::cout << "=================================================\n\n";
 
-    context.GetResultBuffer()->Unmap();
+    context.GetBestResultSSBOBuffer()->Unmap();
 
     WriteToolPath();
 

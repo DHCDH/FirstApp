@@ -1,17 +1,13 @@
 #version 450
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-const uint ZMAP_RESOLUTION = 3600;
+const uint ZMAP_RESOLUTION = 7200;
 const float PI = 3.14159265359;
 
-struct Triangle {
-    vec4 v0; vec4 v1; vec4 v2;
-};
+struct Triangle { vec4 v0; vec4 v1; vec4 v2; };
 
 layout(std430, set = 0, binding = 0) readonly buffer TriBuffer { Triangle triangles[]; };
-layout(std430, set = 0, binding = 1) buffer ZMapBuffer { 
-    uint zMap[]; 
-};
+layout(std430, set = 0, binding = 1) buffer ZMapBuffer { uint zMap[]; };
 layout(std430, set = 0, binding = 2) readonly buffer BasePose { mat4 poses[]; };
 
 layout(push_constant) uniform Push {
@@ -24,19 +20,11 @@ layout(push_constant) uniform Push {
     layout(offset = 72) float radius;
     layout(offset = 76) uint stepsPerPose;
     layout(offset = 80) uint numTriangles;
+    layout(offset = 84) uint curBatchSize;
 } push;
 
-shared uint localMinR[ZMAP_RESOLUTION];
-shared uint localMaxR[ZMAP_RESOLUTION];
-shared mat4 shareModel;
-
-float calcRadius(vec2 A, vec2 B, float theta) {
-    float crossP = A.x * B.y - B.x * A.y;
-    float denom = cos(theta) * (A.y - B.y) + sin(theta) * (B.x - A.x);
-    if (abs(denom) < 1e-6) return 99999.0;
-    float r = -crossP / denom;
-    return r > 0.0 ? r : 99999.0;
-}
+// 🌟 仅仅保留 1 个矩阵作为共享，占用极小 (64 Bytes)，让 SM 并发率拉满！
+shared mat4 sharedModel;
 
 void main() {
     uint triIdx = gl_GlobalInvocationID.x;
@@ -44,31 +32,22 @@ void main() {
     uint poseIdx = gl_GlobalInvocationID.z;
     uint localId = gl_LocalInvocationID.x;
 
-    // 1. 只让0号线程计算螺旋运动矩阵，然后存入共享内存
-    if(localId == 0) {
+    if (localId == 0) {
         float stepDist = float(stepIdx) * push.stepX;
         float theta = (stepDist * push.tanHelixAngle) / push.radius;
         mat4 transX = mat4(1.0); transX[3][0] = stepDist;
-        mat4 rotX = mat4(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, cos(theta), sin(theta), 0.0,
-            0.0, -sin(theta), cos(theta), 0.0,
-            0.0, 0.0, 0.0, 1.0
-        );
-        // mat4 shareModel = (transX * rotX) * poses[poseIdx];
-        shareModel = (transX * rotX) * poses[poseIdx];
+        mat4 rotX = mat4(1.0, 0.0, 0.0, 0.0,
+                         0.0, cos(theta), sin(theta), 0.0,
+                         0.0, -sin(theta), cos(theta), 0.0,
+                         0.0, 0.0, 0.0, 1.0);
+        sharedModel = (transX * rotX) * poses[poseIdx];
     }
-
-    for(uint i = localId; i < ZMAP_RESOLUTION; i += 256) {
-        localMinR[i] = floatBitsToUint(1000.0);
-        localMaxR[i] = floatBitsToUint(0.0);
-    }
-
     barrier();
 
-    bool validWork = (triIdx < push.numTriangles) && (stepIdx < push.stepsPerPose);
+    // 确保没有越界的线程，保证不会写出界
+    bool validWork = (triIdx < push.numTriangles) && (stepIdx < push.stepsPerPose) && (poseIdx < push.curBatchSize);
 
-    if(validWork) {
+    if (validWork) {
         Triangle tri = triangles[triIdx];
         vec3 v0 = (sharedModel * tri.v0).xyz;
         vec3 v1 = (sharedModel * tri.v1).xyz;
@@ -78,10 +57,9 @@ void main() {
         float d1 = dot(v1 - push.planePoint, push.planeNormal);
         float d2 = dot(v2 - push.planePoint, push.planeNormal);
 
-        // 如果三个点都在平面同侧，说明没有相交，我们跳过计算
         bool crossPlane = !((d0 > 0.0 && d1 > 0.0 && d2 > 0.0) || (d0 < 0.0 && d1 < 0.0 && d2 < 0.0));
-
-        if(crossPlane) {
+        
+        if (crossPlane) {
             bool s0 = d0 >= 0.0; bool s1 = d1 >= 0.0; bool s2 = d2 >= 0.0;
             vec3 pA, pB;
             if (s0 == s1) { pA = mix(v2, v0, d2/(d2-d0)); pB = mix(v2, v1, d2/(d2-d1)); }
@@ -91,7 +69,7 @@ void main() {
             vec2 p2A = vec2(dot(pA - push.planePoint, push.planeU), dot(pA - push.planePoint, push.planeV));
             vec2 p2B = vec2(dot(pB - push.planePoint, push.planeU), dot(pB - push.planePoint, push.planeV));
 
-            float thA = atan(p2A.y, p2A.x); 
+            float thA = atan(p2A.y, p2A.x);
             float thB = atan(p2B.y, p2B.x);
             float fIdxA = (thA + PI) / (2.0 * PI) * float(ZMAP_RESOLUTION);
             float fIdxB = (thB + PI) / (2.0 * PI) * float(ZMAP_RESOLUTION);
@@ -125,34 +103,16 @@ void main() {
 
                         if (t >= -0.01 && t <= 1.01) {
                             uint val = floatBitsToUint(r);
-                            
-                            // 🌟 绝杀：在这里绝对不碰全局内存！
-                            // 全部写入 L1 极速缓存，没有总线延迟！
-                            atomicMin(localMinR[safeIdx], val);
-                            atomicMax(localMaxR[safeIdx], val);
+                            uint halfSize = zMap.length() / 2;
+                            uint baseIdx = poseIdx * ZMAP_RESOLUTION + safeIdx;
+
+                            // 🌟 抛弃 Shared Memory，依靠连续内存的 L2 缓存原生加速！
+                            atomicMin(zMap[baseIdx], val);
+                            atomicMax(zMap[baseIdx + halfSize], val);
                         }
                     }
                 }
             }
-        }
-    }
-
-    barrier();
-
-    // 只有到了这一步，才向遥远的显存发起写入
-    uint halfSize = zMap.length() / 2;
-    uint globalBaseIdx = poseIdx * ZMAP_RESOLUTION;
-
-    // 256 个线程像搬运工一样，把自己的成果合并到全局显存
-    for (uint i = localId; i < ZMAP_RESOLUTION; i += 256) {
-        uint minVal = localMinR[i];
-        if (minVal != floatBitsToUint(1000.0)) { // 过滤掉没人切过的空气点
-            atomicMin(zMap[globalBaseIdx + i], minVal);
-        }
-
-        uint maxVal = localMaxR[i];
-        if (maxVal != floatBitsToUint(0.0)) {
-            atomicMax(zMap[globalBaseIdx + halfSize + i], maxVal);
         }
     }
 }

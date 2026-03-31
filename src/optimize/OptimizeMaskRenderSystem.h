@@ -30,6 +30,8 @@ struct PolarPushConstants {
     uint32_t stepsPerPose;
 
     uint32_t numTriangles;
+
+    uint32_t curBatchSize;
 };
 
 struct OptimizeDrawInfo {
@@ -67,6 +69,8 @@ public:
                                const PolarPushConstants& push);  // mark
     void ComputePolarEvaluate(VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
                               const PolarPushConstants& push);
+    void ComputePolarReduce(VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
+                            const PolarPushConstants& push);
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -76,6 +80,7 @@ private:
 
     std::unique_ptr<lve::LvePipeline> m_polarIntersectPipeline;
     std::unique_ptr<lve::LvePipeline> m_polarEvaluatePipeline;
+    std::unique_ptr<lve::LvePipeline> m_polarReducePipeline;
 };
 
 }  // namespace optimize
