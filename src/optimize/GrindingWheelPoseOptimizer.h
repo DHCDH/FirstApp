@@ -9,6 +9,7 @@
 #include "OptimizeResourceContext.h"
 #include "OptimizeMaskRenderSystem.h"
 #include "OptimizePoseRenderSystem.h"
+#include "ArcProjectionSolver.h"
 
 namespace optimize
 {
@@ -43,20 +44,22 @@ public:
     }
 
 private:
-    void InitSSBOResources();
-    void CalculateTransformMatrixes();
-    // 根据侦察到的 BBox 算出局部放大的相机
-    CameraData CalculateMicroCamera(const BBoxData& bbox,
-                                    const SliceViewConfig& macroConfig, uint32_t texWidth,
-                                    uint32_t texHeight, const Plane& plane);
-    float EvaluateFitness(const ResultData& result);
+    void InitializeDataForPSO();
+    void InsertComputeBarrier(VkCommandBuffer cmd);
 
     void WriteToolPath();
 
     std::vector<Triangle> ExtractTriangles(const lve::LveModel& model);
 
+    void ReadBackBestResult(const OptimizeResourceContext& context);
+
 private:
+    ArcProjectionSolver m_arcProjectionSolver;
+
     std::vector<PoseData> m_poseData;
+
+    PoseConstants m_poseConstants;
+    std::vector<Particle> m_swarm;
 
     lve::LveDevice& m_lveDevice;
     lve::LveModel& m_blank;
@@ -69,8 +72,10 @@ private:
     VkDescriptorSet m_SSBODescriptorSet;
 
     glm::mat4 m_bestPose{1.0f};
-    ResultData m_bestResult{};
+    BestResultData m_bestResult{};
     float m_bestScore{-999999.0f};
+
+    uint32_t numTriangle{0};
 };
 
 }  // namespace optimize

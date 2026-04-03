@@ -1,11 +1,16 @@
 #version 450
+
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 const uint ZMAP_RESOLUTION = 7200;
 
-struct ResultData {
-    vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
-    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float score;
+struct BestResultData {
+    float coreRadius;
+    float slotAngle;
+    float score;
+    uint bestPoseIdx;
 };
 
 // 🌟 核心修改：统一改成一维数组，与 intersect 保持绝对一致
@@ -13,7 +18,7 @@ layout(std430, set = 0, binding = 1) readonly buffer ZMapBuffer {
     uint zMap[]; 
 };
 
-layout(std430, set = 0, binding = 3) buffer OutputBuffer { ResultData results[]; };
+layout(std430, set = 0, binding = 3) buffer OutputBuffer { BestResultData results[]; };
 
 layout(push_constant) uniform Push {
     layout(offset = 0) vec3 planeNormal;
@@ -28,20 +33,24 @@ layout(push_constant) uniform Push {
     layout(offset = 84) uint curBatchSize;
 } push;
 
+shared float s_minR[16];
+shared int   s_firstCut[16];
+shared int   s_lastCut[16];
+
 void main() {
-    if (gl_LocalInvocationID.x != 0) return;
+    uint tid = gl_LocalInvocationID.x;
     
     uint poseIdx = gl_GlobalInvocationID.z;
-    float globalMinR = 99999.;
-    
-    float surfaceThreshold = push.radius - 0.005;
-
-    int firstCut = -1;
-    int lastCut = -1;
+    if(poseIdx >= push.curBatchSize) return;
 
     uint halfSize = zMap.length() / 2;
+    float surfaceThreshold = push.radius - 0.005;
 
-    for (int i = 0; i < ZMAP_RESOLUTION; i++) {
+    float localMinR = 99999.;
+    int localFirstCut = 99999;
+    int localLastCut = -1;
+
+    for (int i = int(tid); i < ZMAP_RESOLUTION; i += 256) {
         uint baseIdx = poseIdx * ZMAP_RESOLUTION + i;
         
         // 🌟 核心修改 3：分段读取！
@@ -50,61 +59,86 @@ void main() {
 
         // 计算芯厚
         if(rMin < push.radius) {
-            if(rMin < globalMinR) {
-                globalMinR = rMin;
-            }
-        }
-
-        if(rMin < push.radius && rMax > push.radius) {
-            rMax = push.radius;
+            localMinR = min(localMinR, rMin);
+            if(rMax > push.radius)
+                rMax = push.radius;
         }
 
         bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
 
         if(isSurfaceCut) {
-            if (firstCut == -1)
-                firstCut = i;
-            lastCut = i;
+            localFirstCut = min(localFirstCut, i);
+            localLastCut = max(localLastCut, i);
         }
     }
 
-    float finalSlotAngle = 0.0;
+    // --- subgroup内部规约 ---
+    float sgMinR = subgroupMin(localMinR);
+    int sgFirstCut = subgroupMin(localFirstCut);
+    int sgLastCut = subgroupMax(localLastCut);
 
-    if(firstCut != -1 && lastCut != -1) {
-        // 整个ZMAP_RESOLUTION代表180度
-        finalSlotAngle = float(lastCut - firstCut) / float(ZMAP_RESOLUTION) * 180.0;
+    if (gl_SubgroupInvocationID == 0) {
+        s_minR[gl_SubgroupID] = sgMinR;
+        s_firstCut[gl_SubgroupID] = sgFirstCut;
+        s_lastCut[gl_SubgroupID] = sgLastCut;
     }
 
-    if(globalMinR < push.radius) {
-        results[poseIdx].slotAngle = finalSlotAngle;
-        results[poseIdx].coreRadiusSqBits = floatBitsToUint(globalMinR * globalMinR);
+    barrier();
 
+    if (gl_SubgroupID == 0) {
+        float finalMinR = 99999.0;
+        int finalFirstCut = 99999;
+        int finalLastCut = -1;
 
-        float coreRadius = globalMinR;
-        float score = -999999.0;
-
-        if (coreRadius <= 5.0) { // 对应你 C++ 里的剔除逻辑
-            // 这些目标参数甚至可以通过 push_constant 传进来，这里先写死演示
-            float targetSlotAngle = 65.0;
-            float targetArcLength = 5.0 * radians(targetSlotAngle);
-            float targetCoreRadius = 3.0;
-
-            float resultArcLength = radians(finalSlotAngle) * 5.0;
-
-            float slotAngleError = abs(resultArcLength - targetArcLength);
-            float coreRadiusError = abs(coreRadius - targetCoreRadius);
-
-            float weightSlot = 1.0;
-            float weightCore = 1.0;
-
-            score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
+        // 读取墙上（共享内存）的成绩
+        if (gl_SubgroupInvocationID < gl_NumSubgroups) {
+            finalMinR = s_minR[gl_SubgroupInvocationID];
+            finalFirstCut = s_firstCut[gl_SubgroupInvocationID];
+            finalLastCut = s_lastCut[gl_SubgroupInvocationID];
         }
-        
-        results[poseIdx].score = score;
-    } else {
-        results[poseIdx].coreRadiusSqBits = 0xFFFFFFFF;
-        results[poseIdx].slotAngle = 0.0;
-        results[poseIdx].score = -999999.0; // 无效位姿给极低分
+
+        // 终极硬件归约
+        float totalMinR = subgroupMin(finalMinR);
+        int totalFirstCut = subgroupMin(finalFirstCut);
+        int totalLastCut = subgroupMax(finalLastCut);
+
+        // 最终由真正的 Workgroup "老大"（0号线程）计算得分并写出
+        if (gl_SubgroupInvocationID == 0) {
+            float finalSlotAngle = 0.0;
+            if (totalFirstCut <= totalLastCut && totalFirstCut != 99999) {
+                finalSlotAngle = float(totalLastCut - totalFirstCut) / float(ZMAP_RESOLUTION) * 180.0;
+            }
+
+            if (totalMinR < push.radius) {
+                results[poseIdx].slotAngle = finalSlotAngle;
+                results[poseIdx].coreRadius = totalMinR;
+                results[poseIdx].bestPoseIdx = poseIdx; 
+
+                float coreRadius = totalMinR;
+                float score = -999999.0;
+                
+                if (coreRadius <= push.radius) { 
+                    float targetSlotAngle = 65.0;
+                    float targetArcLength = push.radius * radians(targetSlotAngle); 
+                    float targetCoreRadius = 3.0;
+
+                    float resultArcLength = radians(finalSlotAngle) * push.radius; 
+                    float slotAngleError = abs(resultArcLength - targetArcLength);
+                    float coreRadiusError = abs(coreRadius - targetCoreRadius);
+
+                    float weightSlot = 1.0;
+                    float weightCore = 1.0;
+                    score = -(slotAngleError * slotAngleError * weightSlot + coreRadiusError * coreRadiusError * weightCore);
+                }
+                
+                results[poseIdx].score = score;
+            } else {
+                results[poseIdx].coreRadius = 999999.0; 
+                results[poseIdx].slotAngle = 0.0;
+                results[poseIdx].score = -999999.0;
+                results[poseIdx].bestPoseIdx = poseIdx;
+            }
+        }
     }
 
 }

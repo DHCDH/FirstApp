@@ -28,10 +28,18 @@ struct PolarPushConstants {
     float tanHelixAngle;
     float radius;
     uint32_t stepsPerPose;
-
     uint32_t numTriangles;
-
     uint32_t curBatchSize;
+
+    glm::vec3 rt1;
+    float u1;
+    glm::vec3 nt;
+    float pad_{0.};
+    float gR;
+    float gr1;
+    float gw;
+
+    float pad2_{0.};
 };
 
 struct OptimizeDrawInfo {
@@ -65,6 +73,9 @@ public:
         const VkDescriptorSetLayout& computeSetLayout);  // mark
 
     void CreateComputePipelines();  // mark
+
+    void ComputePolarPSOUpdate(VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
+                          const PolarPushConstants& push);
     void ComputePolarIntersect(VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
                                const PolarPushConstants& push);  // mark
     void ComputePolarEvaluate(VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
@@ -78,6 +89,7 @@ private:
     // Compute 管线
     VkPipelineLayout m_computePipelineLayout;  // mark
 
+    std::unique_ptr<lve::LvePipeline> m_polarPSOPipeline;
     std::unique_ptr<lve::LvePipeline> m_polarIntersectPipeline;
     std::unique_ptr<lve::LvePipeline> m_polarEvaluatePipeline;
     std::unique_ptr<lve::LvePipeline> m_polarReducePipeline;

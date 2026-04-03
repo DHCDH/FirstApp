@@ -16,7 +16,7 @@ layout(std430, set = 0, binding = 0) readonly buffer TriBuffer { Triangle triang
 layout(std430, set = 0, binding = 1) buffer ZMapBuffer { uint zMap[]; };
 layout(std430, set = 0, binding = 2) readonly buffer BasePose { PoseData poses[]; };
 
-layout(push_constant) uniform Push {
+layout(push_constant) uniform PushConstants {
     layout(offset = 0) vec3 planeNormal;
     layout(offset = 16) vec3 planePoint;
     layout(offset = 32) vec3 planeU;
@@ -26,13 +26,15 @@ layout(push_constant) uniform Push {
     layout(offset = 72) float radius;
     layout(offset = 76) uint stepsPerPose;
     layout(offset = 80) uint numTriangles;
-    layout(offset = 84) uint curBatchSize;
+    layout(offset = 84) uint curBatchSize;  // 当前粒子数
 } push;
 
 void main() {
     uint triIdx = gl_GlobalInvocationID.x;
     uint stepIdx = gl_GlobalInvocationID.y;
     uint poseIdx = gl_GlobalInvocationID.z;
+
+    uint halfSize = zMap.length() / 2;
 
     // 1. 处理动态扫掠变换 (基于当前步长 stepIdx)
     float stepDist = float(stepIdx) * push.stepX;
@@ -120,7 +122,6 @@ void main() {
 
                             if (t >= -0.01 && t <= 1.01) {
                                 uint val = floatBitsToUint(r);
-                                uint halfSize = zMap.length() / 2;
                                 uint baseIdx = poseIdx * ZMAP_RESOLUTION + uint(i);
 
                                 // 抛弃 Shared Memory，依靠连续内存的 L2 缓存原生加速！

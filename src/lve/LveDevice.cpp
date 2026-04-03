@@ -83,7 +83,6 @@ void LveDevice::createInstance()
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_2;
 
-
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
@@ -174,7 +173,6 @@ void LveDevice::createLogicalDevice()
     deviceFeatures2.features = deviceFeatures;
     deviceFeatures2.pNext = &deviceFeatures12;
 
-
     VkDeviceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
@@ -231,7 +229,8 @@ bool LveDevice::isDeviceSuitable(VkPhysicalDevice device)
 
     bool swapChainAdequate = false;
     if (extensionsSupported) {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface_);
+        SwapChainSupportDetails swapChainSupport =
+            querySwapChainSupport(device, surface_);
         swapChainAdequate =
             !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
     }
@@ -239,8 +238,37 @@ bool LveDevice::isDeviceSuitable(VkPhysicalDevice device)
     VkPhysicalDeviceFeatures supportedFeatures;
     vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
+    // 检查GPU的Subgroup硬件支持情况
+    VkPhysicalDeviceSubgroupProperties subgroupProperties{};
+    subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    subgroupProperties.pNext = nullptr;
+
+    VkPhysicalDeviceProperties2 properties2{};
+    properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    properties2.pNext = &subgroupProperties;
+
+    vkGetPhysicalDeviceProperties2(device, &properties2);
+
+    // 检查 Compute Shader 是否支持 Subgroup
+    bool isSubgroupSupportedInCompute =
+        (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+
+    // 2. 检查是否支持 Arithmetic (算术归约) 和 Ballot (投票) 扩展
+    bool isArithmeticSupported = (subgroupProperties.supportedOperations &
+                                  VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0;
+    bool isBallotSupported =
+        (subgroupProperties.supportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0;
+    bool subgroupAdequate =
+        isSubgroupSupportedInCompute && isArithmeticSupported && isBallotSupported;
+
+    if (!subgroupAdequate) {
+        std::cerr << "Warning: The current GPU lacks support for advanced subgroup "
+                     "parallel reduction capabilities！"
+                  << std::endl;
+    }
+
     return indices.isComplete() && extensionsSupported && swapChainAdequate &&
-           supportedFeatures.samplerAnisotropy;
+           supportedFeatures.samplerAnisotropy && subgroupAdequate;
 }
 
 void LveDevice::populateDebugMessengerCreateInfo(

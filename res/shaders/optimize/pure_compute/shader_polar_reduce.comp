@@ -1,21 +1,24 @@
 #version 450
 
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-struct ResultData {
-    vec2 coreRadiusPoint; vec2 tipPoint; vec2 tangent; vec2 normal; vec2 point;
-    uint coreRadiusSqBits; float rakeAngle; float slotAngle; float score;
-};
-
 struct BestResultData {
+    float coreRadius;
+    float slotAngle;
+    float score;
     uint bestPoseIdx;
-    uint pad_;
-    ResultData bestResult;
 };
 
-layout(std430, set = 0, binding = 3) readonly buffer OutputBuffer { ResultData results[]; };
+layout(std430, set = 0, binding = 3) readonly buffer OutputBuffer { 
+    BestResultData results[]; 
+};
 
-layout(std430, set = 0, binding = 4) writeonly buffer bestResultBuffer { BestResultData bestResultData; };
+layout(std430, set = 0, binding = 4) buffer GlobalBestBuffer { 
+    BestResultData gBest[]; 
+};
 
 layout(push_constant) uniform Push {
     layout(offset = 0) vec3 planeNormal;
@@ -30,42 +33,59 @@ layout(push_constant) uniform Push {
     layout(offset = 84) uint curBatchSize;
 } push;
 
-shared float localScores[256];
-shared uint localIndices[256];
+// 用于 Subgroup 之间的通讯
+shared float s_subgroupScores[16];
+shared uint  s_subgroupIndices[16];
 
 void main() 
 {
     uint tid = gl_LocalInvocationID.x;
 
-    float maxScore = -9999999.0;
-    uint bestIdx = 0;
+    float localMaxScore = -9999999.0;
+    uint localBestIdx = 0;
 
     for (uint i = tid; i < push.curBatchSize; i += 256) {
         float s = results[i].score;
-        if (s > maxScore) {
-            maxScore = s;
-            bestIdx = i;
+        if (s > localMaxScore) {
+            localMaxScore = s;
+            localBestIdx = i;
         }
     }
 
-    localScores[tid] = maxScore;
-    localIndices[tid] = bestIdx;
+    // --- subgroup内部归约 ---
+    float sgMaxScore = subgroupMax(localMaxScore);  // 当前subgroup中的最高分数
+
+    // 找出持有最高分数的id（可能有多个，取ID最小的）
+    uvec4 ballot = subgroupBallot(localMaxScore == sgMaxScore);
+    uint winnerLane = subgroupBallotFindLSB(ballot);
+
+    if(gl_SubgroupInvocationID == winnerLane) {
+        s_subgroupScores[gl_SubgroupID] = sgMaxScore;
+        s_subgroupIndices[gl_SubgroupID] = localBestIdx;
+    }
+
     barrier();
 
-    for (uint s = 128; s > 0; s >>= 1) {
-        if (tid < s) {
-            // 如果右边的分数比左边高，就把右边的分数和编号拷贝过来
-            if (localScores[tid + s] > localScores[tid]) {
-                localScores[tid] = localScores[tid + s];
-                localIndices[tid] = localIndices[tid + s];
+    // --- 0号subgroup收尾 ---
+    if(gl_SubgroupID == 0) {
+        float finalScore = -9999999.;
+        uint finalIdx = 0;
+
+        if(gl_SubgroupInvocationID < gl_NumSubgroups) {
+            finalScore = s_subgroupScores[gl_SubgroupInvocationID];
+            finalIdx = s_subgroupIndices[gl_SubgroupInvocationID];
+        }
+
+        float totalMaxScore = subgroupMax(finalScore);
+        uvec4 finalBallot = subgroupBallot(finalScore == totalMaxScore);
+        uint finalWinnerLane = subgroupBallotFindLSB(finalBallot);
+
+        if (gl_SubgroupInvocationID == finalWinnerLane) {
+            // PSO 核心逻辑：只有新成绩比历史最高分还高，才更新 gBest！
+            // 防止算法在寻优过程中发生退化
+            if (totalMaxScore > gBest[0].score) {
+                gBest[0] = results[finalIdx];
             }
         }
-        barrier();
-    }
-
-    if (tid == 0) {
-        bestResultData.bestPoseIdx = localIndices[0];
-        // GLSL 支持结构体的直接赋值，它会底层帮你拷贝内存！
-        bestResultData.bestResult = results[localIndices[0]];
     }
 }

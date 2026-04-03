@@ -43,23 +43,50 @@ void OptimizeMaskRenderSystem::CreateComputePipelines()
     PipelineConfigInfo configInfo{};
     configInfo.pipelineLayout = m_computePipelineLayout;
 
-    m_polarIntersectPipeline =
-        std::make_unique<LvePipeline>(m_lveDevice,
-                                      "../../../res/shaders/spv/optimize/pure_compute/"
-                                      "shader_polar_intersect.comp.spv",
-                                      configInfo);
+    m_polarPSOPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/optimize/pure_compute/shader_polar_PSO.comp.spv",
+        configInfo);
 
-    m_polarEvaluatePipeline =
-        std::make_unique<LvePipeline>(m_lveDevice,
-                                      "../../../res/shaders/spv/optimize/pure_compute/"
-                                      "shader_polar_evaluate.comp.spv",
-                                      configInfo);
+    m_polarIntersectPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/optimize/pure_compute/shader_polar_intersect.comp.spv",
+        configInfo);
 
-    m_polarReducePipeline =
-        std::make_unique<LvePipeline>(m_lveDevice,
-                                      "../../../res/shaders/spv/optimize/pure_compute/"
-                                      "shader_polar_reduce.comp.spv",
-                                      configInfo);
+    m_polarEvaluatePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/optimize/pure_compute/shader_polar_evaluate.comp.spv",
+        configInfo);
+
+    m_polarReducePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/optimize/pure_compute/shader_polar_reduce.comp.spv",
+        configInfo);
+}
+
+void OptimizeMaskRenderSystem::ComputePolarPSOUpdate(VkCommandBuffer cmd,
+                                                     VkDescriptorSet descriptorSet,
+                                                     const PolarPushConstants& push)
+{
+    m_polarPSOPipeline->Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindDescriptorSets(cmd,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_computePipelineLayout,
+                            0,
+                            1,
+                            &descriptorSet,
+                            0,
+                            nullptr);
+
+    vkCmdPushConstants(cmd,
+                       m_computePipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       0,
+                       sizeof(PolarPushConstants),
+                       &push);
+
+    uint32_t groupCountX = (push.curBatchSize + 255) / 256;
+    vkCmdDispatch(cmd, groupCountX, 1, 1);
 }
 
 void OptimizeMaskRenderSystem::ComputePolarIntersect(VkCommandBuffer cmd,
@@ -84,7 +111,7 @@ void OptimizeMaskRenderSystem::ComputePolarIntersect(VkCommandBuffer cmd,
 
     // X轴处理三角形，Y轴处理步数，Z轴处理层数(并发位姿)
     uint32_t groupX = (push.numTriangles + 255) / 256;
-    vkCmdDispatch(cmd, groupX, push.stepsPerPose, BATCH_LAYER_COUNT);
+    vkCmdDispatch(cmd, groupX, push.stepsPerPose, push.curBatchSize);
 }
 
 void OptimizeMaskRenderSystem::ComputePolarEvaluate(
@@ -109,7 +136,7 @@ void OptimizeMaskRenderSystem::ComputePolarEvaluate(
                        sizeof(PolarPushConstants),
                        &push);
 
-    vkCmdDispatch(cmd, 1, 1, BATCH_LAYER_COUNT);
+    vkCmdDispatch(cmd, 1, 1, push.curBatchSize);
 }
 
 void OptimizeMaskRenderSystem::ComputePolarReduce(VkCommandBuffer cmd,

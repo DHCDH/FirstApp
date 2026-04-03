@@ -9,7 +9,28 @@
 #include "LveDevice.h"
 #include "integration/NumericalIntegrator.h"
 #include "../Global.h"
-#include "OptimizeResourceContext.h"
+
+namespace optimize
+{
+
+struct PoseData {
+    glm::mat4 modelMatrix;
+    glm::vec4 projU;  // 根据砂轮候选位姿预算的局部X轴
+    glm::vec4 projV;  // 根据砂轮候选位姿预算的局部Y轴
+};
+
+struct Particle {
+    glm::vec4 posVel;     // x: u0c, y: lambda, z: v_u0c, w: v_lambda
+    glm::vec4 pBestData;  // x: pBest_u, y: pBest_lambda, z: pBest_socre, w: padding
+};
+
+struct PoseConstants {
+    glm::vec3 rt1;
+    glm::vec3 nt;
+    float u1;
+    float gr1;  // 砂轮圆角半径
+    float gR;   // 砂轮半径
+};
 
 struct GrindingWheelParameters {
     double d1{100.};  // 大端圆直径
@@ -64,7 +85,13 @@ public:
     ArcProjectionSolver(const ArcProjectionSolver&) = delete;
     ArcProjectionSolver& operator=(const ArcProjectionSolver&) = delete;
 
-    std::vector<optimize::PoseData> CalculateGrindingWheelPose();
+    std::vector<PoseData> CalculateGrindingWheelPose();
+
+    // 根据u1提取GPU所需的所有物理常数
+    PoseConstants PrepareConstantsForGPU(double u1);
+
+    // 粒子群随机初始化
+    void InitializeSwarm(std::vector<Particle>& swarm, double u1);
 
     void ExportTransformsToTXT();
     void ExportToolPathToTXT();
@@ -89,6 +116,14 @@ public:
     {
         m_plane = std::move(p);
         return *this;
+    }
+    GrindingWheelParameters GetGrindingWheelParameters() const
+    {
+        return m_gw;
+    }
+    CutterParameters GetCutterParameters() const
+    {
+        return m_c;
     }
 
 private:
@@ -121,6 +156,8 @@ private:
     // std::vector<double> m_u0c;
     // std::vector<double> m_lambda;
     Plane m_plane;
-    std::vector<optimize::PoseData> m_poseData;
+    std::vector<PoseData> m_poseData;
     ToolPath m_tp;
 };
+
+}  // namespace optimize

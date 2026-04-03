@@ -1,10 +1,11 @@
 ﻿#include "ArcProjectionSolver.h"
 
-#include <gtc/constants.hpp>
-#include <iostream>
 #include <exception>
 #include <fstream>
+#include <gtc/constants.hpp>
 #include <iomanip>
+#include <iostream>
+#include <random>
 #include <string>
 
 #include "../Global.h"
@@ -13,12 +14,14 @@ constexpr double EPS_DBL = 1e-12;
 
 using namespace glm;
 
+namespace optimize
+{
 ArcProjectionSolver::ArcProjectionSolver()
 {
     // 先使用默认砂轮和刀具参数进行测试
 }
 
-std::vector<optimize::PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
+std::vector<PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
 {
     PROFILE_SCOPE("Arc projection");
 
@@ -28,8 +31,8 @@ std::vector<optimize::PoseData> ArcProjectionSolver::CalculateGrindingWheelPose(
 
     m_poseData.reserve(numU1 * numLambda * numU0c);
 
-    // --- 测试用矩阵 ---
-    #if 0
+// --- 测试用矩阵 ---
+#if 0
     {
         //glm::mat4 Mtw0(
         //    glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
@@ -49,10 +52,10 @@ std::vector<optimize::PoseData> ArcProjectionSolver::CalculateGrindingWheelPose(
          m_transform.push_back(Mtw1);
          return m_transform;
     }
-    #endif
+#endif
 
     double stepU1 = m_c.cuttingEdgeLength / static_cast<double>(numU1);
-    //double stepU0c = m_gw.width / static_cast<double>(numU0c);
+    // double stepU0c = m_gw.width / static_cast<double>(numU0c);
     // 只用大端圆圆角部分试切
     double stepU0c = m_gw.gr1 / static_cast<double>(numU0c);
 
@@ -60,11 +63,12 @@ std::vector<optimize::PoseData> ArcProjectionSolver::CalculateGrindingWheelPose(
     for (int i = 0; i <= numU1; i++) {
         double u1 = i * stepU1;
         // 必须要保证sin(lambda) != 0
-        double stepLambda = (glm::half_pi<double>() - m_c.helixAngle(u1)) / static_cast<double>(numLambda);
+        double stepLambda = (glm::half_pi<double>() - m_c.helixAngle(u1)) /
+                            static_cast<double>(numLambda);
 
         for (int j = 1; j <= numLambda; j++) {
             double lambda = j * stepLambda;
-            
+
             for (int k = 0; k <= numU0c; k++) {
                 double u0c = k * stepU0c;
                 NarrowGrindingWheelPosition(u0c, lambda, u1);
@@ -99,17 +103,17 @@ void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
     double xi = -(c1 * n_t.z - r0_du0 * cos(lambda)) / sin(lambda);
     if (xi > 1.) xi = 1.;
     if (xi < -1.) xi = -1.;
-    
+
     // Eq.20
     double theta0c = glm::pi<double>() - asin(xi);
 
     // Eq.22, E1.23
     double numerator_sin =
         -c1 * (n_t.y * cos(theta0c) - n_t.x * cos(lambda) * sin(theta0c) -
-                 r0_du0 * n_t.x * sin(lambda));
+               r0_du0 * n_t.x * sin(lambda));
     double numerator_cos =
         -c1 * (n_t.x * cos(theta0c) + n_t.y * cos(lambda) * sin(theta0c) +
-                 r0_du0 * n_t.y * sin(lambda));
+               r0_du0 * n_t.y * sin(lambda));
     double denominator = cos(theta0c) * cos(theta0c) +
                          (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda)) *
                              (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda));
@@ -122,11 +126,11 @@ void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
 
     // Eq.19
     double a_x = r_t1.x * cos_phi_t + r_t1.y * sin_phi_t - r0 * cos(theta0c);
-    double a_y = -r_t1.x * sin_phi_t + r_t1.y * cos_phi_t - r0 * cos(lambda) * sin(theta0c) +
-          u0c * sin(lambda);
+    double a_y = -r_t1.x * sin_phi_t + r_t1.y * cos_phi_t -
+                 r0 * cos(lambda) * sin(theta0c) + u0c * sin(lambda);
     double a_z = r_t1.z - u0c * cos(lambda) - r0 * sin(lambda) * sin(theta0c);
 
-    // --- E1.16 --- 
+    // --- E1.16 ---
     glm::mat4 Mtw;
     double cos_lam = cos(lambda);
     double sin_lam = sin(lambda);
@@ -198,7 +202,7 @@ double ArcProjectionSolver::CalculateTheta(double u1)
         return val;
     };
 
-    //integrator.SetStrategy(
+    // integrator.SetStrategy(
     //    std::make_unique<AdaptiveSimpsonStrategy>(1e-10, 1e-10, 1e-2, 1e-12, 0.5));
     double theta = m_integrator->Integrate(integrand, 0, u1);
 
@@ -288,12 +292,49 @@ double ArcProjectionSolver::CalculateNormalRakeAngle(double u1, const glm::dvec4
                          (b_t.x * r_t1.y - b_t.y * r_t1.x) * sin(gamma_r);
 
     if (fabs(denominator) < EPS_DBL) {
-        //std::cout << "ComputeNormalRakeAngle: error"
+        // std::cout << "ComputeNormalRakeAngle: error"
         //          << "\n";
         return 0.0;
     }
 
     return std::atan(numerator / denominator);  // 注意象限？
+}
+
+PoseConstants ArcProjectionSolver::PrepareConstantsForGPU(double u1)
+{
+    PROFILE_SCOPE("Prepare constants for GPU");
+
+    double theta1 = CalculateTheta(u1);
+    dvec4 r_t1_4 = CalculateCuttingEdgeCurve(u1, theta1);
+    dvec4 n_t_4 = CalculateCuttingEdgeCurveNormal(u1, theta1, r_t1_4);
+
+    PoseConstants consts;
+    consts.rt1 = glm::vec3(r_t1_4);
+    consts.nt = glm::vec3(n_t_4);
+    consts.u1 = static_cast<float>(u1);
+    consts.gR = static_cast<float>(m_gw.d1 / 2);
+    consts.gr1 = static_cast<float>(m_gw.gr1);
+
+    return consts;
+}
+
+void ArcProjectionSolver::InitializeSwarm(std::vector<Particle>& swarm, double u1)
+{
+    PROFILE_SCOPE("Initialize swarm");
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // u0c 范围限制在砂轮圆角区域
+    std::uniform_real_distribution<float> distU0(0.0f, m_gw.gr1);
+    // lambda范围
+    std::uniform_real_distribution<float> distLambda(
+        0.0f,
+        glm::half_pi<double>() - m_c.helixAngle(u1));
+
+    for (auto& p : swarm) {
+        p.posVel = glm::vec4(distU0(gen), distLambda(gen), 0.0f, 0.0f);
+        p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
+    }
 }
 
 void ArcProjectionSolver::ExportTransformsToTXT()
@@ -329,8 +370,7 @@ void ArcProjectionSolver::ExportTransformsToTXT()
 
     outFile.close();
     std::cout << "Successfully exported " << m_poseData.size() << " matrices to "
-              << filename
-              << "\n";
+              << filename << "\n";
 }
 
 void ArcProjectionSolver::ExportToolPathToTXT()
@@ -377,3 +417,5 @@ void ArcProjectionSolver::ExportToolPathToTXT()
 ArcProjectionSolver ::~ArcProjectionSolver()
 {
 }
+
+}  // namespace optimize

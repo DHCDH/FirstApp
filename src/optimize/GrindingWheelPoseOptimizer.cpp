@@ -17,127 +17,47 @@ GrindingWheelPoseOptimizer::GrindingWheelPoseOptimizer(lve::LveDevice& device,
     : m_lveDevice(device), m_blank(blank), m_grndWheel(grndWheel)
 {
     // InitSSBOResources();
-    CalculateTransformMatrixes();
+    InitializeDataForPSO();
 }
 
-void GrindingWheelPoseOptimizer::InitSSBOResources()
+void GrindingWheelPoseOptimizer::InitializeDataForPSO()
 {
-    uint32_t bufferSize = sizeof(glm::mat4) * BATCH_LAYER_COUNT;
-    m_poseSSBOBuffer = std::make_unique<LveBuffer>(
-        m_lveDevice,
-        sizeof(glm::mat4),
-        BATCH_LAYER_COUNT,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,  // 作为 SSBO 使用
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    // 映射到 CPU 内存，永不 Unmap，方便后续高速装填
-    m_poseSSBOBuffer->Map();
-
-    // 创建 DescriptorSet 布局 (对应 set = 1, binding = 1)
-    m_SSBOSetLayout =
-        LveDescriptorSetLayout::Builder(m_lveDevice)
-            .AddBinding(1,
-                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
-            .Build();
-
-    m_descriptorPool = LveDescriptorPool::Builder(m_lveDevice)
-                           .SetMaxSets(1)
-                           .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1)
-                           .Build();
-
-    // 3. 写入描述符
-    auto bufferInfo = m_poseSSBOBuffer->DescriptorInfo();
-    LveDescriptorWriter(*m_SSBOSetLayout, *m_descriptorPool)
-        .WriteBuffer(1, &bufferInfo)
-        .Build(m_SSBODescriptorSet);
-}
-
-void GrindingWheelPoseOptimizer::CalculateTransformMatrixes()
-{
-    PROFILE_SCOPE("CalculateTransformMatrixes");
+    PROFILE_SCOPE("Initialize Data For PSO");
 
     auto integrator = std::make_unique<NumericalIntegrator>();
     integrator->SetStrategy(
         std::make_unique<AdaptiveSimpsonStrategy>(1e-10, 1e-10, 1e-2, 1e-12, 0.5));
-    ArcProjectionSolver arcProjectionSolver;
-    arcProjectionSolver.SetIntegrator(std::move(integrator))
+
+    m_arcProjectionSolver.SetIntegrator(std::move(integrator))
         .SetCutterParameters(CutterParameters{})
         .SetGrindingWheelParameters(GrindingWheelParameters{})
         .SetPlane(Plane{});
 
-    m_poseData = arcProjectionSolver.CalculateGrindingWheelPose();
+    // m_poseData = arcProjectionSolver.CalculateGrindingWheelPose();
+    m_poseConstants = m_arcProjectionSolver.PrepareConstantsForGPU(0.);
+    m_swarm.resize(SWARM_SIZE);
+    m_arcProjectionSolver.InitializeSwarm(m_swarm, 0.);
 
-    std::cout << "[Optimizer] Generated " << m_poseData.size() << " poses.\n";
+    std::cout << "[Optimizer] Generated " << m_poseData.size() << " particles.\n";
 }
 
-CameraData GrindingWheelPoseOptimizer::CalculateMicroCamera(
-    const BBoxData& bbox, const SliceViewConfig& macroConfig, uint32_t texWidth,
-    uint32_t texHeight, const Plane& plane)
+void GrindingWheelPoseOptimizer::InsertComputeBarrier(VkCommandBuffer cmd)
 {
-    CameraData cameraData;
+    VkMemoryBarrier memoryBarrier{};
+    memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-    glm::vec3 up = glm::vec3{0.f, 1.f, 0.f};
-    // 如果法线刚好也是 Y 轴，为了防止万向节死锁，换一个上向量
-    if (std::abs(glm::dot(plane.normal, up)) > 0.999f) {
-        up = glm::vec3(0.f, 0.f, 1.f);
-    }
-    glm::mat4 viewMatrix = glm::lookAt(plane.point + plane.normal, plane.point, up);
-
-    if (bbox.minX == 0xFFFFFFFF || bbox.maxX <= bbox.minX || bbox.maxY <= bbox.minY) {
-        // BBox无效，返回宏观相机
-        LveCamera fallbackCam;
-        fallbackCam.SetOrthographicProjection(macroConfig.xMin,
-                                              macroConfig.xMax,
-                                              macroConfig.zMax,
-                                              macroConfig.zMin,
-                                              -4000.f,
-                                              4000.f);
-        cameraData.projView = fallbackCam.GetProjection() * viewMatrix;
-        cameraData.mapInfo = {macroConfig.xMin,
-                              macroConfig.zMax,
-                              (macroConfig.xMax - macroConfig.xMin) / texWidth,
-                              (macroConfig.zMin - macroConfig.zMax) / texHeight};
-
-        return cameraData;
-    }
-
-    // 2. 宏观像素 -> 宏观物理坐标
-    float macroDx = (macroConfig.xMax - macroConfig.xMin) / static_cast<float>(texWidth);
-    float macroDz = (macroConfig.zMin - macroConfig.zMax) / static_cast<float>(texHeight);
-
-    float worldMinX = macroConfig.xMin + bbox.minX * macroDx;
-    float worldMaxX = macroConfig.xMin + bbox.maxX * macroDx;
-    float worldMinZ = macroConfig.zMax + bbox.minY * macroDz;
-    float worldMaxZ = macroConfig.zMax + bbox.maxY * macroDz;
-
-    // 3. 算出中心点和物理半径，并加上 1.2 倍的安全边缘缓冲
-    float centerX = (worldMinX + worldMaxX) * 0.5f;
-    float centerZ = (worldMinZ + worldMaxZ) * 0.5f;
-    float halfX = std::abs(worldMaxX - worldMinX) * 0.5f;
-    float halfZ = std::abs(worldMaxZ - worldMinZ) * 0.5f;
-
-    float maxHalf = std::max({halfX, halfZ, 0.5f}) * 1.2f;
-    float aspect = static_cast<float>(texWidth) / static_cast<float>(texHeight);
-
-    float newXMin = centerX - maxHalf * aspect;
-    float newXMax = centerX + maxHalf * aspect;
-    float newZMin = centerZ - maxHalf;
-    float newZMax = centerZ + maxHalf;
-
-    // 4. 生成极限局部放大的 Projection 矩阵和 mapInfo
-    LveCamera microCam;
-    microCam
-        .SetOrthographicProjection(newXMin, newXMax, newZMax, newZMin, -4000.f, 4000.f);
-
-    cameraData.projView = microCam.GetProjection() * viewMatrix;
-    cameraData.mapInfo = {newXMin,
-                          newZMax,
-                          (newXMax - newXMin) / texWidth,
-                          (newZMin - newZMax) / texHeight};
-
-    return cameraData;
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         1,
+                         &memoryBarrier,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr);
 }
 
 void GrindingWheelPoseOptimizer::RunOptimization(
@@ -147,12 +67,14 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 {
     PROFILE_SCOPE("Run Optimization");
 
-    uint32_t totalPoses = static_cast<uint32_t>(m_poseData.size());
-    if (totalPoses == 0) return;
+    context.GetParticleBuffer()->Map();
+    context.GetParticleBuffer()->WriteToBuffer((void*)m_swarm.data());
 
-    std::cout << "[Optimizer] Starting GPU evaluation loop for " << totalPoses
-              << " poses..."
-              << "\n ";
+    BestResultData* mappedBest =
+        (BestResultData*)context.GetBestResultSSBOBuffer()->GetMappedMemory();
+    mappedBest[0].score = -999999.0f;  // 强制赋予极低分
+    mappedBest[0].coreRadius = std::numeric_limits<float>::max();  // u0c复用coreRadius
+    mappedBest[0].slotAngle = 0.0f;     // lambda复用slotAngle
 
     std::vector<Triangle> triangles = ExtractTriangles(m_grndWheel);
     std::cout << "[Debug] Extracted Triangles Count: " << triangles.size() << "\n";
@@ -176,27 +98,22 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                            context.GetTriangleBuffer()->GetBuffer(),
                            bufferSize);
 
-    // 构造截面局部基向量
-    glm::vec3 up = (std::abs(plane.normal.y) > 0.99f) ? glm::vec3(1.0f, 0.0f, 0.0f)
-                                                      : glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 planeU = glm::normalize(glm::cross(plane.normal, up));
-    glm::vec3 planeV = glm::cross(plane.normal, planeU);
+    PolarPushConstants polarPush{};
+    polarPush.planeNormal = plane.normal;
+    polarPush.planePoint = plane.point;
+    polarPush.planeU = {1., 0., 0.};
+    polarPush.planeV = {0., 1., 0.};
+    polarPush.stepX = wheelPushData.stepX;
+    polarPush.tanHelixAngle = wheelPushData.tanHelixAngle;
+    polarPush.radius = wheelPushData.radius;
+    polarPush.stepsPerPose = wheelPushData.stepsPerPose;
+    polarPush.numTriangles = static_cast<uint32_t>(triangles.size());
+    polarPush.rt1 = m_poseConstants.rt1;
+    polarPush.u1 = m_poseConstants.u1;
+    polarPush.nt = m_poseConstants.nt;
+    polarPush.gR = m_poseConstants.gR;
+    polarPush.gr1 = m_poseConstants.gr1;
 
-    PolarPushConstants push{};
-    push.planeNormal = plane.normal;
-    push.planePoint = plane.point;
-    push.planeU = planeU;
-    push.planeV = planeV;
-    push.stepX = wheelPushData.stepX;
-    push.tanHelixAngle = wheelPushData.tanHelixAngle;
-    push.radius = wheelPushData.radius;
-    push.stepsPerPose = wheelPushData.stepsPerPose;
-    push.numTriangles = static_cast<uint32_t>(triangles.size());
-
-    // --- 映射读回内存 ---
-    context.GetBestResultSSBOBuffer()->Map();
-    BestResultData* mappedResults =
-        (BestResultData*)context.GetBestResultSSBOBuffer()->GetMappedMemory();
 
     // --- 申请持久化的指令缓冲 ---
     VkCommandBufferAllocateInfo allocInfo{};
@@ -207,208 +124,75 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
     VkCommandBuffer cmdCompute;
     vkAllocateCommandBuffers(m_lveDevice.device(), &allocInfo, &cmdCompute);
+    vkResetCommandBuffer(cmdCompute, 0);
+    VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    vkBeginCommandBuffer(cmdCompute, &beginInfo);
 
-    for (uint32_t i = 0; i < totalPoses; i += BATCH_LAYER_COUNT) {
-        std::cout << "\r[Optimizer] Processing batch: " << i << " / " << totalPoses
-                  << " (" << (i * 100 / totalPoses) << "%) completed..." << std::flush;
+    // RENDERDOC_START;
 
-        uint32_t curBatchSize = std::min((uint32_t)BATCH_LAYER_COUNT, totalPoses - i);
+    const int PSOIterations = 20;
+    for (int iter = 0; iter < PSOIterations; iter++) {
+        maskRenderSystem.ComputePolarPSOUpdate(cmdCompute,
+                                          context.GetContourDescriptorSet(),
+                                          polarPush);
+        InsertComputeBarrier(cmdCompute);
 
-        // 将BATCH_LAYER_COUNT数量的位姿矩阵填进SSBO
-        memcpy(context.GetPoseSSBOBuffer()->GetMappedMemory(),
-               m_poseData.data() + i,
-               curBatchSize * sizeof(glm::mat4));
-
-        if (i == 0) RENDERDOC_START;
-
-        vkResetCommandBuffer(cmdCompute, 0);
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdCompute, &beginInfo);
-
-        VkDeviceSize halfSize = BATCH_LAYER_COUNT * ZMAP_RESOLUTION * sizeof(uint32_t);
-
-        // 前半部分，存储theta对应minR
-        float initR = 1000.0f;
-        uint32_t initBits = std::bit_cast<uint32_t>(initR);
+        // --- 清空ZMap ---
         vkCmdFillBuffer(cmdCompute,
                         context.GetZMapBuffer()->GetBuffer(),
                         0,
-                        halfSize,
-                        initBits);
-
-        // 后半部分，存储theta对应maxR
-        float zeroR = 0.f;
-        uint32_t zeroBits = std::bit_cast<uint32_t>(zeroR);
-        vkCmdFillBuffer(cmdCompute,
-                        context.GetZMapBuffer()->GetBuffer(),
-                        halfSize,
-                        halfSize,
-                        zeroBits);
-
-#if 0
-        ResultData initResult{};
-        initResult.coreRadiusSqBits = 0xFFFFFFFF;
-        std::vector<ResultData> initResults(BATCH_LAYER_COUNT, initResult);
-        vkCmdUpdateBuffer(cmdCompute,
-                          context.GetResultBuffer()->GetBuffer(),
-                          0,
-                          sizeof(ResultData) * BATCH_LAYER_COUNT,
-                          initResults.data());
-#endif
-
-        VkMemoryBarrier clearBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        clearBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        clearBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmdCompute,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             1,
-                             &clearBarrier,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr);
+                        VK_WHOLE_SIZE,
+                        0xFFFFFFFF);
+        InsertComputeBarrier(cmdCompute);
 
         maskRenderSystem.ComputePolarIntersect(cmdCompute,
                                                context.GetContourDescriptorSet(),
-                                               push);
-
-        // 屏障：等待交集计算完成
-        VkMemoryBarrier intersectBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        intersectBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        intersectBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmdCompute,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             1,
-                             &intersectBarrier,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr);
+                                               polarPush);
+        InsertComputeBarrier(cmdCompute);
 
         maskRenderSystem.ComputePolarEvaluate(cmdCompute,
                                               context.GetContourDescriptorSet(),
-                                              push);
-
-        push.curBatchSize = curBatchSize;
-
-        // --- evaluate与reduce之间的屏障 ---
-        VkMemoryBarrier reduceBarrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        reduceBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        reduceBarrier.dstAccessMask =
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmdCompute,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             1,
-                             &reduceBarrier,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr);
+                                              polarPush);
+        InsertComputeBarrier(cmdCompute);
 
         maskRenderSystem.ComputePolarReduce(cmdCompute,
                                             context.GetContourDescriptorSet(),
-                                            push);
-
-        vkEndCommandBuffer(cmdCompute);
-
-        // 直接向 Graphics 队列提交任务 (Vulkan图形队列天然支持计算)
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmdCompute;
-
-        vkQueueSubmit(m_lveDevice.graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-
-        // 依然死等 GPU 算完这一批，再进入下一次循环
-        vkQueueWaitIdle(m_lveDevice.graphicsQueue());
-
-        BestResultData batchBest = mappedResults[0];
-
-        if (batchBest.bestResult.score > m_bestScore &&
-            batchBest.bestResult.coreRadiusSqBits != 0xFFFFFFFF) {
-            m_bestScore = batchBest.bestResult.score;
-            m_bestResult = batchBest.bestResult;
-            m_bestPose = m_poseData[i + batchBest.bestPoseIdx].modelMatrix;
-        }
-
-        if (i == 0) RENDERDOC_END;
+                                          polarPush);
+        InsertComputeBarrier(cmdCompute);
     }
 
-    vkFreeCommandBuffers(m_lveDevice.device(),
-                         m_lveDevice.getCommandPool(),
-                         1,
-                         &cmdCompute);
+    // RENDERDOC_END;
 
-    std::cout << "\n[Optimizer] All batches finished successfully!"
-              << "\n";
+    vkEndCommandBuffer(cmdCompute);
 
-    std::cout << "\n========== [ Result ] Best Result ==========\n";
-    float sq = std::bit_cast<float>(m_bestResult.coreRadiusSqBits);
-    std::cout << "core radius: " << std::sqrt(sq) << "\n";
-    std::cout << "slot angle: " << m_bestResult.slotAngle << "\n";
-    std::cout << "score: " << m_bestResult.score << "\n";
-    // std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
+    // 直接向 Graphics 队列提交任务 (Vulkan图形队列天然支持计算)
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdCompute;
+    vkQueueSubmit(m_lveDevice.graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    // 依然死等 GPU 算完这一批，再进入下一次循环
+    vkQueueWaitIdle(m_lveDevice.graphicsQueue());
 
-    std::cout << "\n========== [ Result ] Best Pose Matrix ==========\n";
-    for (int row = 0; row < 4; ++row) {
-        std::cout << "[ ";
-        for (int col = 0; col < 4; ++col) {
-            // 注意：glm::mat4 的索引是 mat[col][row]
-            std::cout << m_bestPose[col][row] << "\t";
-        }
-        std::cout << "]\n";
-    }
-    std::cout << "Best Score: " << m_bestScore << "\n";
-    std::cout << "=================================================\n\n";
-
-    context.GetBestResultSSBOBuffer()->Unmap();
-
-    WriteToolPath();
-
-    std::cout << "BATCH_LAYER_COUNT : " << BATCH_LAYER_COUNT << "\n";
+    ReadBackBestResult(context);
 }
 
-float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
+void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContext& context)
 {
-    if (result.coreRadiusSqBits == 0xFFFFFFFF) {
-        return -999999.0f;
+    Particle* particles =
+        static_cast<Particle*>(context.GetParticleBuffer()->GetMappedMemory());
+    float bestScore = -999999.0f;
+    glm::vec2 bestParams(0.0f);
+
+    for (uint32_t i = 0; i < SWARM_SIZE; i++) {
+        if (particles[i].pBestData.z > bestScore) {
+            bestScore = particles[i].pBestData.z;
+            bestParams.x = particles[i].pBestData.x;   // u0c
+            bestParams.y = particles[i].pBestData.y;  // lambda
+        }
     }
 
-    float coreRadiusSq = std::bit_cast<float>(result.coreRadiusSqBits);
-    float coreRadius = std::sqrt(coreRadiusSq);
-
-    if (coreRadius > 5.f) {
-        return -999999.0f;
-    }
-
-    float targetSlotAngle = 65.0f;
-    float targetArcLength = 5.f * glm::radians(targetSlotAngle);
-    float targetCoreRadius = 3.0f;
-    // float targetRakeAngle = 10.0f;
-
-    float resultArcLength = glm::radians(result.slotAngle) * 5.f;
-
-    float slotAngleError = std::abs(resultArcLength - targetArcLength);
-    float coreRadiusError = std::abs(coreRadius - targetCoreRadius);
-    // ArcProjection已经的计算已经保证了前角和螺旋角
-    // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
-
-    float weightSlot = 1.f;
-    float weightCore = 1.f;
-
-    float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
-
-    return score;
+    m_bestScore = bestScore;
 }
 
 void GrindingWheelPoseOptimizer::WriteToolPath()

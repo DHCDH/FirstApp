@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "../Global.h"
+#include "ArcProjectionSolver.h"
 #include "LveFrameInfo.h"
 
 using namespace lve;
@@ -46,9 +47,16 @@ void OptimizeResourceContext::CreateComputeResources()
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     m_poseSSBOBuffer->Map();
 
+    m_particleBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(Particle),
+        SWARM_SIZE,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
     // 结果 Buffer
     m_resultBuffer = std::make_unique<LveBuffer>(m_lveDevice,
-                                                 sizeof(ResultData),
+                                                 sizeof(BestResultData),
                                                  BATCH_LAYER_COUNT,
                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
@@ -81,11 +89,14 @@ void OptimizeResourceContext::CreateComputeResources()
             .AddBinding(4,
                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                         VK_SHADER_STAGE_COMPUTE_BIT)  // BestResult
+            .AddBinding(5,
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                        VK_SHADER_STAGE_COMPUTE_BIT)  // Particles
             .Build();
 
     m_computeDescriptorPool = LveDescriptorPool::Builder(m_lveDevice)
                                   .SetMaxSets(1)
-                                  .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5)
+                                  .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6)
                                   .Build();
 
     auto triInfo = m_triangleBuffer->DescriptorInfo();
@@ -93,6 +104,7 @@ void OptimizeResourceContext::CreateComputeResources()
     auto poseInfo = m_poseSSBOBuffer->DescriptorInfo();
     auto resultInfo = m_resultBuffer->DescriptorInfo();
     auto bestResultInfo = m_bestResultSSBOBuffer->DescriptorInfo();
+    auto particleInfo = m_particleBuffer->DescriptorInfo();
 
     LveDescriptorWriter(*m_contourComputeSetLayout, *m_computeDescriptorPool)
         .WriteBuffer(0, &triInfo)
@@ -100,6 +112,7 @@ void OptimizeResourceContext::CreateComputeResources()
         .WriteBuffer(2, &poseInfo)
         .WriteBuffer(3, &resultInfo)
         .WriteBuffer(4, &bestResultInfo)
+        .WriteBuffer(5, &particleInfo)
         .Build(m_contourDescriptorSet);
 }
 

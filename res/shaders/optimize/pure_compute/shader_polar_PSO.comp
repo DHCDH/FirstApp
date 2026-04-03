@@ -1,0 +1,260 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle {
+    // 内存合并绝杀：一次读取 128-bit
+    vec4 pos_vel;      // x: u0c, y: lambda, z: v_u0c, w: v_lambda
+    vec4 pBest_data;   // x: pBest_u0c, y: pBest_lambda, z: pBest_score, w: padding
+};
+
+struct PoseData {
+    mat4 modelMatrix;
+    vec4 projU;
+    vec4 projV;
+};
+
+struct BestResultData {
+    float coreRadius;
+    float slotAngle;
+    float score;
+    uint bestPoseIdx;
+};
+
+layout(push_constant) uniform PushConstants {
+    layout(offset = 0) vec3 planeNormal;
+    layout(offset = 16) vec3 planePoint;
+    layout(offset = 32) vec3 planeU;
+    layout(offset = 48) vec3 planeV;
+    layout(offset = 64) float stepX;
+    layout(offset = 68) float tanHelixAngle;
+    layout(offset = 72) float radius;
+    layout(offset = 76) uint stepsPerPose;
+    layout(offset = 80) uint numTriangles;
+    layout(offset = 84) uint curBatchSize;  // 当前粒子数
+
+    layout(offset = 96) vec4  rt1;      // rt1 (vec3) + u1 (float) 压在一个 vec4 里对齐
+    layout(offset = 112) vec4  nt_pad;       // nt (vec3) + pad_ (float)
+    
+    layout(offset = 128) float gR;           // 砂轮半径
+    layout(offset = 132) float gr1;          // 大端圆角
+    layout(offset = 136) float gw;           // 砂轮总宽
+    layout(offset = 140) float pad_;
+} push;
+
+layout(std430, set = 0, binding = 2) writeonly buffer PoseBuffer {
+    PoseData poses[];
+};
+
+layout(std430, set = 0, binding = 4) readonly buffer GlobalBestBuffer {
+    BestResultData gBest[];
+};
+
+layout(std430, set = 0, binding = 5) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+uint seed;
+float LCG_random()
+{
+    if(seed == 0) seed = 123456789U;
+
+    uint s1 = seed;
+    uint s2 = seed * 0x9E3779B9U;
+    uint s3 = seed * 0x5A4E1A1U;
+    uint s4 = seed * 0x1337C0DEU;
+    uint b;
+
+    // --- TAUS113 核心 ---
+    b = ((s1 << 6) ^ s1) >> 13;
+    s1 = ((s1 & 4294967294U) << 18) ^ b;
+
+    b = ((s2 << 2) ^ s2) >> 27;
+    s2 = ((s2 & 4294967288U) << 2) ^ b;
+
+    b = ((s3 << 13) ^ s3) >> 21;
+    s3 = ((s3 & 4294967280U) << 7) ^ b;
+
+    b = ((s4 << 3) ^ s4) >> 12;
+    s4 = ((s4 & 4294967168U) << 13) ^ b;
+
+    seed = s1 ^ s2 ^ s3 ^ s4;
+
+    return uintBitsToFloat(0x3F800000 | (seed >> 9)) - 1.0f;
+}
+
+// 获取砂轮半径
+float calculateGwRadius(float u0) 
+{
+    if(u0 < push.gr1) {
+        return push.gR - push.gr1 + sqrt(push.gr1 * push.gr1 - (push.gr1 - u0) * (push.gr1 - u0));
+    }
+
+    return push.gR;
+}
+
+// 获取砂轮半径微分
+float calculateGwRadiusDeriv(float u0)
+{
+    if(u0 < push.gr1) {
+        float inner = push.gr1 * push.gr1 - (push.gr1 - u0) * (push.gr1 - u0);
+        return (push.gr1 - u0) / sqrt(max(inner, 1e-12));
+    }
+
+    return 0.;
+}
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if(idx >= push.curBatchSize) return;
+
+    // --- 初始化随机种子 ---
+    seed = (idx * 1973) ^ (uint(push.rt1.w * 10000.0) * 9277);
+    LCG_random();
+
+    // --- 获取当前粒子信息 ---
+    vec4 current_pv = particles[idx].pos_vel;
+    vec2 pos = current_pv.xy;   // u0c, lambda
+    vec2 vel = current_pv.zw;   // v_u0c, v_lambda
+
+    vec2 pBestPos = particles[idx].pBest_data.xy;
+
+    uint bestIdx = gBest[0].bestPoseIdx;
+    vec2 gBestPos = particles[bestIdx].pBest_data.xy;
+
+    if (gBest[0].score < -900000.0) {
+        gBestPos = pBestPos; 
+    }
+
+    // --- PSO速度与位置更新 ---
+    float w = 0.729;
+    float c1 = 1.49445;
+    float c2 = 1.49445;
+
+    float r1 = LCG_random();
+    float r2 = LCG_random();
+
+    // 更新速度
+    vel = w * vel + c1 * r1 * (pBestPos - pos) + c2 * r2 * (gBestPos - pos);
+
+    // 更新位置
+    pos = pos + vel;
+
+    // 边界约束
+    pos.x = clamp(pos.x, 0.0, push.gr1);        // u0c 限制在圆角范围内
+    pos.y = clamp(pos.y, 0.0, 1.0472);       // lambda 限制与螺旋角有关，后续应传入u1对应的螺旋角
+
+    // 写回更新后的状态
+    particles[idx].pos_vel = vec4(pos, vel);
+
+    // --- 运动学矩阵生成 ---
+    float u0c = pos.x;
+    float lambda = pos.y;
+
+    float r0 = calculateGwRadius(u0c);
+    float r0_du0 = calculateGwRadiusDeriv(u0c);
+    float c1_ = sqrt(1. + r0_du0 * r0_du0);
+
+    float sin_lam = sin(lambda);
+    float cos_lam = cos(lambda);
+    float denom_lam = abs(sin_lam) > 1e-8 ? sin_lam : (sin_lam >= 0.0 ? 1e-8 : -1e-8);  // 防止除零
+
+    // Eq.21
+    float xi = -(c1_ * push.nt_pad.z - r0_du0 * cos_lam) / denom_lam;
+    xi = clamp(xi, -1., 1.);
+
+    // Eq.20
+    float theta0c = 3.141592653589793 - asin(xi);
+
+    // Eq.22, E1.23
+    float sin_t0c = sin(theta0c);
+    float cos_t0c = cos(theta0c);
+    float nx = push.nt_pad.x;
+    float ny = push.nt_pad.y;
+
+    float num_sin =
+        -c1_ * (ny * cos_t0c - nx * cos_lam * sin_t0c -
+            r0_du0 * nx * sin_lam);
+    float num_cos =
+        -c1_ * (nx * cos_t0c + ny * cos_lam * sin_t0c +
+            r0_du0 * ny * sin_lam);
+
+    float phi_t = atan(num_sin, num_cos);
+    float sin_phi = sin(phi_t);
+    float cos_phi = cos(phi_t);
+
+    // Eq.19
+    float rx = push.rt1.x;
+    float ry = push.rt1.y;
+    float rz = push.rt1.z;
+    float a_x = rx * cos_phi + ry * sin_phi - r0 * cos_t0c;
+    float a_y = -rx * sin_phi + ry * cos_phi -
+                r0 * cos_lam * sin_t0c + u0c * sin_lam;
+    float a_z = rz - u0c * cos_lam - r0 * sin_lam * sin_t0c;
+
+    // --- E1.16 ---
+/*
+    mat4 Mtw = mat4(
+        vec4(cos_phi,             sin_phi,            0.0,     0.0), // 第 0 列
+        vec4(-sin_phi * cos_lam,  cos_phi * cos_lam,  sin_lam, 0.0), // 第 1 列
+        vec4(sin_phi * sin_lam,  -cos_phi * sin_lam,  cos_lam, 0.0), // 第 2 列
+        vec4(a_x * cos_phi - a_y * sin_phi, a_x * sin_phi + a_y * cos_phi, a_z, 1.0) // 第 3 列
+    );
+    mat4 R = mat4(
+        0.0,  0.0, -1.0, 0.0, // 第 0 列
+        0.0,  1.0,  0.0, 0.0, // 第 1 列
+        1.0,  0.0,  0.0, 0.0, // 第 2 列
+        0.0,  0.0,  0.0, 1.0  // 第 3 列
+    );
+    mat4 R_inv = mat4(
+        0.0,  0.0,  1.0, 0.0,
+        0.0,  1.0,  0.0, 0.0,
+       -1.0,  0.0,  0.0, 0.0,
+        0.0,  0.0,  0.0, 1.0
+    );
+
+    mat4 finalMtw = R * Mtw * R_inv;
+*/
+
+    mat4 finalMtw;
+    // 第 0 列 (finalMtw[0])
+    finalMtw[0][0] =  sin_phi * sin_lam;
+    finalMtw[0][1] =  sin_phi * cos_lam;
+    finalMtw[0][2] = -cos_phi;
+    finalMtw[0][3] =  0.0;
+    // 第 1 列 (finalMtw[1])
+    finalMtw[1][0] = -cos_phi * sin_lam;
+    finalMtw[1][1] =  cos_phi * cos_lam;
+    finalMtw[1][2] = -sin_phi;
+    finalMtw[1][3] =  0.0;
+    // 第 2 列 (finalMtw[2])
+    finalMtw[2][0] =  cos_lam;
+    finalMtw[2][1] = -sin_lam;
+    finalMtw[2][2] =  0.0;
+    finalMtw[2][3] =  0.0;
+    // 第 3 列 (finalMtw[3]) —— 平移项，唯一需要计算的部分
+    finalMtw[3][0] =  a_x * sin_phi * sin_lam - a_y * cos_phi * sin_lam + a_z * cos_lam;
+    finalMtw[3][1] =  a_x * sin_phi * cos_lam + a_y * cos_phi * cos_lam - a_z * sin_lam;
+    finalMtw[3][2] = -a_x * cos_phi            - a_y * sin_phi;
+    finalMtw[3][3] =  1.0;
+
+    vec3 baseCenter = vec3(finalMtw[3]);
+    vec3 toWheel = push.planePoint.xyz;
+    vec3 planeNorm = push.planeNormal.xyz;
+
+    vec3 projU_dir = toWheel - dot(toWheel, planeNorm) * planeNorm;
+    vec3 projU = length(projU_dir) > 1e-6 ? normalize(projU_dir) : vec3(1.0, 0.0, 0.0);
+    vec3 projV = cross(planeNorm, projU);
+
+    // --- 供pass intersect使用的SSBO ---
+    poses[idx].modelMatrix = finalMtw;
+    poses[idx].projU = vec4(projU, 0.0);
+    poses[idx].projV = vec4(projV, 0.0);
+}
+
+
+
+
+
+
