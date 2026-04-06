@@ -38,7 +38,7 @@ void GrindingWheelPoseOptimizer::InitializeDataForPSO()
     m_swarm.resize(SWARM_SIZE);
     m_arcProjectionSolver.InitializeSwarm(m_swarm, 0.);
 
-    std::cout << "[Optimizer] Generated " << m_poseData.size() << " particles.\n";
+    std::cout << "[Optimizer] Generated " << m_swarm.size() << " particles.\n";
 }
 
 void GrindingWheelPoseOptimizer::InsertComputeBarrier(VkCommandBuffer cmd)
@@ -70,6 +70,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     context.GetParticleBuffer()->Map();
     context.GetParticleBuffer()->WriteToBuffer((void*)m_swarm.data());
 
+    context.GetBestResultSSBOBuffer()->Map();
     BestResultData* mappedBest =
         (BestResultData*)context.GetBestResultSSBOBuffer()->GetMappedMemory();
     mappedBest[0].score = -999999.0f;  // 强制赋予极低分
@@ -108,11 +109,14 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     polarPush.radius = wheelPushData.radius;
     polarPush.stepsPerPose = wheelPushData.stepsPerPose;
     polarPush.numTriangles = static_cast<uint32_t>(triangles.size());
+    polarPush.curBatchSize = static_cast<uint32_t>(m_swarm.size());
     polarPush.rt1 = m_poseConstants.rt1;
     polarPush.u1 = m_poseConstants.u1;
     polarPush.nt = m_poseConstants.nt;
     polarPush.gR = m_poseConstants.gR;
     polarPush.gr1 = m_poseConstants.gr1;
+
+    std::cout << "[Debug] curBatchSize: " << polarPush.curBatchSize << "\n";
 
 
     // --- 申请持久化的指令缓冲 ---
@@ -125,12 +129,13 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     VkCommandBuffer cmdCompute;
     vkAllocateCommandBuffers(m_lveDevice.device(), &allocInfo, &cmdCompute);
     vkResetCommandBuffer(cmdCompute, 0);
+
+    RENDERDOC_START;
+
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     vkBeginCommandBuffer(cmdCompute, &beginInfo);
 
-    // RENDERDOC_START;
-
-    const int PSOIterations = 20;
+    const int PSOIterations = 1;
     for (int iter = 0; iter < PSOIterations; iter++) {
         maskRenderSystem.ComputePolarPSOUpdate(cmdCompute,
                                           context.GetContourDescriptorSet(),
@@ -138,11 +143,19 @@ void GrindingWheelPoseOptimizer::RunOptimization(
         InsertComputeBarrier(cmdCompute);
 
         // --- 清空ZMap ---
+        VkDeviceSize totalSize = context.GetZMapBuffer()->GetBufferSize();
+        VkDeviceSize halfSize = totalSize / 2;
         vkCmdFillBuffer(cmdCompute,
                         context.GetZMapBuffer()->GetBuffer(),
                         0,
-                        VK_WHOLE_SIZE,
+                        halfSize,
                         0xFFFFFFFF);
+        vkCmdFillBuffer(cmdCompute,
+                        context.GetZMapBuffer()->GetBuffer(),
+                        halfSize,
+                        halfSize,
+                        0);
+
         InsertComputeBarrier(cmdCompute);
 
         maskRenderSystem.ComputePolarIntersect(cmdCompute,
@@ -161,8 +174,6 @@ void GrindingWheelPoseOptimizer::RunOptimization(
         InsertComputeBarrier(cmdCompute);
     }
 
-    // RENDERDOC_END;
-
     vkEndCommandBuffer(cmdCompute);
 
     // 直接向 Graphics 队列提交任务 (Vulkan图形队列天然支持计算)
@@ -174,25 +185,60 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     // 依然死等 GPU 算完这一批，再进入下一次循环
     vkQueueWaitIdle(m_lveDevice.graphicsQueue());
 
+    RENDERDOC_END;
+
     ReadBackBestResult(context);
 }
 
 void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContext& context)
 {
+    // 1. 获取映射后的指针 (由于前面有 vkQueueWaitIdle，此时 CPU 读到的绝对是最新数据)
     Particle* particles =
         static_cast<Particle*>(context.GetParticleBuffer()->GetMappedMemory());
-    float bestScore = -999999.0f;
-    glm::vec2 bestParams(0.0f);
+    BestResultData* gBest = static_cast<BestResultData*>(
+        context.GetBestResultSSBOBuffer()->GetMappedMemory());
 
-    for (uint32_t i = 0; i < SWARM_SIZE; i++) {
-        if (particles[i].pBestData.z > bestScore) {
-            bestScore = particles[i].pBestData.z;
-            bestParams.x = particles[i].pBestData.x;   // u0c
-            bestParams.y = particles[i].pBestData.y;  // lambda
-        }
+    if (!particles || !gBest) {
+        std::cerr << "[Error] Buffers not mapped! Cannot read back results.\n";
+        return;
+    }
+
+    // 2. 直接从 gBest[0] 中读取我们在 reduce.comp 中辛苦选出的全场总冠军
+    float bestScore = gBest[0].score;
+    float coreRadius = gBest[0].coreRadius;
+    float slotAngle = gBest[0].slotAngle;
+    uint32_t bestIdx = gBest[0].bestPoseIdx;
+
+    // 3. 通过 bestIdx 反查对应粒子的最佳参数 (x: u0c, y: lambda)
+    glm::vec2 bestParams(0.0f);
+    if (bestIdx < SWARM_SIZE) {
+        bestParams.x = particles[bestIdx].pBestData.x;  // u0c
+        bestParams.y = particles[bestIdx].pBestData.y;  // lambda
     }
 
     m_bestScore = bestScore;
+
+    // ==========================================
+    // 🌟 控制台输出：格式化展示优化结果
+    // ==========================================
+    std::cout << "\n======================================================\n";
+    std::cout << "         GPU PSO Succeed (PSO Iterations: 20)      \n";
+    std::cout << "======================================================\n";
+    if (bestScore <= -900000.0f) {
+        std::cout << "[Warning] Failed to find a valid cutting pose, optimization may "
+                     "have degenerated!\n";
+        std::cout << "This usually means the envelope points of all particle rays did "
+                     "not cut into the specified core thickness range.\n";
+    } else {
+        std::cout << "  -> Global Best Score        : " << bestScore << "\n";
+        std::cout << "  -> Best Particle Index      : " << bestIdx << "\n";
+        std::cout << "  -> Core Radius              : " << coreRadius << " mm\n";
+        std::cout << "  -> Slot Angle               : " << slotAngle << " deg\n";
+        std::cout << "  -> Core Parameter [u0c]     : " << bestParams.x << " mm\n";
+        std::cout << "  -> Core Parameter [lambda]   : " << bestParams.y << " rad ("
+                  << glm::degrees(bestParams.y) << " deg)\n";
+    }
+    std::cout << "======================================================\n\n";
 }
 
 void GrindingWheelPoseOptimizer::WriteToolPath()
