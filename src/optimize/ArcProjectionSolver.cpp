@@ -78,6 +78,8 @@ std::vector<PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
         break;
     }
 
+    NarrowGrindingWheelPosition(0.001, 0.984366, 648);
+
     std::cout << "Transform matrixes vector size: " << m_poseData.size() << "\n";
 
     ExportTransformsToTXT();
@@ -88,8 +90,9 @@ std::vector<PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
 
 // Eq.19-23 计算符合前角和螺旋角的砂轮位置
 void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
-                                                      double u1)
+                                                      double u1Org)
 {
+    double u1 = 0;
     double theta1 = CalculateTheta(u1);
 
     dvec4 r_t1 = CalculateCuttingEdgeCurve(u1, theta1);
@@ -162,6 +165,10 @@ void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
     glm::mat4 R =
         glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
     glm::mat4 finalMtw = R * Mtw * glm::inverse(R);
+
+    if (u1Org == 648) {
+        PrintMat4(finalMtw, "Mtw");
+    }
 
     m_tp.size += 1;
     m_tp.normals.push_back(glm::vec3(finalMtw[0]));
@@ -332,9 +339,94 @@ void ArcProjectionSolver::InitializeSwarm(std::vector<Particle>& swarm, double u
         glm::half_pi<double>() - m_c.helixAngle(u1));
 
     for (auto& p : swarm) {
+        #if 0
         p.posVel = glm::vec4(distU0(gen), distLambda(gen), 0.0f, 0.0f);
         p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
+        #else
+        p.posVel = glm::vec4(0.001, 0.984366, 0.0f, 0.0f);
+        p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
+        #endif
     }
+}
+
+glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, double u1)
+{
+    std::cout << "[GetTransformMatrix] u0c: " << u0c << " lambda: " << lambda << " u1: " << u1 << "\n";
+
+    double theta1 = CalculateTheta(u1);
+
+    dvec4 r_t1 = CalculateCuttingEdgeCurve(u1, theta1);
+    dvec4 n_t = CalculateCuttingEdgeCurveNormal(u1, theta1, r_t1);
+
+    double r0 = m_gw.radius(u0c);
+    double r0_du0 = m_gw.radiusDeriv(u0c);
+    double c1 = sqrt(1. + r0_du0 * r0_du0);
+
+    // Eq.21
+    double xi = -(c1 * n_t.z - r0_du0 * cos(lambda)) / sin(lambda);
+    if (xi > 1.) xi = 1.;
+    if (xi < -1.) xi = -1.;
+
+    // Eq.20
+    double theta0c = glm::pi<double>() - asin(xi);
+
+    // Eq.22, E1.23
+    double numerator_sin =
+        -c1 * (n_t.y * cos(theta0c) - n_t.x * cos(lambda) * sin(theta0c) -
+               r0_du0 * n_t.x * sin(lambda));
+    double numerator_cos =
+        -c1 * (n_t.x * cos(theta0c) + n_t.y * cos(lambda) * sin(theta0c) +
+               r0_du0 * n_t.y * sin(lambda));
+    double denominator = cos(theta0c) * cos(theta0c) +
+                         (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda)) *
+                             (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda));
+    if (fabs(denominator) < EPS_DBL) {
+        denominator = (denominator >= 0 ? EPS_DBL : -EPS_DBL);
+    }
+    double sin_phi_t = numerator_sin / denominator;
+    double cos_phi_t = numerator_cos / denominator;
+    double phi_t = atan2(sin_phi_t, cos_phi_t);
+
+    // Eq.19
+    double a_x = r_t1.x * cos_phi_t + r_t1.y * sin_phi_t - r0 * cos(theta0c);
+    double a_y = -r_t1.x * sin_phi_t + r_t1.y * cos_phi_t -
+                 r0 * cos(lambda) * sin(theta0c) + u0c * sin(lambda);
+    double a_z = r_t1.z - u0c * cos(lambda) - r0 * sin(lambda) * sin(theta0c);
+
+    // --- E1.16 ---
+    glm::mat4 Mtw;
+    double cos_lam = cos(lambda);
+    double sin_lam = sin(lambda);
+    // 第 0 列
+    Mtw[0][0] = cos_phi_t;
+    Mtw[0][1] = sin_phi_t;
+    Mtw[0][2] = 0.0f;
+    Mtw[0][3] = 0.0f;
+
+    // 第 1 列
+    Mtw[1][0] = -sin_phi_t * cos_lam;
+    Mtw[1][1] = cos_phi_t * cos_lam;
+    Mtw[1][2] = sin_lam;
+    Mtw[1][3] = 0.0f;
+
+    // 第 2 列
+    Mtw[2][0] = sin_phi_t * sin_lam;
+    Mtw[2][1] = -cos_phi_t * sin_lam;
+    Mtw[2][2] = cos_lam;
+    Mtw[2][3] = 0.0f;
+
+    // 第 3 列 (平移项，请仔细对照论文公式 16 最后的平移向量核对正负号)
+    Mtw[3][0] = a_x * cos_phi_t - a_y * sin_phi_t;
+    Mtw[3][1] = a_x * sin_phi_t + a_y * cos_phi_t;
+    Mtw[3][2] = a_z;  // 这里注意对应 Mtt 的平移反向
+    Mtw[3][3] = 1.0f;
+
+    // 论文砂轮和刀具轴向均是Z轴，但工程中刀具和砂轮模型轴向均是X轴，需要进行变换
+    glm::mat4 R =
+        glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 finalMtw = R * Mtw * glm::inverse(R);
+
+    return finalMtw;
 }
 
 void ArcProjectionSolver::ExportTransformsToTXT()

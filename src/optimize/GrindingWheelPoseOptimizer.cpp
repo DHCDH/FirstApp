@@ -237,8 +237,16 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
         std::cout << "  -> Core Parameter [u0c]     : " << bestParams.x << " mm\n";
         std::cout << "  -> Core Parameter [lambda]   : " << bestParams.y << " rad ("
                   << glm::degrees(bestParams.y) << " deg)\n";
+
+        m_bestPose = m_arcProjectionSolver.GetTransformMatrix(bestParams.x, bestParams.y, 0.);
     }
     std::cout << "======================================================\n\n";
+
+    PrintMat4(m_bestPose, "the chosen one");
+
+    m_arcProjectionSolver.CalculateGrindingWheelPose();
+
+    WriteToolPath();
 }
 
 void GrindingWheelPoseOptimizer::WriteToolPath()

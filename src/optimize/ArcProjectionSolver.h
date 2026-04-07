@@ -96,6 +96,8 @@ public:
     void ExportTransformsToTXT();
     void ExportToolPathToTXT();
 
+    glm::mat4 GetTransformMatrix(double u0c, double lambda, double u1);
+
 public:
     ArcProjectionSolver& SetIntegrator(std::unique_ptr<NumericalIntegrator> integrator)
     {

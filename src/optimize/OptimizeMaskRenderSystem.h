@@ -31,11 +31,11 @@ struct PolarPushConstants {
     uint32_t numTriangles;
     uint32_t curBatchSize;
 
-    glm::vec3 rt1;
+    alignas(16) glm::vec3 rt1;
     float u1;
-    glm::vec3 nt;
+    alignas(16) glm::vec3 nt;
     float pad_{0.};
-    float gR;
+    alignas(16) float gR;
     float gr1;
     float gw;
 

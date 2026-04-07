@@ -47,6 +47,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
 
+    controlLayout->addWidget(btnToolPath);
     controlLayout->addWidget(checkDisplayWireframe);
     controlLayout->addWidget(new QLabel("Diameter", this));
     controlLayout->addWidget(m_editDiameter);

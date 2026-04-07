@@ -132,10 +132,13 @@ inline void PrintMat4(const glm::mat4& M, const std::string& name = "")
 {
     std::cout << name << ": "
               << "\n";
-    std::cout << M[0].x << " " << M[0].y << " " << M[0].z << " " << M[0].w << "\n";
-    std::cout << M[1].x << " " << M[1].y << " " << M[1].z << " " << M[1].w << "\n";
-    std::cout << M[2].x << " " << M[2].y << " " << M[2].z << " " << M[2].w << "\n";
-    std::cout << M[3].x << " " << M[3].y << " " << M[3].z << " " << M[3].w << "\n";
+    for (int row = 0; row < 4; ++row) {
+        std::cout << "[ ";
+        for (int col = 0; col < 4; ++col) {
+            std::cout << M[col][row] << " ";  // 注意这里是 [col][row]
+        }
+        std::cout << "]\n";
+    }
 }
 
 inline void PrintVec3(const glm::vec3& v, const std::string& name = "")

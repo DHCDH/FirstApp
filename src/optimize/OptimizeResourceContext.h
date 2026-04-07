@@ -12,11 +12,19 @@
 
 namespace optimize
 {
-constexpr uint32_t MAX_POINTS = 50000;
+#if 0
+constexpr uint32_t MAX_POINTS = 10000;
+constexpr uint32_t BATCH_LAYER_COUNT = 4096; // 每次提交的粒子群数量（目前为一次性提交完成），暂时先于粒子群大小保持一致
+constexpr uint32_t ZMAP_RESOLUTION =
+    7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
+constexpr uint32_t SWARM_SIZE = 4096;
+#else
+constexpr uint32_t MAX_POINTS = 10000;
 constexpr uint32_t BATCH_LAYER_COUNT = 1;  // 粒子群大小
 constexpr uint32_t ZMAP_RESOLUTION =
-    3600;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
+    7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
 constexpr uint32_t SWARM_SIZE = 1;
+#endif
 
 struct CameraData {
     glm::mat4 projView;
