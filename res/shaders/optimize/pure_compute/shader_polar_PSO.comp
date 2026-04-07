@@ -194,7 +194,6 @@ void main()
     float a_z = rz - u0c * cos_lam - r0 * sin_lam * sin_t0c;
 
     // --- E1.16 ---
-/*
     mat4 Mtw = mat4(
         vec4(cos_phi,             sin_phi,            0.0,     0.0), // 第 0 列
         vec4(-sin_phi * cos_lam,  cos_phi * cos_lam,  sin_lam, 0.0), // 第 1 列
@@ -215,36 +214,41 @@ void main()
     );
 
     mat4 finalMtw = R * Mtw * R_inv;
-*/
 
-    mat4 finalMtw;
-    // 第 0 列 (finalMtw[0])
-    finalMtw[0][0] =  sin_phi * sin_lam;
-    finalMtw[0][1] =  sin_phi * cos_lam;
-    finalMtw[0][2] = -cos_phi;
-    finalMtw[0][3] =  0.0;
-    // 第 1 列 (finalMtw[1])
-    finalMtw[1][0] = -cos_phi * sin_lam;
-    finalMtw[1][1] =  cos_phi * cos_lam;
-    finalMtw[1][2] = -sin_phi;
-    finalMtw[1][3] =  0.0;
-    // 第 2 列 (finalMtw[2])
-    finalMtw[2][0] =  cos_lam;
-    finalMtw[2][1] = -sin_lam;
-    finalMtw[2][2] =  0.0;
-    finalMtw[2][3] =  0.0;
-    // 第 3 列 (finalMtw[3]) —— 平移项，唯一需要计算的部分
-    finalMtw[3][0] =  a_x * sin_phi * sin_lam - a_y * cos_phi * sin_lam + a_z * cos_lam;
-    finalMtw[3][1] =  a_x * sin_phi * cos_lam + a_y * cos_phi * cos_lam - a_z * sin_lam;
-    finalMtw[3][2] = -a_x * cos_phi            - a_y * sin_phi;
-    finalMtw[3][3] =  1.0;
+    // mat4 finalMtw;
+    // // 第 0 列 (finalMtw[0])
+    // finalMtw[0][0] =  sin_phi * sin_lam;
+    // finalMtw[0][1] =  sin_phi * cos_lam;
+    // finalMtw[0][2] = -cos_phi;
+    // finalMtw[0][3] =  0.0;
+    // // 第 1 列 (finalMtw[1])
+    // finalMtw[1][0] = -cos_phi * sin_lam;
+    // finalMtw[1][1] =  cos_phi * cos_lam;
+    // finalMtw[1][2] = -sin_phi;
+    // finalMtw[1][3] =  0.0;
+    // // 第 2 列 (finalMtw[2])
+    // finalMtw[2][0] =  cos_lam;
+    // finalMtw[2][1] = -sin_lam;
+    // finalMtw[2][2] =  0.0;
+    // finalMtw[2][3] =  0.0;
+    // // 第 3 列 (finalMtw[3]) —— 平移项，唯一需要计算的部分
+    // finalMtw[3][0] =  a_x * sin_phi * sin_lam - a_y * cos_phi * sin_lam + a_z * cos_lam;
+    // finalMtw[3][1] =  a_x * sin_phi * cos_lam + a_y * cos_phi * cos_lam - a_z * sin_lam;
+    // finalMtw[3][2] = -a_x * cos_phi            - a_y * sin_phi;
+    // finalMtw[3][3] =  1.0;
 
     vec3 baseCenter = vec3(finalMtw[3]);
-    vec3 toWheel = push.planePoint.xyz;
     vec3 planeNorm = push.planeNormal.xyz;
-
+    vec3 toWheel = baseCenter - push.planePoint.xyz;
     vec3 projU_dir = toWheel - dot(toWheel, planeNorm) * planeNorm;
-    vec3 projU = length(projU_dir) > 1e-6 ? normalize(projU_dir) : vec3(1.0, 0.0, 0.0);
+
+    vec3 projU;
+    if (length(projU_dir) > 1e-4) {
+    projU = normalize(projU_dir);
+    } else {
+        vec3 up = abs(planeNorm.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        projU = normalize(cross(up, planeNorm));
+    }
     vec3 projV = cross(planeNorm, projU);
 
     // --- 供pass intersect使用的SSBO ---

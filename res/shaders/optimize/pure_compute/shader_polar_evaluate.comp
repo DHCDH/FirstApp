@@ -4,7 +4,7 @@
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-const uint ZMAP_RESOLUTION = 3600;
+const uint ZMAP_RESOLUTION = 7200;
 
 struct BestResultData {
     float coreRadius;
@@ -127,8 +127,8 @@ void main() {
                     float coreRadiusError = abs(coreRadius - targetCoreRadius);
 
                     float weightSlot = 1.0;
-                    float weightCore = 1.0;
-                    score = -(slotAngleError * slotAngleError * weightSlot + coreRadiusError * coreRadiusError * weightCore);
+                    float weightCore = 2.0;
+                    score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
                 }
                 
                 results[poseIdx].score = score;
