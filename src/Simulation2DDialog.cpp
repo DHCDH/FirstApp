@@ -157,8 +157,8 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
                                               config,
                                               hwnd,
                                               hinstance,
-                                              width(),
-                                              height(),
+                                              m_renderWidget->width(),
+                                              m_renderWidget->height(),
                                               "2D Simulation");
 }
 
@@ -252,11 +252,11 @@ void Simulation2DDialog::BuildContactMask()
 
 SliceViewConfig Simulation2DDialog::UpdateView()
 {
-    double w = this->width();
-    double h = this->height();
+    double w = m_renderWidget->width();
+    double h = m_renderWidget->height();
     /*计算宽高比*/
-    float aspectRatio =
-        static_cast<float>(this->width()) / static_cast<float>(this->height());
+    float aspectRatio = static_cast<float>(w) /
+                        static_cast<float>(h);
 
     /*配置视图*/
     SliceViewConfig config{};
@@ -544,7 +544,7 @@ void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
 
     // --- 计算 像素 -> 世界坐标 的缩放比例 ---
     // 这必须与 UpdateView 中的逻辑一致
-    float aspectRatio = static_cast<float>(width()) / static_cast<float>(height());
+    float aspectRatio = static_cast<float>(m_renderWidget->width()) / static_cast<float>(m_renderWidget->height());
     float pixelToWorldScale = 0.0f;
 
     // 根据 UpdateView 的逻辑：
@@ -552,10 +552,12 @@ void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
     // 如果宽 < 高 (aspect < 1)，m_viewHalfSize 对应宽度的一半 (X轴)
     if (aspectRatio > 1.0f) {
         // 高度对应 2 * m_viewHalfSize
-        pixelToWorldScale = (m_viewHalfSize * 2.0f) / static_cast<float>(height());
+        pixelToWorldScale =
+            (m_viewHalfSize * 2.0f) / static_cast<float>(m_renderWidget->height());
     } else {
         // 宽度对应 2 * m_viewHalfSize
-        pixelToWorldScale = (m_viewHalfSize * 2.0f) / static_cast<float>(width());
+        pixelToWorldScale =
+            (m_viewHalfSize * 2.0f) / static_cast<float>(m_renderWidget->width());
     }
 
     // --- 更新视图中心 ---
