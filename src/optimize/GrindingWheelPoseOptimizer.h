@@ -24,6 +24,7 @@ public:
     GrindingWheelPoseOptimizer(const GrindingWheelPoseOptimizer&) = delete;
     GrindingWheelPoseOptimizer& operator=(const GrindingWheelPoseOptimizer&) = delete;
 
+    void InitializeDataForPSO(OptimizeResourceContext& context);
     void RunOptimization(OptimizeResourceContext& context,
                          OptimizeMaskRenderSystem& maskRenderSystem,
                          const SliceViewConfig& viewConfig, Plane plane,
@@ -44,7 +45,6 @@ public:
     }
 
 private:
-    void InitializeDataForPSO();
     void InsertComputeBarrier(VkCommandBuffer cmd);
 
     void WriteToolPath();

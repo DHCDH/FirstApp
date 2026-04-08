@@ -44,7 +44,7 @@ void main() {
     if(poseIdx >= push.curBatchSize) return;
 
     uint halfSize = zMap.length() / 2;
-    float surfaceThreshold = push.radius - 0.005;
+    float surfaceThreshold = push.radius - 0.02;
 
     float localMinR = 99999.;
     int localFirstCut = 99999;

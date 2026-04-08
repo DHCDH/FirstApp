@@ -1,9 +1,10 @@
 ﻿#include "Simulation2DDialog.h"
 
-#include <fstream>
 #include <QCheckBox>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -12,16 +13,20 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
-#include <QFileDialog>
-#include <QMessageBox>
+#include <fstream>
 
-#include "slice/SliceView.h"
 #include "algorithm/DualNURBSCurveInterpolator.h"
+#include "optimize/OptimizeGlobalConfig.h"
+#include "slice/SliceView.h"
 
-const std::filesystem::path DEFAULT_TOOL_PATH = "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
+const std::filesystem::path DEFAULT_TOOL_PATH =
+    "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
 
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
-    : QDialog(parent), m_renderWidget(new QWidget(this)), m_renderTimer(new QTimer(this)), m_lveDevice(device)
+    : QDialog(parent),
+      m_renderWidget(new QWidget(this)),
+      m_renderTimer(new QTimer(this)),
+      m_lveDevice(device)
 {
     this->setWindowTitle("2D Simulation");
     this->resize(1920, 1080);
@@ -255,8 +260,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     double w = m_renderWidget->width();
     double h = m_renderWidget->height();
     /*计算宽高比*/
-    float aspectRatio = static_cast<float>(w) /
-                        static_cast<float>(h);
+    float aspectRatio = static_cast<float>(w) / static_cast<float>(h);
 
     /*配置视图*/
     SliceViewConfig config{};
@@ -346,6 +350,44 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         m_optContext = std::make_unique<optimize::OptimizeResourceContext>(m_lveDevice,
                                                                            texWidth,
                                                                            texHeight);
+
+        m_optContext->SetGrindingWheelParameters(
+            {.r1{50.},
+             .r2{50.},
+             .gr1{0.1},
+             .gr2{0.1},
+             .width{10.},
+             .radius{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
+                  //std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
+                  //         << "\n";
+                 if (u0 < gr1) {
+                     return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                 } else if (u0 > (width - gr1) && u0 <= width) {
+                     return r1 - gr2 +
+                            std::sqrt(gr2 * gr2 -
+                                      (u0 - (width - gr2)) * (u0 - (width - gr2)));
+                 }
+                 return r1;
+             }},
+             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
+                 if (u0 < gr1) {
+                     return (gr1 - u0) / std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                 } else if (u0 > (width - gr1) && u0 <= width) {
+                     return (width - gr2 - u0) /
+                            std::sqrt(gr2 * gr2 -
+                                      (u0 - width + gr2) * (u0 - width + gr2));
+                 }
+                 return 0.;
+             }}});
+        m_optContext->SetCutterParameters(
+            {.cuttingEdgeLength{30.},
+             .helixAngle{[](double u1) { return 30.; }},
+             .radius{[](double u1) { return 5.; }},
+             .radiusDeriv{[](double u1) { return 0.; }},
+             .coreRadius{[](double u1) { return 3.; }},
+             .slotAngle{[](double u1) { return 65.; }},
+             .radialRakeAngle{[](double u1) { return 10.; }}});
+
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
             m_optContext->GetContourComputeSetLayout());
@@ -370,11 +412,14 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
     optimize::BatchedWheelPushConstants pushData{};
     pushData.normal = plane.normal;
     pushData.point = plane.point;
-    pushData.stepX = 0.5f;
-    pushData.tanHelixAngle = static_cast<float>(tan(30.f * glm::pi<float>() / 180.f));
-    pushData.radius = 5.0f;
-    pushData.stepsPerPose = 10;
+    pushData.stepX = 0.4f;
+    double helixAngle =
+        glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
+    pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
+    pushData.radius = m_optContext->GetCutterParameters().radius(0.);
+    pushData.stepsPerPose = 15;
 
+    optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,
                               *m_optMaskSystem,
                               macroConfig,
@@ -544,7 +589,8 @@ void Simulation2DDialog::mouseMoveEvent(QMouseEvent* event)
 
     // --- 计算 像素 -> 世界坐标 的缩放比例 ---
     // 这必须与 UpdateView 中的逻辑一致
-    float aspectRatio = static_cast<float>(m_renderWidget->width()) / static_cast<float>(m_renderWidget->height());
+    float aspectRatio = static_cast<float>(m_renderWidget->width()) /
+                        static_cast<float>(m_renderWidget->height());
     float pixelToWorldScale = 0.0f;
 
     // 根据 UpdateView 的逻辑：

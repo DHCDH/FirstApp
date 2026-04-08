@@ -16,11 +16,9 @@ GrindingWheelPoseOptimizer::GrindingWheelPoseOptimizer(lve::LveDevice& device,
                                                        lve::LveModel& grndWheel)
     : m_lveDevice(device), m_blank(blank), m_grndWheel(grndWheel)
 {
-    // InitSSBOResources();
-    InitializeDataForPSO();
 }
 
-void GrindingWheelPoseOptimizer::InitializeDataForPSO()
+void GrindingWheelPoseOptimizer::InitializeDataForPSO(OptimizeResourceContext& context)
 {
     PROFILE_SCOPE("Initialize Data For PSO");
 
@@ -29,8 +27,8 @@ void GrindingWheelPoseOptimizer::InitializeDataForPSO()
         std::make_unique<AdaptiveSimpsonStrategy>(1e-10, 1e-10, 1e-2, 1e-12, 0.5));
 
     m_arcProjectionSolver.SetIntegrator(std::move(integrator))
-        .SetCutterParameters(CutterParameters{})
-        .SetGrindingWheelParameters(GrindingWheelParameters{})
+        .SetCutterParameters(context.GetCutterParameters())
+        .SetGrindingWheelParameters(context.GetGrindingWheelParameters())
         .SetPlane(Plane{});
 
     // m_poseData = arcProjectionSolver.CalculateGrindingWheelPose();
@@ -135,8 +133,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     vkBeginCommandBuffer(cmdCompute, &beginInfo);
 
-    const int PSOIterations = 1;
-    for (int iter = 0; iter < PSOIterations; iter++) {
+    for (int iter = 0; iter < PSO_ITERATION_COUNT; iter++) {
         maskRenderSystem.ComputePolarPSOUpdate(cmdCompute,
                                           context.GetContourDescriptorSet(),
                                           polarPush);
@@ -222,7 +219,7 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
     // 🌟 控制台输出：格式化展示优化结果
     // ==========================================
     std::cout << "\n======================================================\n";
-    std::cout << "         GPU PSO Succeed (PSO Iterations: 20)      \n";
+    std::cout << "         GPU PSO Succeed (PSO Iterations: " << PSO_ITERATION_COUNT << ")      \n";
     std::cout << "======================================================\n";
     if (bestScore <= -900000.0f) {
         std::cout << "[Warning] Failed to find a valid cutting pose, optimization may "
@@ -238,13 +235,15 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
         std::cout << "  -> Core Parameter [lambda]   : " << bestParams.y << " rad ("
                   << glm::degrees(bestParams.y) << " deg)\n";
 
-        m_bestPose = m_arcProjectionSolver.GetTransformMatrix(bestParams.x, bestParams.y, 0.);
+        m_bestPose = m_arcProjectionSolver.GetTransformMatrix(bestParams.x,
+                                                              bestParams.y,
+                                                              0.,
+                                                              m_poseConstants.rt1,
+                                                              m_poseConstants.nt);
     }
     std::cout << "======================================================\n\n";
 
     PrintMat4(m_bestPose, "the chosen one");
-
-    m_arcProjectionSolver.CalculateGrindingWheelPose();
 
     WriteToolPath();
 }

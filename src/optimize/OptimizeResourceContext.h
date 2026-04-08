@@ -9,21 +9,25 @@
 #include "LveDescriptors.h"
 #include "LveDevice.h"
 #include "LveModel.h"
+#include "OptimizeGlobalConfig.h"
 
 namespace optimize
 {
-#if 0
+#if 1
 constexpr uint32_t MAX_POINTS = 10000;
-constexpr uint32_t BATCH_LAYER_COUNT = 4096; // 每次提交的粒子群数量（目前为一次性提交完成），暂时先于粒子群大小保持一致
+constexpr uint32_t BATCH_LAYER_COUNT = 1024; // 每次提交的粒子群数量（目前为一次性提交完成），暂时先于粒子群大小保持一致
 constexpr uint32_t ZMAP_RESOLUTION =
     7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
-constexpr uint32_t SWARM_SIZE = 4096;
+constexpr uint32_t SWARM_SIZE = 1024;
+constexpr uint32_t PSO_ITERATION_COUNT = 20;
 #else
 constexpr uint32_t MAX_POINTS = 10000;
 constexpr uint32_t BATCH_LAYER_COUNT = 1;  // 粒子群大小
 constexpr uint32_t ZMAP_RESOLUTION =
     7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
 constexpr uint32_t SWARM_SIZE = 1;
+constexpr uint32_t PSO_ITERATION_COUNT = 1;
+#define SINGLE_ITERATION
 #endif
 
 struct CameraData {
@@ -57,6 +61,16 @@ public:
     void Resize(uint32_t newWidth, uint32_t newHeight);
 
 public:
+    void SetGrindingWheelParameters(GrindingWheelParameters&& parameters)
+    {
+        m_grndWheelParameters = std::move(parameters);
+    }
+
+    void SetCutterParameters(CutterParameters&& parameters)
+    {
+        m_cutterParameters = std::move(parameters);
+    }
+
     uint32_t GetWidth() const
     {
         return m_width;
@@ -97,6 +111,14 @@ public:
     {
         return m_particleBuffer.get();
     }
+    GrindingWheelParameters GetGrindingWheelParameters() const
+    {
+        return m_grndWheelParameters;
+    }
+    CutterParameters GetCutterParameters() const
+    {
+        return m_cutterParameters;
+    }
 
 private:
     void CreateComputeResources();
@@ -108,6 +130,9 @@ private:
     lve::LveDevice& m_lveDevice;
     uint32_t m_width;
     uint32_t m_height;
+
+    GrindingWheelParameters m_grndWheelParameters;
+    CutterParameters m_cutterParameters;
 
     std::unique_ptr<lve::LveBuffer> m_resultBuffer = nullptr;  // mark
 

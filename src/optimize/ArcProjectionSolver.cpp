@@ -9,6 +9,7 @@
 #include <string>
 
 #include "../Global.h"
+#include "OptimizeResourceContext.h"
 
 constexpr double EPS_DBL = 1e-12;
 
@@ -63,7 +64,7 @@ std::vector<PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
     for (int i = 0; i <= numU1; i++) {
         double u1 = i * stepU1;
         // 必须要保证sin(lambda) != 0
-        double stepLambda = (glm::half_pi<double>() - m_c.helixAngle(u1)) /
+        double stepLambda = (glm::half_pi<double>() - glm::radians<double>(m_c.helixAngle(u1))) /
                             static_cast<double>(numLambda);
 
         for (int j = 1; j <= numLambda; j++) {
@@ -202,7 +203,7 @@ double ArcProjectionSolver::CalculateTheta(double u1)
     auto integrand = [this](double u) -> double {
         double dr = m_c.radiusDeriv(u);
         double r1 = m_c.radius(u);
-        double beta = m_c.helixAngle(u);
+        double beta = glm::radians<double>(m_c.helixAngle(u));
         double denom = r1;
         // integrand = sqrt(dr^2 + 1) * tan(beta) / r1
         double val = sqrt(dr * dr + 1.0) * tan(beta) / std::max(denom, EPS_DBL);
@@ -252,7 +253,7 @@ glm::dvec4 ArcProjectionSolver::CalculateCuttingEdgeCurveTangent(double u1, doub
 {
     double r1 = m_c.radius(u1);
     double dr1_du1 = m_c.radiusDeriv(u1);
-    double beta_rad = m_c.helixAngle(u1);
+    double beta_rad = glm::radians<double>(m_c.helixAngle(u1));
     double dtheta_du = 0.0;
     if (fabs(r1) > EPS_DBL) {
         dtheta_du = sqrt(dr1_du1 * dr1_du1 + 1.0) * std::tan(beta_rad) / r1;
@@ -290,7 +291,7 @@ double ArcProjectionSolver::CalculateNormalRakeAngle(double u1, const glm::dvec4
                                                      const glm::dvec4& b_t,
                                                      const glm::dvec4& m_t)
 {
-    double gamma_r = m_c.radialRakeAngle(u1);
+    double gamma_r = glm::radians<double>(m_c.radialRakeAngle(u1));
 
     double numerator = (m_t.x * r_t1.x + m_t.y * r_t1.y) * cos(gamma_r) +
                        (m_t.x * r_t1.y - m_t.y * r_t1.x) * sin(gamma_r);
@@ -319,7 +320,7 @@ PoseConstants ArcProjectionSolver::PrepareConstantsForGPU(double u1)
     consts.rt1 = glm::vec3(r_t1_4);
     consts.nt = glm::vec3(n_t_4);
     consts.u1 = static_cast<float>(u1);
-    consts.gR = static_cast<float>(m_gw.d1 / 2);
+    consts.gR = static_cast<float>(m_gw.radius(u1));
     consts.gr1 = static_cast<float>(m_gw.gr1);
 
     return consts;
@@ -336,27 +337,25 @@ void ArcProjectionSolver::InitializeSwarm(std::vector<Particle>& swarm, double u
     // lambda范围
     std::uniform_real_distribution<float> distLambda(
         0.0f,
-        glm::half_pi<double>() - m_c.helixAngle(u1));
+        glm::half_pi<double>() - glm::radians<double>(m_c.helixAngle(u1)));
 
     for (auto& p : swarm) {
-        #if 0
-        p.posVel = glm::vec4(distU0(gen), distLambda(gen), 0.0f, 0.0f);
+        #ifdef SINGLE_ITERATION
+        p.posVel = glm::vec4(0.0216787, 0.222359, 0.0f, 0.0f);
         p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
         #else
-        p.posVel = glm::vec4(0.001, 0.984366, 0.0f, 0.0f);
+        p.posVel = glm::vec4(distU0(gen), distLambda(gen), 0.0f, 0.0f);
         p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
         #endif
     }
 }
 
-glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, double u1)
+glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, double u1, glm::vec3 rt1, glm::vec3 nt)
 {
     std::cout << "[GetTransformMatrix] u0c: " << u0c << " lambda: " << lambda << " u1: " << u1 << "\n";
 
-    double theta1 = CalculateTheta(u1);
-
-    dvec4 r_t1 = CalculateCuttingEdgeCurve(u1, theta1);
-    dvec4 n_t = CalculateCuttingEdgeCurveNormal(u1, theta1, r_t1);
+    dvec4 r_t1{rt1[0], rt1[1], rt1[2], 1.0};
+    dvec4 n_t{nt[0], nt[1], nt[2], 0};
 
     double r0 = m_gw.radius(u0c);
     double r0_du0 = m_gw.radiusDeriv(u0c);
@@ -387,9 +386,12 @@ glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, dou
     double cos_phi_t = numerator_cos / denominator;
     double phi_t = atan2(sin_phi_t, cos_phi_t);
 
+    double norm_sin_phi = sin(phi_t);
+    double norm_cos_phi = cos(phi_t);
+
     // Eq.19
-    double a_x = r_t1.x * cos_phi_t + r_t1.y * sin_phi_t - r0 * cos(theta0c);
-    double a_y = -r_t1.x * sin_phi_t + r_t1.y * cos_phi_t -
+    double a_x = r_t1.x * norm_cos_phi + r_t1.y * norm_cos_phi - r0 * cos(theta0c);
+    double a_y = -r_t1.x * norm_cos_phi + r_t1.y * norm_cos_phi -
                  r0 * cos(lambda) * sin(theta0c) + u0c * sin(lambda);
     double a_z = r_t1.z - u0c * cos(lambda) - r0 * sin(lambda) * sin(theta0c);
 
@@ -398,26 +400,26 @@ glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, dou
     double cos_lam = cos(lambda);
     double sin_lam = sin(lambda);
     // 第 0 列
-    Mtw[0][0] = cos_phi_t;
-    Mtw[0][1] = sin_phi_t;
+    Mtw[0][0] = norm_cos_phi;
+    Mtw[0][1] = norm_cos_phi;
     Mtw[0][2] = 0.0f;
     Mtw[0][3] = 0.0f;
 
     // 第 1 列
-    Mtw[1][0] = -sin_phi_t * cos_lam;
-    Mtw[1][1] = cos_phi_t * cos_lam;
+    Mtw[1][0] = -norm_cos_phi * cos_lam;
+    Mtw[1][1] = norm_cos_phi * cos_lam;
     Mtw[1][2] = sin_lam;
     Mtw[1][3] = 0.0f;
 
     // 第 2 列
-    Mtw[2][0] = sin_phi_t * sin_lam;
-    Mtw[2][1] = -cos_phi_t * sin_lam;
+    Mtw[2][0] = norm_cos_phi * sin_lam;
+    Mtw[2][1] = -norm_cos_phi * sin_lam;
     Mtw[2][2] = cos_lam;
     Mtw[2][3] = 0.0f;
 
     // 第 3 列 (平移项，请仔细对照论文公式 16 最后的平移向量核对正负号)
-    Mtw[3][0] = a_x * cos_phi_t - a_y * sin_phi_t;
-    Mtw[3][1] = a_x * sin_phi_t + a_y * cos_phi_t;
+    Mtw[3][0] = a_x * norm_cos_phi - a_y * norm_cos_phi;
+    Mtw[3][1] = a_x * norm_cos_phi + a_y * norm_cos_phi;
     Mtw[3][2] = a_z;  // 这里注意对应 Mtt 的平移反向
     Mtw[3][3] = 1.0f;
 
