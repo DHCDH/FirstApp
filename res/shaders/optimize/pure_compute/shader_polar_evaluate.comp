@@ -135,9 +135,12 @@ void main() {
                     float slotAngleError = abs(resultArcLength - targetArcLength);
                     float coreRadiusError = abs(coreRadius - targetCoreRadius);
 
-                    float weightSlot = 1.0;
-                    float weightCore = 2.0;
-                    score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
+                    float weightSlot = 20.0;
+                    float weightCore = 50.0;
+                    
+                    float penaltySlot = (slotAngleError * weightSlot) * (slotAngleError * weightSlot);
+                    float penaltyCore = (coreRadiusError * weightCore) * (coreRadiusError * weightCore);
+                    score = -(penaltySlot + penaltyCore);
                 }
                 
                 results[poseIdx].score = score;
