@@ -425,6 +425,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                               macroConfig,
                               plane,
                               pushData);
+    optimizer.WriteToolPath();
 
     glm::mat4 bestPose = optimizer.GetBestPose();
     float bestScore = optimizer.GetBestScore();

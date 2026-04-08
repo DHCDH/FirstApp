@@ -20,6 +20,15 @@ layout(std430, set = 0, binding = 1) readonly buffer ZMapBuffer {
 
 layout(std430, set = 0, binding = 3) buffer OutputBuffer { BestResultData results[]; };
 
+struct Particle {
+    vec4 pos_vel;      // x: u0c, y: lambda, z: v_u0c, w: v_lambda
+    vec4 pBest_data;   // x: pBest_u0c, y: pBest_lambda, z: pBest_score, w: padding
+};
+
+layout(std430, set = 0, binding = 5) buffer ParticleBuffer {
+    Particle particles[];
+};
+
 layout(push_constant) uniform Push {
     layout(offset = 0) vec3 planeNormal;
     layout(offset = 16) vec3 planePoint;
@@ -132,6 +141,13 @@ void main() {
                 }
                 
                 results[poseIdx].score = score;
+
+                float current_pBest_score = particles[poseIdx].pBest_data.z;
+                if(score > current_pBest_score) {
+                    vec2 current_pos = particles[poseIdx].pos_vel.xy;
+                    particles[poseIdx].pBest_data = vec4(current_pos.x, current_pos.y, score, 0.);
+                }
+
             } else {
                 results[poseIdx].coreRadius = 999999.0; 
                 results[poseIdx].slotAngle = 0.0;

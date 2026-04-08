@@ -3,7 +3,6 @@
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct Particle {
-    // 内存合并绝杀：一次读取 128-bit
     vec4 pos_vel;      // x: u0c, y: lambda, z: v_u0c, w: v_lambda
     vec4 pBest_data;   // x: pBest_u0c, y: pBest_lambda, z: pBest_score, w: padding
 };
@@ -124,7 +123,13 @@ void main()
     vec2 gBestPos = particles[bestIdx].pBest_data.xy;
 
     if (gBest[0].score < -900000.0) {
-        gBestPos = pBestPos; 
+        gBestPos = pos;
+        if (abs(vel.x) < 1e-6 && abs(vel.y) < 1e-6) {
+            vel = vec2(
+                (LCG_random() - 0.5) * push.gr1 * 0.2, // 给一点 u0c 方向的随机速度
+                (LCG_random() - 0.5) * 0.2             // 给一点 lambda 方向的随机速度
+            );
+        }
     }
 
     // --- PSO速度与位置更新 ---

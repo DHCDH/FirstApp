@@ -43,8 +43,6 @@ public:
     ArcProjectionSolver(const ArcProjectionSolver&) = delete;
     ArcProjectionSolver& operator=(const ArcProjectionSolver&) = delete;
 
-    std::vector<PoseData> CalculateGrindingWheelPose();
-
     // 根据u1提取GPU所需的所有物理常数
     PoseConstants PrepareConstantsForGPU(double u1);
 
@@ -87,10 +85,6 @@ public:
     }
 
 private:
-    // --- 论文公式计算 ---
-    // Eq.19 计算符合前角和螺旋角的砂轮位置
-    void NarrowGrindingWheelPosition(double u0c, double lambda, double u1);
-
     // Eq.2，通过积分求解θ(u1)
     double CalculateTheta(double u1);
     // Eq.3，计算切削刃曲线

@@ -30,6 +30,8 @@ public:
                          const SliceViewConfig& viewConfig, Plane plane,
                          BatchedWheelPushConstants wheelPushData);
 
+    void WriteToolPath();
+
     // --- 供外部获取最终的最优结果 ---
     inline glm::mat4 GetBestPose() const
     {
@@ -46,8 +48,6 @@ public:
 
 private:
     void InsertComputeBarrier(VkCommandBuffer cmd);
-
-    void WriteToolPath();
 
     std::vector<Triangle> ExtractTriangles(const lve::LveModel& model);
 

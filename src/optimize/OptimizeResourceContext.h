@@ -22,11 +22,11 @@ constexpr uint32_t SWARM_SIZE = 1024;
 constexpr uint32_t PSO_ITERATION_COUNT = 20;
 #else
 constexpr uint32_t MAX_POINTS = 10000;
-constexpr uint32_t BATCH_LAYER_COUNT = 1;  // 粒子群大小
+constexpr uint32_t BATCH_LAYER_COUNT = 2048;  // 粒子群大小
 constexpr uint32_t ZMAP_RESOLUTION =
     7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
-constexpr uint32_t SWARM_SIZE = 1;
-constexpr uint32_t PSO_ITERATION_COUNT = 1;
+constexpr uint32_t SWARM_SIZE = 2048;
+constexpr uint32_t PSO_ITERATION_COUNT = 3;
 #define SINGLE_ITERATION
 #endif
 

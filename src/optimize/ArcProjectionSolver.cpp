@@ -22,175 +22,6 @@ ArcProjectionSolver::ArcProjectionSolver()
     // 先使用默认砂轮和刀具参数进行测试
 }
 
-std::vector<PoseData> ArcProjectionSolver::CalculateGrindingWheelPose()
-{
-    PROFILE_SCOPE("Arc projection");
-
-    uint32_t numU1 = 1;
-    uint32_t numU0c = 200;
-    uint32_t numLambda = 200;
-
-    m_poseData.reserve(numU1 * numLambda * numU0c);
-
-// --- 测试用矩阵 ---
-#if 0
-    {
-        //glm::mat4 Mtw0(
-        //    glm::vec4(0.524193f, 0.838130f, -0.150862f, 0.0f),  // 第 0 列 (X轴/法向)
-        //    glm::vec4(-0.847834f, 0.530262f, 0.000000f, 0.0f),  // 第 1 列 (Y轴)
-        //    glm::vec4(0.079996f, 0.127906f, 0.988555f, 0.0f),   // 第 2 列 (Z轴)
-        //    glm::vec4(-23.972912f, 21.821777f, 42.935730f, 1.0f)  // 第 3 列 (平移位置)
-        //);
-
-        glm::mat4 Mtw1(
-            glm::vec4(0.544639f, -0.794706f, 0.267974f, 0.0f),  // 第 0 列 (X轴/法向)
-            glm::vec4(0.838671f, 0.516088f, -0.174024f, 0.0f),  // 第 1 列 (Y轴)
-            glm::vec4(0.f, 0.319522f, 0.947579f, 0.0f),         // 第 2 列 (Z轴)
-            glm::vec4(-15.8955f, -24.5346f, -45.4575f, 1.0f)  // 第 3 列 (平移位置)
-        );
-
-         //m_transform.push_back(Mtw0);
-         m_transform.push_back(Mtw1);
-         return m_transform;
-    }
-#endif
-
-    double stepU1 = m_c.cuttingEdgeLength / static_cast<double>(numU1);
-    // double stepU0c = m_gw.width / static_cast<double>(numU0c);
-    // 只用大端圆圆角部分试切
-    double stepU0c = m_gw.gr1 / static_cast<double>(numU0c);
-
-    // --- 暂时仅用端面(u1 = 0)做测试
-    for (int i = 0; i <= numU1; i++) {
-        double u1 = i * stepU1;
-        // 必须要保证sin(lambda) != 0
-        double stepLambda = (glm::half_pi<double>() - glm::radians<double>(m_c.helixAngle(u1))) /
-                            static_cast<double>(numLambda);
-
-        for (int j = 1; j <= numLambda; j++) {
-            double lambda = j * stepLambda;
-
-            for (int k = 0; k <= numU0c; k++) {
-                double u0c = k * stepU0c;
-                NarrowGrindingWheelPosition(u0c, lambda, u1);
-            }
-        }
-
-        break;
-    }
-
-    NarrowGrindingWheelPosition(0.001, 0.984366, 648);
-
-    std::cout << "Transform matrixes vector size: " << m_poseData.size() << "\n";
-
-    ExportTransformsToTXT();
-    ExportToolPathToTXT();
-
-    return m_poseData;
-}
-
-// Eq.19-23 计算符合前角和螺旋角的砂轮位置
-void ArcProjectionSolver::NarrowGrindingWheelPosition(double u0c, double lambda,
-                                                      double u1Org)
-{
-    double u1 = 0;
-    double theta1 = CalculateTheta(u1);
-
-    dvec4 r_t1 = CalculateCuttingEdgeCurve(u1, theta1);
-    dvec4 n_t = CalculateCuttingEdgeCurveNormal(u1, theta1, r_t1);
-
-    double r0 = m_gw.radius(u0c);
-    double r0_du0 = m_gw.radiusDeriv(u0c);
-    double c1 = sqrt(1. + r0_du0 * r0_du0);
-
-    // Eq.21
-    double xi = -(c1 * n_t.z - r0_du0 * cos(lambda)) / sin(lambda);
-    if (xi > 1.) xi = 1.;
-    if (xi < -1.) xi = -1.;
-
-    // Eq.20
-    double theta0c = glm::pi<double>() - asin(xi);
-
-    // Eq.22, E1.23
-    double numerator_sin =
-        -c1 * (n_t.y * cos(theta0c) - n_t.x * cos(lambda) * sin(theta0c) -
-               r0_du0 * n_t.x * sin(lambda));
-    double numerator_cos =
-        -c1 * (n_t.x * cos(theta0c) + n_t.y * cos(lambda) * sin(theta0c) +
-               r0_du0 * n_t.y * sin(lambda));
-    double denominator = cos(theta0c) * cos(theta0c) +
-                         (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda)) *
-                             (cos(lambda) * sin(theta0c) + r0_du0 * sin(lambda));
-    if (fabs(denominator) < EPS_DBL) {
-        denominator = (denominator >= 0 ? EPS_DBL : -EPS_DBL);
-    }
-    double sin_phi_t = numerator_sin / denominator;
-    double cos_phi_t = numerator_cos / denominator;
-    double phi_t = atan2(sin_phi_t, cos_phi_t);
-
-    // Eq.19
-    double a_x = r_t1.x * cos_phi_t + r_t1.y * sin_phi_t - r0 * cos(theta0c);
-    double a_y = -r_t1.x * sin_phi_t + r_t1.y * cos_phi_t -
-                 r0 * cos(lambda) * sin(theta0c) + u0c * sin(lambda);
-    double a_z = r_t1.z - u0c * cos(lambda) - r0 * sin(lambda) * sin(theta0c);
-
-    // --- E1.16 ---
-    glm::mat4 Mtw;
-    double cos_lam = cos(lambda);
-    double sin_lam = sin(lambda);
-    // 第 0 列
-    Mtw[0][0] = cos_phi_t;
-    Mtw[0][1] = sin_phi_t;
-    Mtw[0][2] = 0.0f;
-    Mtw[0][3] = 0.0f;
-
-    // 第 1 列
-    Mtw[1][0] = -sin_phi_t * cos_lam;
-    Mtw[1][1] = cos_phi_t * cos_lam;
-    Mtw[1][2] = sin_lam;
-    Mtw[1][3] = 0.0f;
-
-    // 第 2 列
-    Mtw[2][0] = sin_phi_t * sin_lam;
-    Mtw[2][1] = -cos_phi_t * sin_lam;
-    Mtw[2][2] = cos_lam;
-    Mtw[2][3] = 0.0f;
-
-    // 第 3 列 (平移项，请仔细对照论文公式 16 最后的平移向量核对正负号)
-    Mtw[3][0] = a_x * cos_phi_t - a_y * sin_phi_t;
-    Mtw[3][1] = a_x * sin_phi_t + a_y * cos_phi_t;
-    Mtw[3][2] = a_z;  // 这里注意对应 Mtt 的平移反向
-    Mtw[3][3] = 1.0f;
-
-    // 论文砂轮和刀具轴向均是Z轴，但工程中刀具和砂轮模型轴向均是X轴，需要进行变换
-    glm::mat4 R =
-        glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 finalMtw = R * Mtw * glm::inverse(R);
-
-    if (u1Org == 648) {
-        PrintMat4(finalMtw, "Mtw");
-    }
-
-    m_tp.size += 1;
-    m_tp.normals.push_back(glm::vec3(finalMtw[0]));
-    m_tp.points.push_back(glm::vec3(finalMtw[3]));
-
-    glm::vec3 baseCenter = glm::vec3(finalMtw[3]);  // 提取 3D 位移
-    glm::vec3 toWheel = baseCenter - m_plane.point;
-    // 计算投影到截面的局部坐标系
-    glm::vec3 projU_dir = toWheel - glm::dot(toWheel, m_plane.normal) * m_plane.normal;
-    glm::vec3 projU =
-        (glm::length(projU_dir) > 1e-6f) ? glm::normalize(projU_dir) : glm::vec3(1, 0, 0);
-    glm::vec3 projV = glm::cross(m_plane.normal, projU);
-
-    optimize::PoseData poseData;
-    poseData.modelMatrix = finalMtw;
-    poseData.projU = glm::vec4(projU, 0.0f);
-    poseData.projV = glm::vec4(projV, 0.0f);
-
-    m_poseData.push_back(poseData);
-}
-
 // Eq.2，通过积分求解θ(u1)
 double ArcProjectionSolver::CalculateTheta(double u1)
 {
@@ -340,19 +171,28 @@ void ArcProjectionSolver::InitializeSwarm(std::vector<Particle>& swarm, double u
         glm::half_pi<double>() - glm::radians<double>(m_c.helixAngle(u1)));
 
     for (auto& p : swarm) {
-        #ifdef SINGLE_ITERATION
-        p.posVel = glm::vec4(0.0216787, 0.222359, 0.0f, 0.0f);
+#ifdef SINGLE_ITERATION
+        p.posVel = glm::vec4(0.001, 0.984366, 0.0f, 0.0f);
         p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
-        #else
+#else
         p.posVel = glm::vec4(distU0(gen), distLambda(gen), 0.0f, 0.0f);
         p.pBestData = glm::vec4(p.posVel.x, p.posVel.y, -999999.0f, 0.0f);
-        #endif
+#endif
     }
+
+    std::cout << "[InitializeSwarm] fisrst posVel: " << swarm[0].posVel.x << ", "
+              << swarm[0].posVel.y << ", " << swarm[0].posVel.z << ", "
+              << swarm[0].posVel.w << "\n";
+    std::cout << "[InitializeSwarm] first pBestData: " << swarm[0].pBestData.x << ", "
+              << swarm[0].pBestData.y << ", " << swarm[0].pBestData.z << ", "
+              << swarm[0].pBestData.w << "\n";
 }
 
-glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, double u1, glm::vec3 rt1, glm::vec3 nt)
+glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, double u1,
+                                                  glm::vec3 rt1, glm::vec3 nt)
 {
-    std::cout << "[GetTransformMatrix] u0c: " << u0c << " lambda: " << lambda << " u1: " << u1 << "\n";
+    std::cout << "[GetTransformMatrix] u0c: " << u0c << " lambda: " << lambda
+              << " u1: " << u1 << "\n";
 
     dvec4 r_t1{rt1[0], rt1[1], rt1[2], 1.0};
     dvec4 n_t{nt[0], nt[1], nt[2], 0};
@@ -390,8 +230,8 @@ glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, dou
     double norm_cos_phi = cos(phi_t);
 
     // Eq.19
-    double a_x = r_t1.x * norm_cos_phi + r_t1.y * norm_cos_phi - r0 * cos(theta0c);
-    double a_y = -r_t1.x * norm_cos_phi + r_t1.y * norm_cos_phi -
+    double a_x = r_t1.x * norm_cos_phi + r_t1.y * norm_sin_phi - r0 * cos(theta0c);
+    double a_y = -r_t1.x * norm_sin_phi + r_t1.y * norm_cos_phi -
                  r0 * cos(lambda) * sin(theta0c) + u0c * sin(lambda);
     double a_z = r_t1.z - u0c * cos(lambda) - r0 * sin(lambda) * sin(theta0c);
 
@@ -401,25 +241,25 @@ glm::mat4 ArcProjectionSolver::GetTransformMatrix(double u0c, double lambda, dou
     double sin_lam = sin(lambda);
     // 第 0 列
     Mtw[0][0] = norm_cos_phi;
-    Mtw[0][1] = norm_cos_phi;
+    Mtw[0][1] = norm_sin_phi;
     Mtw[0][2] = 0.0f;
     Mtw[0][3] = 0.0f;
 
     // 第 1 列
-    Mtw[1][0] = -norm_cos_phi * cos_lam;
+    Mtw[1][0] = -norm_sin_phi * cos_lam;
     Mtw[1][1] = norm_cos_phi * cos_lam;
     Mtw[1][2] = sin_lam;
     Mtw[1][3] = 0.0f;
 
     // 第 2 列
-    Mtw[2][0] = norm_cos_phi * sin_lam;
+    Mtw[2][0] = norm_sin_phi * sin_lam;
     Mtw[2][1] = -norm_cos_phi * sin_lam;
     Mtw[2][2] = cos_lam;
     Mtw[2][3] = 0.0f;
 
     // 第 3 列 (平移项，请仔细对照论文公式 16 最后的平移向量核对正负号)
-    Mtw[3][0] = a_x * norm_cos_phi - a_y * norm_cos_phi;
-    Mtw[3][1] = a_x * norm_cos_phi + a_y * norm_cos_phi;
+    Mtw[3][0] = a_x * norm_cos_phi - a_y * norm_sin_phi;
+    Mtw[3][1] = a_x * norm_sin_phi + a_y * norm_cos_phi;
     Mtw[3][2] = a_z;  // 这里注意对应 Mtt 的平移反向
     Mtw[3][3] = 1.0f;
 

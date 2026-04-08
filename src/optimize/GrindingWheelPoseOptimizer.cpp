@@ -209,15 +209,13 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
     // 3. 通过 bestIdx 反查对应粒子的最佳参数 (x: u0c, y: lambda)
     glm::vec2 bestParams(0.0f);
     if (bestIdx < SWARM_SIZE) {
-        bestParams.x = particles[bestIdx].pBestData.x;  // u0c
-        bestParams.y = particles[bestIdx].pBestData.y;  // lambda
+        bestParams.x = particles[bestIdx].posVel.x;  // u0c
+        bestParams.y = particles[bestIdx].posVel.y;  // lambda
     }
 
     m_bestScore = bestScore;
 
-    // ==========================================
-    // 🌟 控制台输出：格式化展示优化结果
-    // ==========================================
+    // --- 控制台输出：格式化展示优化结果 ---
     std::cout << "\n======================================================\n";
     std::cout << "         GPU PSO Succeed (PSO Iterations: " << PSO_ITERATION_COUNT << ")      \n";
     std::cout << "======================================================\n";
@@ -244,8 +242,6 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
     std::cout << "======================================================\n\n";
 
     PrintMat4(m_bestPose, "the chosen one");
-
-    WriteToolPath();
 }
 
 void GrindingWheelPoseOptimizer::WriteToolPath()
