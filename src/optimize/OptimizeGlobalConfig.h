@@ -6,8 +6,7 @@
 namespace optimize
 {
 struct GrindingWheelParameters {
-    double r1{50.};  // 大端圆半径
-    double r2{50.};  // 小端圆半径
+    double gR{50.};  // 大端圆半径
     double gr1{0.1};  // 大端面圆角
     double gr2{0.2};  // 小端面圆角
     double width{10.};

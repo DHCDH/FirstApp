@@ -97,6 +97,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                            context.GetTriangleBuffer()->GetBuffer(),
                            bufferSize);
 
+    const GrindingWheelParameters& gp = context.GetGrindingWheelParameters();
+
     PolarPushConstants polarPush{};
     polarPush.planeNormal = plane.normal;
     polarPush.planePoint = plane.point;
@@ -111,8 +113,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     polarPush.rt1 = m_poseConstants.rt1;
     polarPush.u1 = m_poseConstants.u1;
     polarPush.nt = m_poseConstants.nt;
-    polarPush.gR = m_poseConstants.gR;
-    polarPush.gr1 = m_poseConstants.gr1;
+    polarPush.gR = static_cast<float>(gp.gR);
+    polarPush.gr1 = static_cast<float>(gp.gr1);
 
     std::cout << "[Debug] curBatchSize: " << polarPush.curBatchSize << "\n";
 

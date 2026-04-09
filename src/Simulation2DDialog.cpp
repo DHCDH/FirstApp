@@ -352,8 +352,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                                                                            texHeight);
 
         m_optContext->SetGrindingWheelParameters(
-            {.r1{50.},
-             .r2{50.},
+            {.gR{50.},
              .gr1{0.1},
              .gr2{0.1},
              .width{10.},
@@ -417,7 +416,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 26;
+    pushData.stepsPerPose = 13;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,

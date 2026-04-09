@@ -29,8 +29,6 @@ struct PoseConstants {
     glm::vec3 rt1;
     glm::vec3 nt;
     float u1;
-    float gr1;  // 砂轮圆角半径
-    float gR;   // 砂轮半径
 };
 
 // 参考了圆弧投影的论文，并非使用圆弧投影法

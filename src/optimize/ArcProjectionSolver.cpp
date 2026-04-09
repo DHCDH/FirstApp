@@ -151,8 +151,6 @@ PoseConstants ArcProjectionSolver::PrepareConstantsForGPU(double u1)
     consts.rt1 = glm::vec3(r_t1_4);
     consts.nt = glm::vec3(n_t_4);
     consts.u1 = static_cast<float>(u1);
-    consts.gR = static_cast<float>(m_gw.radius(u1));
-    consts.gr1 = static_cast<float>(m_gw.gr1);
 
     return consts;
 }

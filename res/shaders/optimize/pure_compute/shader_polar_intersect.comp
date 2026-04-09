@@ -109,13 +109,10 @@ void main() {
                 float dx = p2B.x - p2A.x;
 
                 float amplitude = length(vec2(dx, dy));
-                float phase = atan(dx, dy); 
                 float invZRes = PI / float(ZMAP_RESOLUTION);
-                float startTh = float(startIdx) * invZRes - (PI / 2.0);
-
-                // vec2 currentDir = vec2(cos(startTh), sin(startTh));
-                float cosPhase = cos(phase);
-                float sinPhase = sin(phase);
+                float safeAmp = max(amplitude, 1e-8);
+                float cosPhase = dy / safeAmp;
+                float sinPhase = dx / safeAmp;
 
                 for (int i = startIdx; i <= endIdx; i++) {
 
