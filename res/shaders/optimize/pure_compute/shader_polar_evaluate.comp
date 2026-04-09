@@ -66,7 +66,7 @@ void main() {
     if(poseIdx >= push.curBatchSize) return;
 
     uint halfSize = zMap.length() / 2;
-    float surfaceThreshold = push.radius - 0.0001;
+    float surfaceThreshold = push.radius - 0.001;
 
     float localMinR = 99999.;
     int localFirstCut = 99999;
@@ -86,6 +86,7 @@ void main() {
                 rMax = push.radius;
         }
 
+        // bool isSurfaceCut = (rMin < push.radius - 0.06 && rMax > surfaceThreshold); // 0.05是否过大了，抛弃过多槽宽角？
         bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
 
         if(isSurfaceCut) {
@@ -140,7 +141,7 @@ void main() {
                 float score = -999999.0;
                 
                 if (coreRadius <= push.radius) { 
-                    float targetSlotAngle = 80.;
+                    float targetSlotAngle = 65.;
                     float targetArcLength = push.radius * radians(targetSlotAngle); 
                     float targetCoreRadius = 3.;
 
