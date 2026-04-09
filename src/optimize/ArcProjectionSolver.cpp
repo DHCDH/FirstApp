@@ -163,8 +163,11 @@ void ArcProjectionSolver::InitializeSwarm(std::vector<Particle>& swarm, double u
 
     std::random_device rd;
     std::mt19937 gen(rd());
+
+    float safeMargin = 0.;    // 避免使用砂轮边缘进行磨削（导数极大，降低精度）
+
     // u0c 范围限制在砂轮圆角区域
-    std::uniform_real_distribution<float> distU0(0.0f, m_gw.gr1);
+    std::uniform_real_distribution<float> distU0(safeMargin, m_gw.gr1);
     // lambda范围
     std::uniform_real_distribution<float> distLambda(
         0.0f,

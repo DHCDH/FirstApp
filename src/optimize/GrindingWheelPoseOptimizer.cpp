@@ -183,12 +183,12 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     vkQueueWaitIdle(m_lveDevice.graphicsQueue());
 
     RENDERDOC_END;
-
-    ReadBackBestResult(context);
 }
 
 void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContext& context)
 {
+    glm::mat4 CPUCalculateBestPose;
+
     // 1. 获取映射后的指针 (由于前面有 vkQueueWaitIdle，此时 CPU 读到的绝对是最新数据)
     Particle* particles =
         static_cast<Particle*>(context.GetParticleBuffer()->GetMappedMemory());
@@ -233,18 +233,22 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(const OptimizeResourceContex
         std::cout << "  -> Core Parameter [lambda]   : " << bestParams.y << " rad ("
                   << glm::degrees(bestParams.y) << " deg)\n";
 
-        m_bestPose = m_arcProjectionSolver.GetTransformMatrix(bestParams.x,
+        CPUCalculateBestPose =
+            m_arcProjectionSolver.GetTransformMatrix(bestParams.x,
                                                               bestParams.y,
                                                               0.,
                                                               m_poseConstants.rt1,
                                                               m_poseConstants.nt);
+
+        m_bestPose = gBest[0].bestMatrix;
     }
     std::cout << "======================================================\n\n";
 
+    PrintMat4(CPUCalculateBestPose, "CPU Calculate Best Pose");
     PrintMat4(m_bestPose, "the chosen one");
 }
 
-void GrindingWheelPoseOptimizer::WriteToolPath()
+void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
 {
     std::string filename =
         "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
@@ -259,12 +263,15 @@ void GrindingWheelPoseOptimizer::WriteToolPath()
 
     outFile << std::fixed << std::setprecision(6);
 
-    int num = 30;
-    float stepX = 0.2f;
+    float helixAngle = static_cast<float>(context.GetCutterParameters().helixAngle(0.));
+    float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
+
+    int num = 15;
+    float stepX = 0.4f;
     for (int stepIndex = 0; stepIndex < num; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
         float stepDist = static_cast<float>(stepIndex) * stepX;
-        float theta = (stepDist * tan(glm::radians(30.f))) / 5.f;
+        float theta = (stepDist * tan(glm::radians(helixAngle))) / radius;   // 注意：半径为5mm，此处写死了
 
         // --- 2. 构建平移矩阵 ---
         glm::mat4 transX(1.0f);

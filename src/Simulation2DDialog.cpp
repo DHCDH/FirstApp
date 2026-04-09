@@ -382,10 +382,10 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
              .helixAngle{[](double u1) { return 30.; }},
-             .radius{[](double u1) { return 5.; }},
+             .radius{[](double u1) { return 6.; }},
              .radiusDeriv{[](double u1) { return 0.; }},
              .coreRadius{[](double u1) { return 3.; }},
-             .slotAngle{[](double u1) { return 65.; }},
+             .slotAngle{[](double u1) { return 50.; }},
              .radialRakeAngle{[](double u1) { return 10.; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
@@ -398,7 +398,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                                                    *m_grndWheel->GetModel());
 
     SliceViewConfig macroConfig{};
-    float radius = m_editDiameter->text().toFloat() / 2.0f;
+    float radius = m_optContext->GetCutterParameters().radius(0.);
     macroConfig.xMin = -radius * 1.1f;
     macroConfig.xMax = radius * 1.1f;
     macroConfig.zMin = -radius * 1.1f;
@@ -417,7 +417,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 15;
+    pushData.stepsPerPose = 26;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,
@@ -425,7 +425,8 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                               macroConfig,
                               plane,
                               pushData);
-    optimizer.WriteToolPath();
+    optimizer.ReadBackBestResult(*m_optContext);
+    optimizer.WriteToolPath(*m_optContext);
 
     glm::mat4 bestPose = optimizer.GetBestPose();
     float bestScore = optimizer.GetBestScore();

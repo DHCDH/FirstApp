@@ -101,3 +101,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         "${CMAKE_SOURCE_DIR}/res"
         "$<TARGET_FILE_DIR:${TARGET_NAME}>/res/models"
 )]]
+
+add_custom_target(CompileShaders
+    # 使用 start /WAIT 命令打开一个新标题为 "Shader Compiler" 的独立 cmd 窗口
+    COMMAND start "Shader Compiler" /WAIT cmd.exe /c "${CMAKE_SOURCE_DIR}/compile_shader.bat"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Auto-compiling Vulkan shaders in a new window..."
+)
+
+add_dependencies(${TARGET_NAME} CompileShaders)

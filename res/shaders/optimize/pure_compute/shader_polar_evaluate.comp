@@ -11,19 +11,32 @@ struct BestResultData {
     float slotAngle;
     float score;
     uint bestPoseIdx;
+    mat4 bestMatrix;
 };
+
+struct PoseData {
+    mat4 modelMatrix;
+    vec4 projU;
+    vec4 projV;
+};
+
+struct Particle {
+    vec4 pos_vel;      // x: u0c, y: lambda, z: v_u0c, w: v_lambda
+    vec4 pBest_data;   // x: pBest_u0c, y: pBest_lambda, z: pBest_score, w: padding
+};
+
 
 // 🌟 核心修改：统一改成一维数组，与 intersect 保持绝对一致
 layout(std430, set = 0, binding = 1) readonly buffer ZMapBuffer { 
     uint zMap[]; 
 };
 
+layout(std430, set = 0, binding = 2) readonly buffer BasePose {
+    PoseData poses[];
+};
+
 layout(std430, set = 0, binding = 3) buffer OutputBuffer { BestResultData results[]; };
 
-struct Particle {
-    vec4 pos_vel;      // x: u0c, y: lambda, z: v_u0c, w: v_lambda
-    vec4 pBest_data;   // x: pBest_u0c, y: pBest_lambda, z: pBest_score, w: padding
-};
 
 layout(std430, set = 0, binding = 5) buffer ParticleBuffer {
     Particle particles[];
@@ -53,7 +66,7 @@ void main() {
     if(poseIdx >= push.curBatchSize) return;
 
     uint halfSize = zMap.length() / 2;
-    float surfaceThreshold = push.radius - 0.02;
+    float surfaceThreshold = push.radius - 0.0001;
 
     float localMinR = 99999.;
     int localFirstCut = 99999;
@@ -127,16 +140,16 @@ void main() {
                 float score = -999999.0;
                 
                 if (coreRadius <= push.radius) { 
-                    float targetSlotAngle = 65.0;
+                    float targetSlotAngle = 80.;
                     float targetArcLength = push.radius * radians(targetSlotAngle); 
-                    float targetCoreRadius = 3.0;
+                    float targetCoreRadius = 3.;
 
                     float resultArcLength = radians(finalSlotAngle) * push.radius; 
                     float slotAngleError = abs(resultArcLength - targetArcLength);
                     float coreRadiusError = abs(coreRadius - targetCoreRadius);
 
                     float weightSlot = 20.0;
-                    float weightCore = 50.0;
+                    float weightCore = 70.0;
                     
                     float penaltySlot = (slotAngleError * weightSlot) * (slotAngleError * weightSlot);
                     float penaltyCore = (coreRadiusError * weightCore) * (coreRadiusError * weightCore);
@@ -144,6 +157,7 @@ void main() {
                 }
                 
                 results[poseIdx].score = score;
+                results[poseIdx].bestMatrix = poses[poseIdx].modelMatrix;
 
                 float current_pBest_score = particles[poseIdx].pBest_data.z;
                 if(score > current_pBest_score) {

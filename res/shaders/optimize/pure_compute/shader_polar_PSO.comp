@@ -18,6 +18,7 @@ struct BestResultData {
     float slotAngle;
     float score;
     uint bestPoseIdx;
+    mat4 bestMatrix;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -149,6 +150,26 @@ void main()
     // 边界约束
     pos.x = clamp(pos.x, 0.0, push.gr1);        // u0c 限制在圆角范围内
     pos.y = clamp(pos.y, 0.0, 1.0472);       // lambda 限制与螺旋角有关，后续应传入u1对应的螺旋角
+
+    // float safeMargin = 0.005; // 与 C++ 保持一致的安全距离
+    
+    // // 1. 限制 u0c (X轴) 远离极点
+    // if (pos.x < safeMargin) {
+    //     pos.x = safeMargin;
+    //     vel.x *= -0.5;       // 撞墙反弹，并损失 50% 的动能
+    // } else if (pos.x > push.gr1 - safeMargin) {
+    //     pos.x = push.gr1 - safeMargin;
+    //     vel.x *= -0.5;       // 撞墙反弹
+    // }
+
+    // // 2. 限制 lambda (Y轴)
+    // if (pos.y < 0.0) {
+    //     pos.y = 0.0;
+    //     vel.y *= -0.5;
+    // } else if (pos.y > 1.0472) { // 保留你之前的 lambda 上限
+    //     pos.y = 1.0472;
+    //     vel.y *= -0.5;
+    // }
 
     // 写回更新后的状态
     particles[idx].pos_vel = vec4(pos, vel);

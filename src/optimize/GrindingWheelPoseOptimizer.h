@@ -29,8 +29,8 @@ public:
                          OptimizeMaskRenderSystem& maskRenderSystem,
                          const SliceViewConfig& viewConfig, Plane plane,
                          BatchedWheelPushConstants wheelPushData);
-
-    void WriteToolPath();
+    void ReadBackBestResult(const OptimizeResourceContext& context);
+    void WriteToolPath(OptimizeResourceContext& context);
 
     // --- 供外部获取最终的最优结果 ---
     inline glm::mat4 GetBestPose() const
@@ -50,8 +50,6 @@ private:
     void InsertComputeBarrier(VkCommandBuffer cmd);
 
     std::vector<Triangle> ExtractTriangles(const lve::LveModel& model);
-
-    void ReadBackBestResult(const OptimizeResourceContext& context);
 
 private:
     ArcProjectionSolver m_arcProjectionSolver;

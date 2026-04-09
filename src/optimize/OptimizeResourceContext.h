@@ -40,6 +40,7 @@ struct BestResultData {
     float slotAngle;                                      // 槽宽角
     float score;
     uint32_t bestPoseIdx;
+    glm::mat4 bestMatrix;
 };
 
 struct BBoxData {
