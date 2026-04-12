@@ -41,6 +41,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->setContentsMargins(5, 5, 5, 5);
     mainLayout->addLayout(controlLayout);
 
+    m_labelRes = new QLabel("Res: 0 x 0", m_renderWidget);
+    m_labelRes->setAttribute(Qt::WA_TransparentForMouseEvents);
     QPushButton* btnToolPath = new QPushButton("Tool Path", this);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
@@ -52,6 +54,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
 
+    controlLayout->addWidget(m_labelRes);
     controlLayout->addWidget(btnToolPath);
     controlLayout->addWidget(checkDisplayWireframe);
     controlLayout->addWidget(new QLabel("Diameter", this));
@@ -88,6 +91,9 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     // m_renderTimer->start(16);
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
+        std::cout << "[Real Widget Size] W: " << m_renderWidget->width()
+                  << ", H: " << m_renderWidget->height() << std::endl;
+
         if (m_grndWheel && m_blank) {
             BuildContactMask();
         }
@@ -264,17 +270,22 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
-#if 1
+#if 0
     // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
     constexpr float renderScale = 1.f;
     /*分辨率 pixels*/
     config.nX = static_cast<uint32_t>(w * renderScale);
     config.nZ = static_cast<uint32_t>(h * renderScale);
+
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 2048u;
+    const uint32_t FIXED_RES = 4096u;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
+
+    QString resText = QString("Res: %1 x %2").arg(config.nX).arg(config.nZ);
+    m_labelRes->setText(resText);
+    m_labelRes->adjustSize();
 #endif
 
     float xHalf, zHalf;

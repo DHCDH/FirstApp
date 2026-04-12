@@ -17,6 +17,7 @@ class QTimer;
 class GrindingWheel;
 class Blank;
 class QLineEdit;
+class QLabel;
 
 class Simulation2DDialog : public QDialog
 {
@@ -36,6 +37,7 @@ private:
     QTimer* m_renderTimer = nullptr;
     QWidget* m_renderWidget = nullptr;
     QTimer* m_resizeTimer = nullptr;  // 防抖定时器
+    QLabel* m_labelRes = nullptr;   // 显示分辨率
 
     const Blank* m_blank = nullptr;
     const GrindingWheel* m_grndWheel = nullptr;
