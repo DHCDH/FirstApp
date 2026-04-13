@@ -119,7 +119,8 @@ private:
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
     void hasGflwRequiredInstanceExtensions();
     bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device,
+                                                  VkSurfaceKHR surface);
 
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;

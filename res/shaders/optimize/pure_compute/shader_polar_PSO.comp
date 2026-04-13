@@ -106,7 +106,7 @@ float calculateGwRadiusDeriv(float u0)
 
 void main()
 {
-    uint idx = gl_GlobalInvocationID.x;
+    uint idx = gl_GlobalInvocationID.x; // gl_GlobalInvocationID = gl_WorkGroupID * gl_WorkGroupSize + gl_LocalInvocationID
     if(idx >= push.curBatchSize) return;
 
     // --- 初始化随机种子 ---
@@ -263,9 +263,11 @@ void main()
     // finalMtw[3][2] = -a_x * cos_phi            - a_y * sin_phi;
     // finalMtw[3][3] =  1.0;
 
-    vec3 planeNorm = push.planeNormal;
-    vec3 baseCenter = vec3(finalMtw[3]);
-    vec3 toWheel = baseCenter - push.planePoint.xyz; 
+    vec3 planeNorm = push.planeNormal;  
+    vec3 baseCenter = vec3(finalMtw[3]);    // 提取当前粒子位姿下的砂轮中心坐标
+    vec3 toWheel = baseCenter - push.planePoint.xyz; // 从截面参考点指向砂轮中心的向量
+    // dot(toWheel, planeNorm) / 1: toWheel在norm上的投影长度
+    // projU_dir: 在plane内从point指向砂轮中心的向量
     vec3 projU_dir = toWheel - dot(toWheel, planeNorm) * planeNorm;
 
     vec3 projU;
@@ -275,6 +277,7 @@ void main()
         vec3 up = abs(planeNorm.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
         projU = normalize(cross(up, planeNorm));
     }
+    // 构建与U、N正交的V轴
     vec3 projV = cross(planeNorm, projU);
 
     // --- 供pass intersect使用的SSBO ---

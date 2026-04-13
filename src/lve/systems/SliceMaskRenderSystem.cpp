@@ -300,7 +300,6 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
-
     config.depthStencilInfo.back = config.depthStencilInfo.front;
 
     m_grndWheelStencilFrontPipeline = std::make_unique<LvePipeline>(

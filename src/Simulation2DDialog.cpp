@@ -192,7 +192,7 @@ void Simulation2DDialog::BuildContactMask()
         m_viewCenter = glm::vec2(0.0f, 0.0f);
         m_viewHalfSize =
             m_editDiameter->text().toDouble() *
-            1.5f;  // <--- 请根据你实际棒料的半径调整，20.0f 是个非常安全的推荐值
+            1.5f;  // <--- 请根据实际棒料的半径调整，20.0f 是个非常安全的推荐值
     }
 
     m_sliceView->UpdateSliceViewConfig(UpdateView());
@@ -422,12 +422,12 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
     optimize::BatchedWheelPushConstants pushData{};
     pushData.normal = plane.normal;
     pushData.point = plane.point;
-    pushData.stepX = 0.4f;
+    pushData.stepX = 0.1f;
     double helixAngle =
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 13;
+    pushData.stepsPerPose = 52;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,
@@ -504,7 +504,7 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
     flushSeg();
 
 // 插值
-#if 1
+#if 0
     for (int i = 0; i < m_toolpaths.size(); i++) {
         m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
 

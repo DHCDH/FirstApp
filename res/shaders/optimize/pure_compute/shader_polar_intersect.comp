@@ -37,53 +37,79 @@ layout(push_constant) uniform PushConstants {
     layout(offset = 84) uint curBatchSize;  // 当前粒子数
 } push;
 
+shared mat4 s_finalModel;
+shared vec3 s_projU;
+shared vec3 s_projV;
+shared vec3 s_localPlaneNorm;
+shared vec3 s_localPlanePoint;
+
+
 void main() {
     uint triIdx = gl_GlobalInvocationID.x;
     uint stepIdx = gl_GlobalInvocationID.y;
     uint poseIdx = gl_GlobalInvocationID.z;
+    uint localIdx = gl_LocalInvocationID.x; // 砂轮中的256个三角形id
 
     uint halfSize = zMap.length() / 2;
 
-    float stepDist = float(stepIdx) * push.stepX;
-    float theta = (stepDist * push.tanHelixAngle) / push.radius;
-    
-    // 构建局部平移和旋转矩阵
-    mat4 transX = mat4(1.0); transX[3][0] = stepDist;
-    mat4 rotX = mat4(1.0, 0.0, 0.0, 0.0,
-                     0.0, cos(theta), sin(theta), 0.0,
-                     0.0, -sin(theta), cos(theta), 0.0,
-                     0.0, 0.0, 0.0, 1.0);
+    if(localIdx == 0) {
+        float stepDist = float(stepIdx) * push.stepX;
+        float theta = (stepDist * push.tanHelixAngle) / push.radius;
+        
+        // 构建局部平移和旋转矩阵
+        mat4 transX = mat4(1.0); transX[3][0] = stepDist;
+        mat4 rotX = mat4(1.0, 0.0, 0.0, 0.0,
+                        0.0, cos(theta), sin(theta), 0.0,
+                        0.0, -sin(theta), cos(theta), 0.0,
+                        0.0, 0.0, 0.0, 1.0);
 
-    mat4 finalModel = (transX * rotX) * poses[poseIdx].modelMatrix;
-    vec3 projU = poses[poseIdx].projU.xyz;
-    vec3 projV = poses[poseIdx].projV.xyz;
+        mat4 finalModel = (transX * rotX) * poses[poseIdx].modelMatrix;
+        s_finalModel = finalModel;
+        s_projU = poses[poseIdx].projU.xyz;
+        s_projV = poses[poseIdx].projV.xyz;
+
+        // 只有 0 号线程执行 1 次 inverse
+        mat4 invModel = inverse(finalModel);
+        s_localPlaneNorm = normalize((invModel * vec4(push.planeNormal, 0.0)).xyz);
+        s_localPlanePoint = (invModel * vec4(push.planePoint, 1.0)).xyz;
+    }
+
+    barrier();
 
     // 确保没有越界的线程，保证不会写出界
     bool validWork = (triIdx < push.numTriangles) && (stepIdx < push.stepsPerPose) && (poseIdx < push.curBatchSize);
 
     if (validWork) {
         Triangle tri = triangles[triIdx];
-        vec3 v0 = (finalModel * tri.v0).xyz;
-        vec3 v1 = (finalModel * tri.v1).xyz;
-        vec3 v2 = (finalModel * tri.v2).xyz;
 
-        float d0 = dot(v0 - push.planePoint, push.planeNormal);
-        float d1 = dot(v1 - push.planePoint, push.planeNormal);
-        float d2 = dot(v2 - push.planePoint, push.planeNormal);
+        float d0 = dot(tri.v0.xyz - s_localPlanePoint, s_localPlaneNorm);
+        float d1 = dot(tri.v1.xyz - s_localPlanePoint, s_localPlaneNorm);
+        float d2 = dot(tri.v2.xyz - s_localPlanePoint, s_localPlaneNorm);
 
         bool crossPlane = !((d0 > 0.0 && d1 > 0.0 && d2 > 0.0) || (d0 < 0.0 && d1 < 0.0 && d2 < 0.0));
         
         if (crossPlane) {
-            bool s0 = d0 >= 0.0; bool s1 = d1 >= 0.0; bool s2 = d2 >= 0.0;
-            vec3 pA, pB;
+            bool s0 = d0 >= 0.0;
+            bool s1 = d1 >= 0.0; 
+            bool s2 = d2 >= 0.0;
+            vec3 pA_local, pB_local;
+
             if (s0 == s1) { 
-                pA = mix(v2, v0, d2/(d2-d0)); pB = mix(v2, v1, d2/(d2-d1)); 
+                pA_local = mix(tri.v2.xyz, tri.v0.xyz, d2/(d2-d0));
+                pB_local = mix(tri.v2.xyz, tri.v1.xyz, d2/(d2-d1)); 
             } else if (s0 == s2) { 
-                pA = mix(v1, v0, d1/(d1-d0)); pB = mix(v1, v2, d1/(d1-d2)); 
+                pA_local = mix(tri.v1.xyz, tri.v0.xyz, d1/(d1-d0));
+                pB_local = mix(tri.v1.xyz, tri.v2.xyz, d1/(d1-d2)); 
             } else {
-                pA = mix(v0, v1, d0/(d0-d1)); pB = mix(v0, v2, d0/(d0-d2));
+                pA_local = mix(tri.v0.xyz, tri.v1.xyz, d0/(d0-d1));
+                pB_local = mix(tri.v0.xyz, tri.v2.xyz, d0/(d0-d2));
             }
 
+            vec3 pA = (s_finalModel * vec4(pA_local, 1.0)).xyz;
+            vec3 pB = (s_finalModel * vec4(pB_local, 1.0)).xyz;
+
+            vec3 projU = s_projU;
+            vec3 projV = s_projV;
             vec2 p2A = vec2(dot(pA - push.planePoint, projU), dot(pA - push.planePoint, projV));
             vec2 p2B = vec2(dot(pB - push.planePoint, projU), dot(pB - push.planePoint, projV));
 
@@ -103,29 +129,33 @@ void main() {
                     endIdx = clamp(endIdx, 0, int(ZMAP_RESOLUTION) - 1);
 
                 vec2 AB = p2B - p2A;
-                float dotABAB = dot(AB, AB);
+                float dotABAB = max(dot(AB, AB), 1e-8);
+                float invDotABAB = 1. / dotABAB;
+
                 float crossP = p2A.x * p2B.y - p2B.x * p2A.y;
+
                 float dy = p2A.y - p2B.y;
                 float dx = p2B.x - p2A.x;
 
-                float amplitude = length(vec2(dx, dy));
+                float dot_p2A_AB = dot(p2A, AB);
+                
+
                 float invZRes = PI / float(ZMAP_RESOLUTION);
-                float safeAmp = max(amplitude, 1e-8);
-                float cosPhase = dy / safeAmp;
-                float sinPhase = dx / safeAmp;
+                float startTh = float(startIdx) * invZRes - (PI / 2.);
+
+                vec2 currentDir = vec2(cos(startTh), sin(startTh));
+                float cosStep = cos(invZRes);
+                float sinStep = sin(invZRes);
 
                 for (int i = startIdx; i <= endIdx; i++) {
 
-                    float curTh = float(i) * invZRes - (PI / 2.0);
-                    vec2 currentDir = vec2(cos(curTh), sin(curTh));
-
-                    float denom = amplitude * (currentDir.x * cosPhase + currentDir.y * sinPhase);
+                    float denom = currentDir.x * dy + currentDir.y * dx;
                     
                     if (abs(denom) > 1e-6) {
                         float r = -crossP / denom;
                         if (r > 0.0 && r < 99998.0) {
-                            vec2 AP = r * currentDir - p2A;
-                            float t = dot(AP, AB) / dotABAB;
+                            float dir_dot_AB = dot(currentDir, AB);
+                            float t = (r * dir_dot_AB - dot_p2A_AB) * invDotABAB;
 
                             if (t >= -0.00001 && t <= 1.00001) {
                                 uint val = floatBitsToUint(r);
@@ -137,6 +167,11 @@ void main() {
                             }
                         }
                     }
+
+                    float nextX = currentDir.x * cosStep - currentDir.y * sinStep;
+                    float nextY = currentDir.x * sinStep + currentDir.y * cosStep;
+                    currentDir = vec2(nextX, nextY);
+
                 }
             }
         }

@@ -35,7 +35,7 @@ layout(std430, set = 0, binding = 2) readonly buffer BasePose {
     PoseData poses[];
 };
 
-layout(std430, set = 0, binding = 3) buffer OutputBuffer { BestResultData results[]; };
+layout(std430, set = 0, binding = 3) buffer BestResultBuffer { BestResultData results[]; };
 
 
 layout(std430, set = 0, binding = 5) buffer ParticleBuffer {
@@ -86,8 +86,8 @@ void main() {
                 rMax = push.radius;
         }
 
-        // bool isSurfaceCut = (rMin < push.radius - 0.06 && rMax > surfaceThreshold); // 0.05是否过大了，抛弃过多槽宽角？
-        bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
+        bool isSurfaceCut = (rMin < push.radius - 0.06 && rMax > surfaceThreshold); // 0.05是否过大了，抛弃过多槽宽角？
+        // bool isSurfaceCut = (rMin < push.radius && rMax > surfaceThreshold);
 
         if(isSurfaceCut) {
             localFirstCut = min(localFirstCut, i);

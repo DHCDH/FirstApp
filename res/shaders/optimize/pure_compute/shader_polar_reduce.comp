@@ -13,7 +13,7 @@ struct BestResultData {
     mat4 bestMatrix;
 };
 
-layout(std430, set = 0, binding = 3) readonly buffer OutputBuffer { 
+layout(std430, set = 0, binding = 3) readonly buffer BestResultBuffer { 
     BestResultData results[]; 
 };
 

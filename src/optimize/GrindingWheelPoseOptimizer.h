@@ -73,7 +73,9 @@ private:
     BestResultData m_bestResult{};
     float m_bestScore{-999999.0f};
 
-    uint32_t numTriangle{0};
+    std::vector<Triangle> m_triangles;
+
+    VkCommandBuffer m_cmdCompute = VK_NULL_HANDLE;
 };
 
 }  // namespace optimize

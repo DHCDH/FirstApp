@@ -64,11 +64,11 @@ vec3 getFusedGradient(ivec2 center) {
     float Gx = 0.0;
     float Gy = 0.0;
 
-    // 循环展开或使用循环处理 5x5 区域
+    // 遍历中心像素上下左右各2各像素，构成覆盖5*5正方形区域
     // 这里的权重是标准 5x5 Sobel，也可以视为 Sigma≈1.4 的高斯导数
     for (int y = -2; y <= 2; y++) {
         for (int x = -2; x <= 2; x++) {
-            // 获取原始二值 (0.0 或 1.0)
+            // 获取原始二值：0. == 非交集， 1. == 交集
             float val = getRawVal(center + ivec2(x, y));
             
             if (val == 0.0) continue; // 稀疏优化：背景点不贡献梯度
@@ -86,6 +86,7 @@ vec3 getFusedGradient(ivec2 center) {
                 else if (abs(y) == 1) smoothY = 4.0;
                 else if (y == 0) smoothY = 6.0;
                 
+                // 中心像素x方向的梯度
                 Gx += val * wX * smoothY;
             }
 
@@ -100,11 +101,13 @@ vec3 getFusedGradient(ivec2 center) {
                 else if (abs(x) == 1) smoothX = 4.0;
                 else if (x == 0) smoothX = 6.0;
                 
+                // 中心像素y方向的梯度
                 Gy += val * wY * smoothX;
             }
         }
     }
 
+    // 梯度的模长（中心像素的边缘强度）
     float mag = sqrt(Gx*Gx + Gy*Gy);
 
     return vec3(Gx, Gy, mag);
@@ -141,12 +144,13 @@ void main()
     vec3 gradB = getFusedGradient(pos);
     float gB = gradB.z;
 
-    // 阈值过滤
     // 过滤掉微小的噪声梯度
+    // 5*5sobel：mag = 0~9: 垃圾噪点；mag = 20~48: 边缘
     if (gB < 10.)
         return;
 
-    // 确定梯度主方向
+    // 确定梯度主方向（x主导或y主导）
+    // sign(x)：符号函数，x < 0 -> -1.0; x > 0 -> 1.0
     ivec2 dir;
     if (abs(gradB.x) > abs(gradB.y)) {
         dir = ivec2(sign(gradB.x), 0); // 水平梯度主导 -> 边缘是垂直的 -> 沿水平寻找峰值
@@ -159,13 +163,16 @@ void main()
     float gC = getFusedGradient(pos + dir).z;
 
     // 非极大值抑制 (Non-Maximum Suppression)
+    // 剔除算子模糊出来的冗余粗边缘
     // 保证了 gB 是局部最大值，因此 (gA + gC - 2.0 * gB) 必然是一个负数
     if (gB < gA || gB <= gC) return;
 
-    // 真正的 Devernay 抛物线亚像素校正
+    // Devernay 抛物线亚像素校正
+    // 用gA,gB,gC拟合抛物线，真正的边缘是抛物线的顶点（梯度最大的地方）
+    // 将(0, gB)，(-1, gA)，(1, gC)代入抛物线方程y = ax^2 + bx + c
     // 拟合 f(x) = ax^2 + bx + c，求导 f'(x)=0 的极值点
     float denom = gA + gC - 2.0 * gB;
-    float eta = 0.0;
+    float eta = 0.0;    // 亚像素偏移量(抛物线顶点的x坐标，真正的边缘位置)
 
     // 防止分母极小导致浮点数溢出爆炸 (虽然 NMS 保证了分母不为 0)
     if (abs(denom) > 0.0001) {
@@ -176,12 +183,14 @@ void main()
     eta = clamp(eta, -0.5, 0.5);
 
     // 输出最终亚像素坐标
-    vec2 finalPos = vec2(pos) + vec2(dir) * eta;
+    vec2 finalPos = vec2(pos) + vec2(dir) * eta;    // 像素坐标（pixel）
     float worldX = push.mapInfo.x + finalPos.x * push.mapInfo.z;
     float worldY = push.mapInfo.y + finalPos.y * push.mapInfo.w;
-    vec2 worldPos = vec2(worldX, worldY);
+    vec2 worldPos = vec2(worldX, worldY);   // 真实物理坐标（mm）
 
+    // 从边缘点开始，向梯度方向走一个像素
     uint valPlus = texelFetch(inputMask, pos + dir, 0).r;
+    // 如果valPlus是3u（交集），则将搜寻方向反向（往棒料方向走）
     ivec2 outStep = (valPlus != 3u) ? dir : -dir;
 
     bool found1u = false;
@@ -199,11 +208,12 @@ void main()
         }
     }
 
+    // 边缘点往外走，如果找不到棒料
     if (found2u || !found1u) {
         return; 
     }
 
-    // 计算并原子更新芯厚点
+    // 计算并原子更新芯厚点（可以用subgroup优化）
     float distSq = dot(worldPos, worldPos);
     uint distUint = floatBitsToUint(distSq);
 
