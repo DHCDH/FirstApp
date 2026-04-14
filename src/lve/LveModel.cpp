@@ -226,6 +226,56 @@ void LveModel::Builder::LoadModel(const std::string& filepath)
 		submeshes.push_back(sm);
 	}
 
+	// --- 自动修补缺失的法向 ---
+        bool missingNormals = false;
+        for (const auto& v : vertices) {
+            if (glm::length(v.normal) < 0.0001f) {
+                missingNormals = true;
+                break;
+            }
+        }
+
+        if (missingNormals) {
+            std::cout
+                << "Warning: Model missing normals. Auto-generating smooth normals...\n";
+
+            // 1. 初始化所有法向为 0
+            for (auto& v : vertices) {
+                v.normal = glm::vec3(0.0f);
+            }
+
+            // 2. 遍历所有三角形面，累加面法向到顶点
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                uint32_t i0 = indices[i + 0];
+                uint32_t i1 = indices[i + 1];
+                uint32_t i2 = indices[i + 2];
+
+                glm::vec3 v0 = vertices[i0].position;
+                glm::vec3 v1 = vertices[i1].position;
+                glm::vec3 v2 = vertices[i2].position;
+
+                // 计算该面的两条边
+                glm::vec3 edge1 = v1 - v0;
+                glm::vec3 edge2 = v2 - v0;
+                // 叉乘计算出垂直于该面的法向
+                glm::vec3 faceNormal = glm::normalize(glm::cross(edge1, edge2));
+
+                // 将该面法向贡献给三个顶点
+                vertices[i0].normal += faceNormal;
+                vertices[i1].normal += faceNormal;
+                vertices[i2].normal += faceNormal;
+            }
+
+            // 3. 对累加后的顶点法向进行归一化，实现平滑着色
+            for (auto& v : vertices) {
+                if (glm::length(v.normal) > 0.0001f) {
+                    v.normal = glm::normalize(v.normal);
+                } else {
+                    v.normal = glm::vec3(0.0f, 1.0f, 0.0f);  // 极小概率的兜底
+                }
+            }
+        }
+
 }
 
 void LveModel::DrawSubmesh(VkCommandBuffer cmd, uint32_t i) const {
