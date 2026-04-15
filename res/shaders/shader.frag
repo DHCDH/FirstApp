@@ -13,7 +13,7 @@ struct PointLight {
     vec4 color;
 };
 
-// 必须与你的 FirstApp.cpp 中的 GlobalUbo 严格对应
+// 必须与FirstApp.cpp 中的 GlobalUbo 严格对应
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projection;
     mat4 view;
@@ -21,6 +21,10 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 ambientLightColor;
     PointLight pointLights[20];
     int numLights;
+
+    // 自定义视点剔除
+    vec4 obsCamPos;
+    int useCustomCulling;
 } ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D uAlbedo;
@@ -40,6 +44,21 @@ layout(push_constant) uniform Push {
 
 void main() 
 {
+    // --- 自定义视点剔除 ---
+    if(ubo.useCustomCulling == 1) {
+        // 计算当前像素指向摄像机1的向量
+        vec3 dirToObsCam = normalize(ubo.obsCamPos.xyz - fragPosWorld);
+
+        // 计算法线与该向量的点乘
+        float dotResult = dot(normalize(fragNormalWorld), dirToObsCam);
+
+        // 如果点乘 <= 0，说明该面背对着摄像机1，直接丢弃！
+        if (dotResult <= 0.0) {
+            discard; 
+        }
+    }
+
+
     // 1. 强制使用纯色作为基础色 (忽略贴图，呈现干净的 CAD 质感)
     vec3 baseColor = matu.baseColorFactor.rgb;
 

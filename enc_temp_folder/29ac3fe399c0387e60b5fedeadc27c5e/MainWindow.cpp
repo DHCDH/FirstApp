@@ -75,7 +75,7 @@ void MainWindow::InitUI()
     QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
     QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
     QLabel* labelUp = new QLabel("Camera Up", m_buttonWidget);
-    m_camPos = new QLineEdit("180., -75., 0.", m_buttonWidget);
+    m_camPos = new QLineEdit("240., -100., 0.", m_buttonWidget);
     m_camTarget = new QLineEdit("0., 0., 0.", m_buttonWidget);
     m_camUp = new QLineEdit("0., -1., 0.", m_buttonWidget);
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);

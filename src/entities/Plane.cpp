@@ -9,6 +9,7 @@ lve::LveObject Plane::CreateObject()
     plane.model = p_model;
     plane.transform.translation = {0.f, 0.f, 0.f};
     plane.transform.rotation = {0.f, 0.f, 0.f};
+    plane.transform.scale = {.5f, .5f, .5f};
     plane.transparency = 0.2f;
 
     m_id = plane.getId();

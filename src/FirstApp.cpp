@@ -261,6 +261,9 @@ void FirstApp::RunFrame()
     ubo.inverseView = m_lveCamera->GetInverseView();
     ubo.ambientLightColor.w = 0.25f;
     m_pointLightSystem->Update(frameInfo, ubo);
+    // 自定义视点剔除
+    ubo.obsCamPos = glm::vec4(0.f, -200.f, 0.f, 0.f);
+    ubo.useCustomCulling = 0;
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
     // BuildGrindingWheelTrackInstances(0.f, 100.f, 100);

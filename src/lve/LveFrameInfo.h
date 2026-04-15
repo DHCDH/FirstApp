@@ -25,6 +25,10 @@ struct GlobalUbo {
 	glm::vec4 ambientLightColor{ 1.f, 1.f, 1.f, .5f }; // w is intensity
 	PointLight pointLights[MAX_LIGHTS];
 	int numLights;
+
+	// --- 自定义视点剔除 ---
+    alignas(16) glm::vec4 obsCamPos;	// 自定义视点相机位置，最后一位为pad
+    int useCustomCulling;	// 0: close; 1: open
 };
 
 struct MaterialGPU {

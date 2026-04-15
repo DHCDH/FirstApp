@@ -1,28 +1,27 @@
 ﻿#include "RenderSystem.h"
 
-
-#define GLM_FORCE_RADIANS	// 无论在什么系统上，glm都会希望角度以弧度指定
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE	//深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
+#define GLM_FORCE_RADIANS  // 无论在什么系统上，glm都会希望角度以弧度指定
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE  //深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
+#include <array>
 #include <glm.hpp>
 #include <gtc/constants.hpp>
-
-#include <stdexcept>
-#include <array>
 #include <iostream>
-#include <unordered_map>
 #include <map>
+#include <stdexcept>
+#include <unordered_map>
 
-namespace lve {
+namespace lve
+{
+struct SimplePushConstantData {
+    glm::mat4 modelMatrix{1.f};  // 初始化为单位矩阵
+    glm::mat4 normalMatrix{1.f};
+};
 
-    struct SimplePushConstantData {
-        glm::mat4 modelMatrix{ 1.f };   // 初始化为单位矩阵
-        glm::mat4 normalMatrix{ 1.f };
-    };
-
-RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass, const std::vector<VkDescriptorSetLayout>& setLayouts)
+RenderSystem::RenderSystem(LveDevice& device, VkRenderPass renderPass,
+                           const std::vector<VkDescriptorSetLayout>& setLayouts)
     : m_lveDevice(device)
 {
-    CreatePipelineLayout(setLayouts); // 定义渲染管线的layout
+    CreatePipelineLayout(setLayouts);  // 定义渲染管线的layout
     CreatePipelines(renderPass);
 }
 
@@ -34,13 +33,15 @@ RenderSystem::~RenderSystem()
 /* 创建渲染管线
  * 告诉vulkan渲染管线在执行时可以用哪些数据
  */
-void RenderSystem::CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>& setLayouts)
+void RenderSystem::CreatePipelineLayout(
+    const std::vector<VkDescriptorSetLayout>& setLayouts)
 {
     /* 从偏移0开始，大小为sizeof(SimplePushConstantData)的一段push常量
      * 能被VS和FS两个阶段可见
      */
     VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(SimplePushConstantData);
 
@@ -49,21 +50,26 @@ void RenderSystem::CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>
     /*描述符集*/
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());  // 描述符集布局数量（descriptor set layouts）
-    pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();   // 指向布局数组的指针
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(
+        descriptorSetLayouts.size());  // 描述符集布局数量（descriptor set layouts）
+    pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();  // 指向布局数组的指针
     /*把push constant范围装入管线布局*/
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
     /*创建管线布局对象*/
-    if (vkCreatePipelineLayout(m_lveDevice.device(), &pipelineLayoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create pipeline layout!");
     }
 }
 
 void RenderSystem::CreatePipelines(VkRenderPass renderPass)
 {
-    assert(m_pipelineLayout != nullptr && "Cannot create pipeline before pipeline layout");
+    assert(m_pipelineLayout != nullptr &&
+           "Cannot create pipeline before pipeline layout");
 
     CreatePipeline(renderPass);
     CreateTranslucentPipeline(renderPass);
@@ -80,19 +86,26 @@ void RenderSystem::CreatePipeline(VkRenderPass renderPass)
     pipelineConfig.renderPass = renderPass;
     pipelineConfig.pipelineLayout = m_pipelineLayout;
 
+    // 自定义视点模式，临时关闭普通背面剔除
+    pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+
     pipelineConfig.depthStencilInfo.depthWriteEnable = VK_TRUE;
     pipelineConfig.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
     pipelineConfig.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
 
-    std::cout << "-------" << "\n";
+    std::cout << "-------"
+              << "\n";
     for (size_t i = 0; i < pipelineConfig.bindingDescriptions.size(); ++i) {
         auto& bd = pipelineConfig.bindingDescriptions[i];
-        std::cout << "  [" << i << "] binding=" << bd.binding
-            << ", stride=" << bd.stride
-            << ", rate=" << bd.inputRate << "\n";
+        std::cout << "  [" << i << "] binding=" << bd.binding << ", stride=" << bd.stride
+                  << ", rate=" << bd.inputRate << "\n";
     }
 
-    m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/spv/shader.vert.spv", "../../../res/shaders/spv/shader.frag.spv", pipelineConfig);
+    m_lvePipeline =
+        std::make_unique<LvePipeline>(m_lveDevice,
+                                      "../../../res/shaders/spv/shader.vert.spv",
+                                      "../../../res/shaders/spv/shader.frag.spv",
+                                      pipelineConfig);
 }
 
 // --- 半透明管线 ---
@@ -146,31 +159,32 @@ void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
         VkVertexInputAttributeDescription attribute{};
         attribute.binding = 1;
         attribute.location = locBase + i;
-        attribute.offset = sizeof(glm::vec4) * i;  // 在InstanceData中，这个attribute从offset处开始读数据
-        attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;   // attribute从offset开始，从InstanceData中读取16个字节，当作4个float传递给shader中对应location
+        attribute.offset =
+            sizeof(glm::vec4) * i;  // 在InstanceData中，这个attribute从offset处开始读数据
+        attribute.format =
+            VK_FORMAT_R32G32B32A32_SFLOAT;  // attribute从offset开始，从InstanceData中读取16个字节，当作4个float传递给shader中对应location
         attributeDescs.push_back(attribute);
     }
     pipelineConfig.bindingDescriptions = std::move(bindingDescs);
     pipelineConfig.attributeDescriptions = std::move(attributeDescs);
 
-    std::cout <<  "[CreateInstancedPipeline] bindingDescriptions = " << pipelineConfig.bindingDescriptions.size() << "\n";
+    std::cout << "[CreateInstancedPipeline] bindingDescriptions = "
+              << pipelineConfig.bindingDescriptions.size() << "\n";
     for (size_t i = 0; i < pipelineConfig.bindingDescriptions.size(); i++) {
         auto& bd = pipelineConfig.bindingDescriptions[i];
-        std::cout << "[" << i << "] binding = " << bd.binding << ", stride = " << bd.stride << ", rate = " << bd.inputRate << "\n";
+        std::cout << "[" << i << "] binding = " << bd.binding
+                  << ", stride = " << bd.stride << ", rate = " << bd.inputRate << "\n";
     }
 
     m_lvePipelineInstanced = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/shader_instanced.vert.spv",
         "../../../res/shaders/spv/shader.frag.spv",
-        pipelineConfig
-    );
-
+        pipelineConfig);
 }
 
 void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
 {
-
     PipelineConfigInfo pipelineConfig{};
     LvePipeline::DefaultPipelineConfigInfo(pipelineConfig);
 
@@ -184,7 +198,8 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
     /*binding = 1*/
     VkVertexInputBindingDescription instanceBinding{};
     instanceBinding.binding = 1;
-    instanceBinding.stride = sizeof(glm::mat4);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
+    instanceBinding.stride =
+        sizeof(glm::mat4);  // 第一个顶点(实例)读完之后，跳到下一个顶点(实例)所需跨字节数
     instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     bindingDescs.push_back(instanceBinding);
 
@@ -194,21 +209,22 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
         VkVertexInputAttributeDescription attribute{};
         attribute.binding = 1;
         attribute.location = locBase + i;
-        attribute.offset = sizeof(glm::vec4) * i;  // 在InstanceData中，这个attribute从offset处开始读数据
-        attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;   // attribute从offset开始，从InstanceData中读取16个字节，当作4个float传递给shader中对应location
+        attribute.offset =
+            sizeof(glm::vec4) * i;  // 在InstanceData中，这个attribute从offset处开始读数据
+        attribute.format =
+            VK_FORMAT_R32G32B32A32_SFLOAT;  // attribute从offset开始，从InstanceData中读取16个字节，当作4个float传递给shader中对应location
         attributeDescs.push_back(attribute);
     }
     pipelineConfig.bindingDescriptions = std::move(bindingDescs);
     pipelineConfig.attributeDescriptions = std::move(attributeDescs);
 
-    pipelineConfig.colorBlendAttachment.colorWriteMask = 0; // 关闭颜色写入
+    pipelineConfig.colorBlendAttachment.colorWriteMask = 0;  // 关闭颜色写入
 
     m_lvePipelineInstancedInvisible = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/shader_instanced.vert.spv",
         "../../../res/shaders/spv/shader.frag.spv",
-        pipelineConfig
-    );
+        pipelineConfig);
 }
 
 void RenderSystem::CreateOutlinePipeline(VkRenderPass renderPass)
@@ -234,17 +250,17 @@ void RenderSystem::CreateOutlinePipeline(VkRenderPass renderPass)
     outlineConfig.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
     outlineConfig.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
 
-    m_lvePipelineOutline =
-        std::make_unique<LvePipeline>(m_lveDevice,
-                                      "../../../res/shaders/spv/3dsimulation/shader_outline.vert.spv",
-                                      "../../../res/shaders/spv/3dsimulation/shader_outline.frag.spv",
-                                      outlineConfig);
+    m_lvePipelineOutline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/3dsimulation/shader_outline.vert.spv",
+        "../../../res/shaders/spv/3dsimulation/shader_outline.frag.spv",
+        outlineConfig);
 }
 
 /* 主循环中每帧都会调用renderGameObjects
  * 引用传递gameObjects，每次都会修改gameObjects中的数据并影响到下一个循环
  * gameObjects为FirstApp持有`
- * 
+ *
  */
 void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
@@ -439,56 +455,59 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
             draw_single_object(&kv.second);
         }
     }
-
 }
 
 void RenderSystem::RenderInstances(FrameInfo& frameInfo, const bool& shown)
 {
     auto& cmd = frameInfo.commandBuffer;
-    if(shown)
+    if (shown)
         m_lvePipelineInstanced->Bind(cmd);  // 绑定渲染管线
     else
         m_lvePipelineInstancedInvisible->Bind(cmd);
 
     vkCmdBindDescriptorSets(cmd,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        m_pipelineLayout,
-        0,
-        1,
-        &frameInfo.globalDescriptorSet,
-        0,
-        nullptr);
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            0,
+                            1,
+                            &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
 
     for (const auto& batch : frameInfo.instanceBatches) {
-
-        if (!batch.model || batch.instanceBuffer == VK_NULL_HANDLE || batch.instanceCount == 0) {
-            std::cout << "RenderSystem::RenderInstances: null model or instance buffer" << "\n";
+        if (!batch.model || batch.instanceBuffer == VK_NULL_HANDLE ||
+            batch.instanceCount == 0) {
+            std::cout << "RenderSystem::RenderInstances: null model or instance buffer"
+                      << "\n";
             continue;
         }
 
-        //std::cout << "batch: model: " << batch.model << "\nbuffer: " << batch.instanceBuffer << 
-        //    "\nstride: " << batch.instanceStride << "\ncout: " << batch.instanceCount << "\n";
+        // std::cout << "batch: model: " << batch.model << "\nbuffer: " <<
+        // batch.instanceBuffer <<
+        //    "\nstride: " << batch.instanceStride << "\ncout: " << batch.instanceCount <<
+        //    "\n";
 
         batch.model->Bind(cmd);
-        VkBuffer bufs[] = { batch.instanceBuffer };
-        VkDeviceSize offsets[] = { 0 };
+        VkBuffer bufs[] = {batch.instanceBuffer};
+        VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 1, 1, bufs, offsets);
 
-        VkDescriptorSet set1 = (batch.set1 != VK_NULL_HANDLE) ? batch.set1 : frameInfo.dummyTexSet;
-        VkDescriptorSet set2 = (batch.set2 != VK_NULL_HANDLE) ? batch.set2 : frameInfo.dummyMatSet;
-        VkDescriptorSet sets12[2] = { set1, set2 };
+        VkDescriptorSet set1 =
+            (batch.set1 != VK_NULL_HANDLE) ? batch.set1 : frameInfo.dummyTexSet;
+        VkDescriptorSet set2 =
+            (batch.set2 != VK_NULL_HANDLE) ? batch.set2 : frameInfo.dummyMatSet;
+        VkDescriptorSet sets12[2] = {set1, set2};
 
         vkCmdBindDescriptorSets(cmd,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipelineLayout,
-            1,
-            2,
-            sets12,
-            0,
-            nullptr);
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_pipelineLayout,
+                                1,
+                                2,
+                                sets12,
+                                0,
+                                nullptr);
         batch.model->DrawInstanced(cmd, batch.instanceCount);
     }
 }
 
-
-}
+}  // namespace lve
