@@ -14,8 +14,6 @@
 
 class SliceView;
 class QTimer;
-class GrindingWheel;
-class Blank;
 class QLineEdit;
 class QLabel;
 
@@ -27,7 +25,8 @@ public:
     Simulation2DDialog(lve::LveDevice& device, QWidget* parent = nullptr);
     ~Simulation2DDialog();
 
-    void UpdateEntitiesData(const GrindingWheel& grndWheel, const Blank& blank,
+    void UpdateEntitiesData(const entity::GrindingWheel& grndWheel,
+                            const entity::Blank& blank,
                             const std::vector<glm::mat4>& grndWheelInstances);
     void BuildContactMask();
 
@@ -39,8 +38,8 @@ private:
     QTimer* m_resizeTimer = nullptr;  // 防抖定时器
     QLabel* m_labelRes = nullptr;   // 显示分辨率
 
-    const Blank* m_blank = nullptr;
-    const GrindingWheel* m_grndWheel = nullptr;
+    const entity::Blank* m_blank = nullptr;
+    const entity::GrindingWheel* m_grndWheel = nullptr;
     std::vector<glm::mat4> m_grndWheelInstances;
 
     double m_viewHalfSize{8.};

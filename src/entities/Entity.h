@@ -9,21 +9,40 @@
 #include <string>
 #include <memory>
 
-class Entity {
+namespace entity
+{
+class Entity
+{
 public:
-	Entity(RenderContext& renderContext) : m_renderContext(renderContext) {}
-	virtual lve::LveObject CreateObject() = 0;
+    Entity(RenderContext& renderContext) : m_renderContext(renderContext)
+    {
+    }
+    virtual lve::LveObject CreateObject() = 0;
 
-	lve::LveModel* GetModel() const { return p_model.get(); }
+    lve::LveModel* GetModel() const
+    {
+        return p_model.get();
+    }
+    lve::MaterialUBO GetMaterialUBO() const
+    {
+        return m_materialUBO;
+    }
+
 
 protected:
-	void CreateMaterialParamSetsForSubmesh(uint32_t objId, uint32_t submeshIndex, const lve::MaterialUBO& u);
-	void AssignMaterialParamsToObject(uint32_t objId, const lve::MaterialUBO& init);
-	RenderContext& GetRenderContext() { return m_renderContext; }
+    void CreateMaterialParamSetsForSubmesh(uint32_t objId, uint32_t submeshIndex,
+                                           const lve::MaterialUBO& u);
+    void AssignMaterialParamsToObject(uint32_t objId, const lve::MaterialUBO& init);
+    RenderContext& GetRenderContext()
+    {
+        return m_renderContext;
+    }
 
-	std::shared_ptr<lve::LveModel> p_model;
+    std::shared_ptr<lve::LveModel> p_model;
+
+    lve::MaterialUBO m_materialUBO;
 
 private:
-	RenderContext& m_renderContext;
-	
+    RenderContext& m_renderContext;
 };
+}  // namespace entity

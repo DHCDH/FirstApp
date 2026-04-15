@@ -44,6 +44,9 @@ private:
     bool m_instancedShown = false;
     bool m_is2DSimulationActive = false;
 
+    QLineEdit* m_camPos;
+    QLineEdit* m_camTarget;
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* e) override;

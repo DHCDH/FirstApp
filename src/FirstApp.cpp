@@ -17,8 +17,8 @@ struct OrbitConfig {
     float rotateSpeedPerPixel = 0.0020f;  // 每像素约 0.11°
     float panBasePerPixel = 0.0015f;      // 每像素平移尺度 = distance * 该系数
     float dollySpeed = 0.22f;             // 指数缩放强度（滚轮步长）
-    float minDistance = 0.05f;            // 缩放最近距离
-    float maxDistance = 500.0f;           // 缩放最远距离
+    float minDistance = 0.1f;            // 缩放最近距离
+    float maxDistance = 5000.0f;           // 缩放最远距离
     float minPitch = -1.55334306f;        // -89° (弧度)
     float maxPitch = 1.55334306f;         //  89° (弧度)
     float fovY = 0.87266463f;             //  50° (弧度) 供平移尺度估算
@@ -196,7 +196,7 @@ void FirstApp::RunFrame()
 
     /*设置相机的视图与投影*/
     float aspect = m_lveRenderer->GetAspectRatio();  // 宽高比
-    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 10.f, 500.f);
+    m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 5000.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
 
@@ -244,10 +244,10 @@ void FirstApp::RunFrame()
     /*更新跟随镜头点光源*/
     glm::vec3 camPos = m_lveCamera->GetPosition();
     if (auto it = m_objects.find(m_headlightId); it != m_objects.end()) {
-        it->second.transform.translation = camPos;
-
+        it->second.transform.translation = camPos + glm::vec3(2.f, 2.f, 0.f);
+        //std::cout << "[Camera]camPos: " << camPos.x << ", " << camPos.y << ", " << camPos.z << "\n";
         float d = m_orbit.distance;
-        it->second.pointLight->lightIntensity = .3f * d * d;
+        //it->second.pointLight->lightIntensity = 10.f * d * d;
     }
 
     /*将PV矩阵写入UBO*/
@@ -255,7 +255,7 @@ void FirstApp::RunFrame()
     ubo.projection = m_lveCamera->GetProjection();
     ubo.view = m_lveCamera->GetView();
     ubo.inverseView = m_lveCamera->GetInverseView();
-    ubo.ambientLightColor.w = 0.08f;
+    ubo.ambientLightColor.w = 0.25f;
     m_pointLightSystem->Update(frameInfo, ubo);
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
@@ -279,25 +279,33 @@ void FirstApp::RunFrame()
 void FirstApp::LoadObjects()
 {
     /*创建跟随相机的点光源*/
-    auto head = LveObject::MakePointLight(.5, 0.25, {1.f, .86f, .55f});
+    auto head = LveObject::MakePointLight(1.5f, 0.25, {1.f, .86f, .55f});
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
     m_objects.emplace(head.getId(), std::move(head));
 
     /*创建太阳光*/
-    CreateSunLight();
+    //CreateSunLight();
 
     /*毛坯*/
-    m_blank = std::make_unique<Blank>(*m_renderContext);
-    auto blank = m_blank->CreateObject();
-    uint32_t blankId = blank.getId();
-    m_objects.emplace(blank.getId(), std::move(blank));
+    //m_blank = std::make_unique<entity::Blank>(*m_renderContext);
+    //auto blank = m_blank->CreateObject();
+    //uint32_t blankId = blank.getId();
+    //m_objects.emplace(blank.getId(), std::move(blank));
 
     /*砂轮*/
-    m_grindingWheel = std::make_unique<GrindingWheel>(*m_renderContext);
+    m_grindingWheel = std::make_unique<entity::GrindingWheel>(*m_renderContext);
     auto grindingWheel = m_grindingWheel->CreateObject();
     m_grindingWheelId = grindingWheel.getId();
     m_objects.emplace(m_grindingWheelId, std::move(grindingWheel));
+    std::cout << "[FirstApp] grndWheel id: " << m_grindingWheelId << "\n";
+
+    /*平面*/
+    m_plane = std::make_unique<entity::Plane>(*m_renderContext);
+    auto plane = m_plane->CreateObject();
+    m_planeId = plane.getId();
+    m_objects.emplace(m_planeId, std::move(plane));
+    std::cout << "[FirstApp] plane id: " << m_planeId << "\n";
 }
 
 void FirstApp::CreateSunLight()
@@ -334,7 +342,7 @@ void FirstApp::CreateSunLight()
 
     for (int i = 0; i < N; i++) {
         glm::vec3 dir = glm::normalize(dirs[i]);
-        auto light = LveObject::MakePointLight(3000, radius, color);
+        auto light = LveObject::MakePointLight(6000.f, radius, color);
         auto id = light.getId();
         m_sunLightIds.push_back(id);
 
@@ -525,8 +533,8 @@ void FirstApp::UpdateCameraFromOrbit()
 
 void FirstApp::Orbit(float dxPixels, float dyPixels)
 {
-    m_orbit.yaw -= dxPixels * orbitCfg.rotateSpeedPerPixel;
-    m_orbit.pitch -= dyPixels * orbitCfg.rotateSpeedPerPixel;
+    m_orbit.yaw += dxPixels * orbitCfg.rotateSpeedPerPixel;
+    m_orbit.pitch += dyPixels * orbitCfg.rotateSpeedPerPixel;
     // 俯仰夹取
     if (m_orbit.pitch > orbitCfg.maxPitch) m_orbit.pitch = orbitCfg.maxPitch;
     if (m_orbit.pitch < orbitCfg.minPitch) m_orbit.pitch = orbitCfg.minPitch;
@@ -541,14 +549,19 @@ void FirstApp::Pan(float dxPixels, float dyPixels)
     const float panScale = m_orbit.distance * orbitCfg.panBasePerPixel;
     const float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
     const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
+
     // 朝向（从相机指向目标）
     glm::vec3 forward = glm::normalize(glm::vec3(cp * sy, sp, cp * cy));
     glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
     glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
     glm::vec3 up = glm::normalize(glm::cross(right, forward));
-    // 屏幕像素位移 -> 世界位移（注意屏幕 y 向下为正）
-    m_orbit.target += (-dxPixels * panScale) * right;
-    m_orbit.target += (dyPixels * panScale) * up;
+
+    // 【修改】：符合“抓住并拖动”直觉
+    // 鼠标向右(dx > 0) -> Target向左(-right)
+    // 在 Vulkan 下，鼠标向下(dy > 0)，需要摄像机目标也向下(-up)才能让画面里的物体跟着向下走
+    m_orbit.target -= (dxPixels * panScale) * right;
+    m_orbit.target -= (dyPixels * panScale) * up;
+
     UpdateCameraFromOrbit();
 }
 
@@ -566,6 +579,26 @@ void FirstApp::ResetView()
     m_orbit.distance = 5.0f;
     m_orbit.yaw = glm::pi<float>();
     m_orbit.pitch = 0.f;
+}
+
+void FirstApp::SetCameraPose(glm::vec3 pos, glm::vec3 target)
+{
+    m_orbit.target = target;
+    // 计算从目标点指向相机的向量 (Offset)
+    glm::vec3 offset = target - pos;
+
+    // 1. 更新距离
+    m_orbit.distance = glm::length(offset);
+    if (m_orbit.distance < orbitCfg.minDistance) m_orbit.distance = orbitCfg.minDistance;
+
+    // 2. 根据 offset = (d*cp*sy, d*sp, d*cp*cy) 反推角度
+    // pitch: sp = y / d
+    m_orbit.pitch = std::asin(glm::clamp(offset.y / m_orbit.distance, -1.0f, 1.0f));
+
+    // yaw: tan(yaw) = x / z
+    m_orbit.yaw = std::atan2(offset.x, offset.z);
+
+    UpdateCameraFromOrbit();
 }
 
 void FirstApp::WaitIdle()

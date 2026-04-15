@@ -174,7 +174,7 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
-    const GrindingWheel& grndWheel, const Blank& blank,
+    const entity::GrindingWheel& grndWheel, const entity::Blank& blank,
     const std::vector<glm::mat4>& grndWheelInstances)
 {
     m_grndWheel = &grndWheel;

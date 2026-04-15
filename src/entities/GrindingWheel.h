@@ -6,6 +6,8 @@
 #include "LveModel.h"
 #include "LveObject.h"
 
+namespace entity
+{
 struct HelixMotion {
     bool enabled = true;
     float f = 1.f;                  // 进给速率 mm/s
@@ -33,21 +35,23 @@ public:
     lve::LveObject CreateObject() override;
     lve::TransformComponent Update(const float& dt);
     lve::TransformComponent EvaluateAtTime(const float& t);
-    void CalculateGrindingWheelInstances(
-        std::vector<glm::mat4>& instances,
-        const std::vector<ToolPath>& toolPaths) const;
+    void CalculateGrindingWheelInstances(std::vector<glm::mat4>& instances,
+                                         const std::vector<ToolPath>& toolPaths) const;
 
 private:
-    //std::string m_filepath{
+    // std::string m_filepath{
     //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/1A1_D100_W10.obj"};
-    //std::string m_filepath{
+    // std::string m_filepath{
     //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
     //    "wheel_d100_w10_r0.1_Z/wheel_d100_w10_r0.1_Z.obj"};
+    /*std::string m_filepath{
+        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/1a1_d100_w10_r0.1_x_calculate/1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};*/
     std::string m_filepath{
-        "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};
+        "D:/Data/Study/vulkan/FirstApp/output_stuff/img/model_for_img/1V1.obj"};
     bool m_motionEnabled = false;
-    uint32_t m_id{114514};
+    uint32_t m_id{};
     HelixMotion m_helixMotion;
     HelixMotion m_helixMotionInstanced;
     glm::mat4 m_modelMatrix{1.f};
 };
+}  // namespace entity

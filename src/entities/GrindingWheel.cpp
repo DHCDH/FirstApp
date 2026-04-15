@@ -8,6 +8,8 @@
 #include <gtx/quaternion.hpp>
 #include <gtx/vector_angle.hpp>
 
+namespace entity
+{
 lve::LveObject GrindingWheel::CreateObject()
 {
     // std::shared_ptr<lve::LveModel> lveModel =
@@ -18,8 +20,8 @@ lve::LveObject GrindingWheel::CreateObject()
     auto grindingWheel = lve::LveObject::CreateObject();
     grindingWheel.model = p_model;
 
-    // grindingWheel.transform.translation = { -45.9003f, 13.0961f , 16.0312f };
-    // grindingWheel.transform.rotation = {-0.949079, 0.014354, 0.027942 };
+    grindingWheel.transform.translation = {0., -15., 0.};
+    grindingWheel.transform.rotation = {-1.414f, -1.414f, -1.414f};
 
     // grindingWheel.transform.translation = { 0.f, 0.f, 0.f };
     // grindingWheel.transform.rotation = {0.f, 0.f, 0.f};
@@ -39,25 +41,17 @@ lve::LveObject GrindingWheel::CreateObject()
     GetRenderContext().submeshTextureSets[m_id][0] = dsAbrasive;
     // GetRenderContext().submeshTextureSets[m_id][1] = dsMetal;
 
-    lve::MaterialUBO mtlAbr{};
-    mtlAbr.baseColorFactor = {1, 1, 1, 1};
-    mtlAbr.uvTilingOffset = {1, 1, 0, 0};
-    mtlAbr.pbrAoAlpha = {0.0f, 0.85f, 1.0f, 0.0f};  // 非金属、粗糙高
-    mtlAbr.flags = {1u, 0u, 0u, 0u};
-
-    lve::MaterialUBO mtlMetal{};
-    mtlMetal.baseColorFactor = {1, 1, 1, 1};
-    mtlMetal.uvTilingOffset = {1, 1, 0, 0};
-    mtlMetal.pbrAoAlpha = {1.0f, 0.35f, 1.0f, 0.0f};  // 金属、粗糙低
-    mtlMetal.flags = {1u, 0u, 0u, 0u};
+    m_materialUBO.baseColorFactor = {1.f, 1.f, 0.f, 1.f};
+    m_materialUBO.uvTilingOffset = {1, 1, 0, 0};
+    m_materialUBO.pbrAoAlpha = {1.0f, 0.35f, 1.0f, 0.0f};  // 金属、粗糙低
+    m_materialUBO.flags = {1u, 0u, 0u, 0u};
 
     // 为两个 submesh 生成“每帧一套”的 set=2
-    CreateMaterialParamSetsForSubmesh(m_id, 0, mtlAbr);
+    CreateMaterialParamSetsForSubmesh(m_id, 0, m_materialUBO);
     // CreateMaterialParamSetsForSubmesh(m_id, 1, mtlMetal);
 
     m_helixMotion.M0 = m_modelMatrix;
     m_helixMotionInstanced.M0 = m_modelMatrix;
-
     return grindingWheel;
 }
 
@@ -114,16 +108,16 @@ void GrindingWheel::CalculateGrindingWheelInstances(
     int count = 0;
     for (const auto& path : toolPaths) {
         size_t size = path.size;
-        //std::cout << "path[" << count << "]: size=" << size << "\n";
+        // std::cout << "path[" << count << "]: size=" << size << "\n";
         for (size_t i = 0; i < size; i++) {
             const glm::vec3& pos = path.points[i];
             const glm::vec3& norm = path.normals[i];
 
-            //std::cout << "toolpath[" << count << "][" << i
+            // std::cout << "toolpath[" << count << "][" << i
             //          << "]: pos(" << pos.x << ", " << pos.y << ", " << pos.z << "), "
             //          << "norm(" << norm.x << ", " << norm.y << ", " << norm.z << ")\n";
 
-            #if 0
+#if 0
             lve::TransformComponent transform{};
             transform.translation = pos;
             transform.scale = glm::vec3(1.f);
@@ -135,7 +129,7 @@ void GrindingWheel::CalculateGrindingWheelInstances(
 
             lve::InstanceData instance{};
             instance.modelMatrix = transform.mat4();
-            #else
+#else
             // 1. 位移矩阵 (Translation)
             glm::mat4 translationMat = glm::translate(glm::mat4(1.0f), pos);
 
@@ -150,16 +144,17 @@ void GrindingWheel::CalculateGrindingWheelInstances(
             // 4. 组合最终矩阵 (M = T * R * S)
             // 注意乘法顺序：先缩放，再旋转，最后位移
             glm::mat4 instance = translationMat * rotationMat * scaleMat;
-            #endif
+#endif
 
             instances.emplace_back(instance);
 
             if (i > 400) break;
         }
-        //std::cout << "===count: " << count << "\n";
+        // std::cout << "===count: " << count << "\n";
 
         count++;
     }
 
     return;
 }
+}  // namespace entity

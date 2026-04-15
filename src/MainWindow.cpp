@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QLineEdit>
 #include <QLabel>
+#include <QStringList>
 
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
@@ -71,12 +72,18 @@ void MainWindow::InitUI()
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
     QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
+    m_camPos = new QLineEdit("-10., 0., 0.", m_buttonWidget);
+    m_camTarget = new QLineEdit("1., 0., 0.", m_buttonWidget);
+    QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
     buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
     buttonLayout->addWidget(btnInstanced);
+    buttonLayout->addWidget(m_camPos);
+    buttonLayout->addWidget(m_camTarget);
+    buttonLayout->addWidget(btnUpdateCam);
     buttonLayout->addStretch();  // 让按钮靠上排列
     buttonLayout->addWidget(btnQuit);
 
@@ -112,6 +119,24 @@ void MainWindow::InitUI()
     connect(btnInstanced, &QPushButton::clicked, [this]() {
         m_vulkanApp->SetInstancesShown(!m_instancedShown);
         m_instancedShown = !m_instancedShown;
+    });
+    connect(btnUpdateCam, &QPushButton::clicked, this, [this]() {
+        auto parseVec3 = [](const QString& str) -> glm::vec3 {
+            // 支持逗号或空格分隔
+            QStringList parts =
+                str.contains(',') ? str.split(',') : str.split(' ', Qt::SkipEmptyParts);
+            if (parts.size() < 3) return glm::vec3(0.f);
+            return glm::vec3(parts[0].trimmed().toFloat(),
+                             parts[1].trimmed().toFloat(),
+                             parts[2].trimmed().toFloat());
+        };
+
+        glm::vec3 pos = parseVec3(m_camPos->text());
+        glm::vec3 target = parseVec3(m_camTarget->text());
+
+        if (m_vulkanApp) {
+            m_vulkanApp->SetCameraPose(pos, target);
+        }
     });
 }
 

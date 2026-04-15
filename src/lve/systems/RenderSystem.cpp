@@ -10,6 +10,7 @@
 #include <array>
 #include <iostream>
 #include <unordered_map>
+#include <map>
 
 namespace lve {
 
@@ -65,6 +66,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
     assert(m_pipelineLayout != nullptr && "Cannot create pipeline before pipeline layout");
 
     CreatePipeline(renderPass);
+    CreateTranslucentPipeline(renderPass);
     CreateInstancedPipeline(renderPass);
     CreateInvisibleInstancedPipeline(renderPass);
 }
@@ -77,16 +79,7 @@ void RenderSystem::CreatePipeline(VkRenderPass renderPass)
     pipelineConfig.renderPass = renderPass;
     pipelineConfig.pipelineLayout = m_pipelineLayout;
 
-
-    std::cout << "[CreatePipeline] bindingDescriptions = "
-        << pipelineConfig.bindingDescriptions.size() << "\n";
-    for (size_t i = 0; i < pipelineConfig.bindingDescriptions.size(); ++i) {
-        auto& bd = pipelineConfig.bindingDescriptions[i];
-        std::cout << "  [" << i << "] binding=" << bd.binding
-            << ", stride=" << bd.stride
-            << ", rate=" << bd.inputRate << "\n";
-    }
-
+    pipelineConfig.depthStencilInfo.depthWriteEnable = VK_TRUE;
     pipelineConfig.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
     pipelineConfig.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
 
@@ -99,6 +92,29 @@ void RenderSystem::CreatePipeline(VkRenderPass renderPass)
     }
 
     m_lvePipeline = std::make_unique<LvePipeline>(m_lveDevice, "../../../res/shaders/spv/shader.vert.spv", "../../../res/shaders/spv/shader.frag.spv", pipelineConfig);
+}
+
+// --- 半透明管线 ---
+void RenderSystem::CreateTranslucentPipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo translucentConfig{};
+    LvePipeline::DefaultPipelineConfigInfo(translucentConfig);
+    translucentConfig.renderPass = renderPass;
+    translucentConfig.pipelineLayout = m_pipelineLayout;
+
+    // 开启Alpha混合，关闭深度写入
+    LvePipeline::EnableAlphaBlending(translucentConfig);
+    translucentConfig.depthStencilInfo.depthWriteEnable = VK_FALSE;
+
+    translucentConfig.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
+    translucentConfig.attributeDescriptions =
+        LveModel::Vertex::GetAttributeDescriptions();
+
+    m_lvePipelineTranslucent =
+        std::make_unique<LvePipeline>(m_lveDevice,
+                                      "../../../res/shaders/spv/shader.vert.spv",
+                                      "../../../res/shaders/spv/shader.frag.spv",
+                                      translucentConfig);
 }
 
 void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
@@ -202,42 +218,33 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
 
 void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
-    m_lvePipeline->Bind(frameInfo.commandBuffer);              
+    // 原本使用无序的unordered_map，改为临时有序的map，保证透明度有效
+    std::map<lve::LveObject::id_t, lve::LveObject*> sortedObjects;
+    for (auto& kv : frameInfo.objects) {
+        sortedObjects[kv.first] = &kv.second;
+    }
 
-    // 先绑定 set=0（全局 UBO），每帧一次
-    vkCmdBindDescriptorSets(frameInfo.commandBuffer,           
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        m_pipelineLayout,
-        0,
-        1,
-        &frameInfo.globalDescriptorSet,
-        0,
-        nullptr);
+    auto draw_single_object = [&](lve::LveObject* obj) {
+        if (obj->model == nullptr) return;
 
-    for (auto& kv : frameInfo.objects) {                       
-        auto& obj = kv.second;                                 
-        if (obj.model == nullptr) continue;                    
-
-        obj.model->Bind(frameInfo.commandBuffer);              
+        obj->model->Bind(frameInfo.commandBuffer);
 
         // ====== Submesh 分支（如果模型含有 submesh） ======
-        const uint32_t subCount = obj.model->GetSubmeshCount();
+        const uint32_t subCount = obj->model->GetSubmeshCount();
         if (subCount > 0) {
             for (uint32_t si = 0; si < subCount; ++si) {
                 // ---- 选 set=1：纹理 ----
-                VkDescriptorSet set1 = frameInfo.dummyTexSet;  
-                if (frameInfo.submeshTexSets) {                
-                    auto it = frameInfo.submeshTexSets->find(obj.getId());
-                    if (it != frameInfo.submeshTexSets->end()
-                        && si < it->second.size()
-                        && it->second[si] != VK_NULL_HANDLE) {
+                VkDescriptorSet set1 = frameInfo.dummyTexSet;
+                if (frameInfo.submeshTexSets) {
+                    auto it = frameInfo.submeshTexSets->find(obj->getId());
+                    if (it != frameInfo.submeshTexSets->end() && si < it->second.size() &&
+                        it->second[si] != VK_NULL_HANDLE) {
                         set1 = it->second[si];
                     }
-                }
-                else if (frameInfo.materialDescriptorSets) {
-                    auto it = frameInfo.materialDescriptorSets->find(obj.getId());
-                    if (it != frameInfo.materialDescriptorSets->end()
-                        && it->second != VK_NULL_HANDLE) {
+                } else if (frameInfo.materialDescriptorSets) {
+                    auto it = frameInfo.materialDescriptorSets->find(obj->getId());
+                    if (it != frameInfo.materialDescriptorSets->end() &&
+                        it->second != VK_NULL_HANDLE) {
                         set1 = it->second;
                     }
                 }
@@ -245,91 +252,135 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
                 // ---- 选 set=2：材质 UBO（本帧）----
                 VkDescriptorSet set2 = frameInfo.dummyMatSet;
                 if (frameInfo.submeshMatSetThisFrame) {
-                    auto it = frameInfo.submeshMatSetThisFrame->find(obj.getId());
-                    if (it != frameInfo.submeshMatSetThisFrame->end()
-                        && si < it->second.size()
-                        && it->second[si] != VK_NULL_HANDLE) {
-                        set2 = it->second[si];                                    
+                    auto it = frameInfo.submeshMatSetThisFrame->find(obj->getId());
+                    if (it != frameInfo.submeshMatSetThisFrame->end() &&
+                        si < it->second.size() && it->second[si] != VK_NULL_HANDLE) {
+                        set2 = it->second[si];
                     }
-                }
-                else if (frameInfo.materialParamSets) {                         
-                    auto it = frameInfo.materialParamSets->find(obj.getId());
-                    if (it != frameInfo.materialParamSets->end()
-                        && it->second != VK_NULL_HANDLE) {
-                        set2 = it->second;                                        
+                } else if (frameInfo.materialParamSets) {
+                    auto it = frameInfo.materialParamSets->find(obj->getId());
+                    if (it != frameInfo.materialParamSets->end() &&
+                        it->second != VK_NULL_HANDLE) {
+                        set2 = it->second;
                     }
                 }
 
                 // 一次性绑定 set=1/2，避免漏绑
-                VkDescriptorSet sets12[2] = { set1, set2 };                   
-                vkCmdBindDescriptorSets(frameInfo.commandBuffer,              
-                    VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_pipelineLayout,
-                    /*firstSet=*/1,
-                    /*descriptorSetCount=*/2,
-                    sets12,
-                    0, nullptr);
+                VkDescriptorSet sets12[2] = {set1, set2};
+                vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        m_pipelineLayout,
+                                        /*firstSet=*/1,
+                                        /*descriptorSetCount=*/2,
+                                        sets12,
+                                        0,
+                                        nullptr);
 
                 // push 常量（每个 submesh 同一变换，重复无害）
-                SimplePushConstantData push{};                                
-                push.modelMatrix = obj.transform.mat4();                      
-                push.normalMatrix = obj.transform.normalMatrix();             
-                vkCmdPushConstants(frameInfo.commandBuffer, m_pipelineLayout, 
+                SimplePushConstantData push{};
+                push.modelMatrix = obj->transform.mat4();
+                push.normalMatrix = obj->transform.normalMatrix();
+                vkCmdPushConstants(
+                    frameInfo.commandBuffer,
+                    m_pipelineLayout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, sizeof(SimplePushConstantData), &push);
+                    0,
+                    sizeof(SimplePushConstantData),
+                    &push);
 
                 // 绘制该 submesh
-                obj.model->DrawSubmesh(frameInfo.commandBuffer, si);          
+                obj->model->DrawSubmesh(frameInfo.commandBuffer, si);
             }
-            continue;                                                         
+            return;
         }
 
         // ====== 无 submesh：沿用你原来的“每对象材质”路径 ======
 
         // 选 set=1（纹理）：原逻辑 + 占位兜底
-        VkDescriptorSet set1 = frameInfo.dummyTexSet;                             
-        if (frameInfo.materialDescriptorSets) {                                   
+        VkDescriptorSet set1 = frameInfo.dummyTexSet;
+        if (frameInfo.materialDescriptorSets) {
             auto& mapTex = *frameInfo.materialDescriptorSets;
-            auto itTex = mapTex.find(obj.getId());
+            auto itTex = mapTex.find(obj->getId());
             if (itTex != mapTex.end() && itTex->second != VK_NULL_HANDLE) {
-                set1 = itTex->second;                                             
+                set1 = itTex->second;
             }
         }
 
         // 选 set=2（材质 UBO，本帧）：原逻辑 + 占位兜底
-        VkDescriptorSet set2 = frameInfo.dummyMatSet;                             
-        if (frameInfo.materialParamSets) {                                        
+        VkDescriptorSet set2 = frameInfo.dummyMatSet;
+        if (frameInfo.materialParamSets) {
             auto& mapMat = *frameInfo.materialParamSets;
-            auto itMat = mapMat.find(obj.getId());
+            auto itMat = mapMat.find(obj->getId());
             if (itMat != mapMat.end() && itMat->second != VK_NULL_HANDLE) {
-                set2 = itMat->second;                                             
+                set2 = itMat->second;
             }
         }
 
         // 一次性绑定 set=1/2，避免‘set(2) out of bounds’
-        {                                                                         
-            VkDescriptorSet sets12[2] = { set1, set2 };                           
+        {
+            VkDescriptorSet sets12[2] = {set1, set2};
             vkCmdBindDescriptorSets(frameInfo.commandBuffer,
-                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                m_pipelineLayout,
-                /*firstSet=*/1,
-                /*descriptorSetCount=*/2,
-                sets12,
-                0, nullptr);
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    m_pipelineLayout,
+                                    /*firstSet=*/1,
+                                    /*descriptorSetCount=*/2,
+                                    sets12,
+                                    0,
+                                    nullptr);
         }
 
         // push 常量 + 绘制整模型
-        {                                                                  
-            SimplePushConstantData push{};                                 
-            push.modelMatrix = obj.transform.mat4();                       
-            push.normalMatrix = obj.transform.normalMatrix();              
-            vkCmdPushConstants(frameInfo.commandBuffer, m_pipelineLayout,  
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                0, sizeof(SimplePushConstantData), &push);
+        {
+            SimplePushConstantData push{};
+            push.modelMatrix = obj->transform.mat4();
+            push.normalMatrix = obj->transform.normalMatrix();
+            vkCmdPushConstants(frameInfo.commandBuffer,
+                               m_pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0,
+                               sizeof(SimplePushConstantData),
+                               &push);
 
-            obj.model->Draw(frameInfo.commandBuffer);                      
+            obj->model->Draw(frameInfo.commandBuffer);
+        }
+    };
+
+    // --- 第一批次：渲染不透明物体 ---
+    m_lvePipeline->Bind(frameInfo.commandBuffer);
+
+    // 先绑定 set=0（全局 UBO），每帧一次
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            0,
+                            1,
+                            &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
+    for (auto& kv : frameInfo.objects) {
+        if (kv.second.transparency >= 1.) {
+            draw_single_object(&kv.second);
         }
     }
+
+    // --- 第二批次：渲染半透明物体 ---
+    m_lvePipelineTranslucent->Bind(frameInfo.commandBuffer);
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            0,
+                            1,
+                            &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
+
+    // 【注意】如果有多个半透明物体，理论上这里需要对 kv.second 按离相机的距离从远到近排序
+    for (auto& kv : frameInfo.objects) {
+        if (kv.second.transparency < 1.) {  // 判断为半透明物体
+            draw_single_object(&kv.second);
+        }
+    }
+
 }
 
 void RenderSystem::RenderInstances(FrameInfo& frameInfo, const bool& shown)

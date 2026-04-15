@@ -48,6 +48,7 @@ public:
 		glm::vec3 color = glm::vec3(1.f));
 
 	glm::vec3 color{1.f, 1.f, 1.f};
+    float transparency{1.f};
 	TransformComponent transform{};
 	std::unique_ptr<PointLightComponent> pointLight = nullptr;	// 为空则表示不使用点光源
 	std::shared_ptr<LveModel> model{};	// 若为点光源，则不设置模型指针

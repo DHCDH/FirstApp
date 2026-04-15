@@ -17,6 +17,7 @@
 #include "LveWindow.h"
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
+#include "entities/Plane.h"
 #include "systems/PointLightSystem.h"
 #include "systems/RenderSystem.h"
 
@@ -61,15 +62,17 @@ public:
     /*实例化*/
     void BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount);
 
+    void SetCameraPose(glm::vec3 pos, glm::vec3 target);
+
 public:
-    const GrindingWheel& GetGrindingWheel() const
+    const entity::GrindingWheel& GetGrindingWheel() const
     {
         if (!m_grindingWheel) {
             throw std::runtime_error("GrindingWheel is not initialized.");
         }
         return *m_grindingWheel;
     }
-    const Blank& GetBlank() const
+    const entity::Blank& GetBlank() const
     {
         if (!m_blank) {
             throw std::runtime_error("Blank is not initialized.");
@@ -166,11 +169,14 @@ private:
     std::vector<lve::LveObject::id_t> m_sunLightIds{};  // 环境光
 
     /*entities*/
-    std::unique_ptr<GrindingWheel> m_grindingWheel;
+    std::unique_ptr<entity::GrindingWheel> m_grindingWheel;
     lve::LveObject::id_t m_grindingWheelId{};
 
-    std::unique_ptr<Blank> m_blank;
+    std::unique_ptr<entity::Blank> m_blank;
     lve::LveObject::id_t m_blankId{};
+
+    std::unique_ptr<entity::Plane> m_plane;
+    lve::LveObject::id_t m_planeId{};
 
     /*实例数组*/
     std::vector<glm::mat4> m_grndWheelInstances;        // CPU侧实例数组

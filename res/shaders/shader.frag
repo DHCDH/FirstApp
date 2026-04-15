@@ -6,73 +6,86 @@ layout(location = 2) in vec3 fragNormalWorld;
 layout(location = 3) in vec2 fragUV;
 layout(location = 4) flat in int useFragColor;
 
-layout(location = 0) out vec4 outColor;	// 输出到颜色附件的第0个位置
+layout(location = 0) out vec4 outColor;
 
 struct PointLight {
-    vec4 position;  // ignore w
-    vec4 color;     // w is intensity
+    vec4 position;
+    vec4 color;
 };
 
+// 必须与你的 FirstApp.cpp 中的 GlobalUbo 严格对应
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projection;
     mat4 view;
     mat4 invView;
     vec4 ambientLightColor;
-    PointLight pointLights[20]; //应使用特化常量而非硬编码
+    PointLight pointLights[20];
     int numLights;
-}ubo;
+} ubo;
 
-/*set = 1，材质贴图*/
 layout(set = 1, binding = 0) uniform sampler2D uAlbedo;
 
-/*set = 2，材质参数UBO*/
+// 必须与你的 FirstApp.cpp 中的 MaterialUBO 严格对应
 layout(set = 2, binding = 0, std140) uniform UMaterial {
-    vec4 baseColorFactor;   // rgba
-    vec4 uvTilingOffset;    // xy=tiling, zw=offset
-    vec4 pbrAoAlpha;        // x=metallic, y=roughness, z=ao, w=alphaCutoff
-    uvec4 flags;            // bit0: baseColorTex, bit1: normalTex, bit2: ormTex, bit3: emissiveTex...
-}matu;
+    vec4 baseColorFactor;
+    vec4 uvTilingOffset;
+    vec4 pbrAoAlpha;
+    uvec4 flags;
+} matu;
 
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
     mat4 normalMatrix;
 } push;
 
-layout(set = 0, binding = 1) uniform sampler2D uTexture;
+void main() 
+{
+    // 1. 强制使用纯色作为基础色 (忽略贴图，呈现干净的 CAD 质感)
+    vec3 baseColor = matu.baseColorFactor.rgb;
 
-vec3 shadePointLights(vec3 N, vec3 base) {
-    vec3 sum = base * (ubo.ambientLightColor.rgb * ubo.ambientLightColor.a);
+    // 2. 计算环境光底色
+    vec3 ambient = baseColor * ubo.ambientLightColor.rgb * ubo.ambientLightColor.a;
+
+    // 3. 准备光照向量
+    vec3 N = normalize(fragNormalWorld);
+    vec3 camPos = ubo.invView[3].xyz; // 从视图矩阵逆推相机位置
+    vec3 V = normalize(camPos - fragPosWorld);
+
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
+
+    // 4. 累加所有点光源的光照
     int n = ubo.numLights;
     for (int i = 0; i < n; ++i) {
         vec3 Lpos = ubo.pointLights[i].position.xyz;
-        vec3 L    = normalize(Lpos - fragPosWorld);
+        vec3 L = normalize(Lpos - fragPosWorld);
+        
+        // 光源衰减
+        // float dist = length(Lpos - fragPosWorld);
+        // float att = 1.0 / max(dist * dist, 0.001);
+        // vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a * att;
+
+        // 取消光源衰减，改为恒定亮度
+        vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a;
+
+        // 漫反射 (Diffuse)
         float ndl = max(dot(N, L), 0.0);
-        vec3  Lcol= ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a;
-        float d2  = max(dot(Lpos - fragPosWorld, Lpos - fragPosWorld), 0.0001);
-        float att = 1.0 / d2;
-        sum += base * Lcol * ndl * att;
-    }
-    return sum;
-}
+        diffuse += baseColor * lightColor * ndl;
 
-void main() 
-{
-    /*采样纹理*/
-    vec2 uv2 = fragUV * matu.uvTilingOffset.xy + matu.uvTilingOffset.zw;
-    bool hasBaseTex = (matu.flags.x & 1u) != 0u;
-    vec4 base = hasBaseTex ? texture(uAlbedo, uv2) : vec4(1.0);
-    base *= matu.baseColorFactor;
-
-    if (matu.pbrAoAlpha.w > 0.0 && base.a < matu.pbrAoAlpha.w) {
-        discard;
+        // 高光 (Specular - 呈现金属/塑料光泽)
+        vec3 H = normalize(L + V);
+        float specFactor = pow(max(dot(N, H), 0.0), 64.0); // 64是高光锐度
+        specular += vec3(0.8) * lightColor * specFactor;   // 0.8控制高光反光强度
     }
 
-    vec3 N   = normalize(fragNormalWorld);
-    vec3 rgb = shadePointLights(N, base.rgb);
+    // 5. 合成最终光照
+    vec3 finalColor = ambient + diffuse + specular;
 
-    if(useFragColor == 1) {
-        outColor = vec4(fragColor, 1.);
-    } else {
-        outColor = vec4(rgb, base.a);
-    }
+    // 6. HDR 色调映射 (ACES 拟合或简单的 Reinhard) -> 防止白底光照过曝
+    finalColor = finalColor / (finalColor + vec3(1.0));
+    
+    // 7. Gamma 校正 -> 让暗部细节更清晰
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+
+    outColor = vec4(finalColor, matu.baseColorFactor.a);
 }
