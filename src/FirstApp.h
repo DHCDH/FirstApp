@@ -103,8 +103,8 @@ private:
     struct OrbiState {
         glm::vec3 target{0.f, 0.f, 2.5f};  // 观察中心
         float distance{5.f};               // 与目标距离
-        float yaw{glm::pi<float>()};       // 绕Y轴旋转
-        float pitch{0.f};                  // 绕X轴旋转
+        glm::vec3 offset{0.f, 0.f, 5.0f};  // 相机相对于 target 的偏移位置
+        glm::vec3 up{0.f, 1.f, 0.f};       // 相机自身的上方向向量
     } m_orbit;
 
 private:

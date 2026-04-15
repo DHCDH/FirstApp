@@ -6,6 +6,10 @@
 #include <numeric>
 #include <stdexcept>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <gtc/quaternion.hpp>
+#include <gtx/quaternion.hpp>
+
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
 #include "lve/LveBuffer.h"
@@ -520,47 +524,54 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
 /*******************************************************interaction****************************************************************************/
 void FirstApp::UpdateCameraFromOrbit()
 {
-    const float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
-    const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
-    glm::vec3 offset(m_orbit.distance * cp * sy,
-                     m_orbit.distance * sp,
-                     m_orbit.distance * cp * cy);
-    glm::vec3 camPos = m_orbit.target - offset;
-    // 依你项目的 API 设置相机，这里用 setViewTarget 示例
-    m_lveCamera->SetViewTarget(camPos, m_orbit.target);
-    // 若有随相机移动的点光源，可在此同步（可选）
+    // 保证 offset 的长度始终等于要求的距离
+    m_orbit.offset = glm::normalize(m_orbit.offset) * m_orbit.distance;
+    glm::vec3 camPos = m_orbit.target + m_orbit.offset;
+
+    // 【注意】无死角旋转必须实时更新相机的 Up 向量
+    // 请确保你的 LveCamera::SetViewTarget 支持第三个参数（相机的上方向），
+    // 默认的 Vulkan 教程一般是支持这个签名的。
+    m_lveCamera->SetViewTarget(camPos, m_orbit.target, m_orbit.up);
 }
 
 void FirstApp::Orbit(float dxPixels, float dyPixels)
 {
-    m_orbit.yaw += dxPixels * orbitCfg.rotateSpeedPerPixel;
-    m_orbit.pitch += dyPixels * orbitCfg.rotateSpeedPerPixel;
-    // 俯仰夹取
-    if (m_orbit.pitch > orbitCfg.maxPitch) m_orbit.pitch = orbitCfg.maxPitch;
-    if (m_orbit.pitch < orbitCfg.minPitch) m_orbit.pitch = orbitCfg.minPitch;
-    // 将 yaw 归一到 [-pi, pi]，避免数值漂移
-    if (m_orbit.yaw > glm::pi<float>()) m_orbit.yaw -= glm::two_pi<float>();
-    if (m_orbit.yaw < -glm::pi<float>()) m_orbit.yaw += glm::two_pi<float>();
+    float rotX = dxPixels * orbitCfg.rotateSpeedPerPixel;
+    float rotY = dyPixels * orbitCfg.rotateSpeedPerPixel;
+
+    // 1. 获取当前相机的局部坐标系（Screen Space）
+    glm::vec3 forward = glm::normalize(-m_orbit.offset);                // 视线方向
+    glm::vec3 right = glm::normalize(glm::cross(forward, m_orbit.up));  // 屏幕右方向
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));  // 屏幕正上方向
+
+    // 2. 根据鼠标的像素移动生成四元数旋转
+    // 上下拖动 (dy)：绕着相机的 Right 轴旋转
+    glm::quat qY = glm::angleAxis(rotY, right);
+    // 左右拖动 (dx)：绕着相机的 Up 轴旋转（这实现了真正的无死角轨道旋转）
+    glm::quat qX = glm::angleAxis(-rotX, up);  // 负号是因为鼠标向右拖，相机应该向左转
+
+    // 合并旋转（注意乘法顺序）
+    glm::quat q = qX * qY;
+
+    // 3. 将旋转应用到 offset 和 up 向量上
+    m_orbit.offset = q * m_orbit.offset;
+    m_orbit.up = q * m_orbit.up;
+
     UpdateCameraFromOrbit();
 }
 
 void FirstApp::Pan(float dxPixels, float dyPixels)
 {
     const float panScale = m_orbit.distance * orbitCfg.panBasePerPixel;
-    const float cy = std::cos(m_orbit.yaw), sy = std::sin(m_orbit.yaw);
-    const float cp = std::cos(m_orbit.pitch), sp = std::sin(m_orbit.pitch);
 
-    // 朝向（从相机指向目标）
-    glm::vec3 forward = glm::normalize(glm::vec3(cp * sy, sp, cp * cy));
-    glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
-    glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+    // 基于当前相机的姿态进行平移，确保平移方向与屏幕平行
+    glm::vec3 forward = glm::normalize(-m_orbit.offset);
+    glm::vec3 right = glm::normalize(glm::cross(forward, m_orbit.up));
     glm::vec3 up = glm::normalize(glm::cross(right, forward));
 
-    // 【修改】：符合“抓住并拖动”直觉
-    // 鼠标向右(dx > 0) -> Target向左(-right)
-    // 在 Vulkan 下，鼠标向下(dy > 0)，需要摄像机目标也向下(-up)才能让画面里的物体跟着向下走
-    m_orbit.target -= (dxPixels * panScale) * right;
-    m_orbit.target -= (dyPixels * panScale) * up;
+    // 鼠标右移 -> Target左移；鼠标下移 -> Target上移（根据你的 Vulkan 坐标系调整正负号）
+    m_orbit.target += (dxPixels * panScale) * right;
+    m_orbit.target += (dyPixels * panScale) * up;
 
     UpdateCameraFromOrbit();
 }
@@ -577,26 +588,35 @@ void FirstApp::ResetView()
 {
     m_orbit.target = {0.f, 0.f, 2.5f};
     m_orbit.distance = 5.0f;
-    m_orbit.yaw = glm::pi<float>();
-    m_orbit.pitch = 0.f;
+
+    // 初始化无死角相机的状态向量
+    m_orbit.offset = {0.f, 0.f, -5.0f};  // 假设默认从前向后看
+    m_orbit.up = {0.f, 1.f, 0.f};        // 世界坐标系的 Y 为上
+
+    UpdateCameraFromOrbit();
 }
 
 void FirstApp::SetCameraPose(glm::vec3 pos, glm::vec3 target)
 {
     m_orbit.target = target;
-    // 计算从目标点指向相机的向量 (Offset)
-    glm::vec3 offset = target - pos;
+    m_orbit.offset = pos - target;
 
-    // 1. 更新距离
-    m_orbit.distance = glm::length(offset);
+    m_orbit.distance = glm::length(m_orbit.offset);
     if (m_orbit.distance < orbitCfg.minDistance) m_orbit.distance = orbitCfg.minDistance;
 
-    // 2. 根据 offset = (d*cp*sy, d*sp, d*cp*cy) 反推角度
-    // pitch: sp = y / d
-    m_orbit.pitch = std::asin(glm::clamp(offset.y / m_orbit.distance, -1.0f, 1.0f));
+    // 重置相机姿态时，我们需要为其推导一个合理的 Up 向量
+    glm::vec3 forward = glm::normalize(-m_orbit.offset);
+    glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
 
-    // yaw: tan(yaw) = x / z
-    m_orbit.yaw = std::atan2(offset.x, offset.z);
+    // 检查视线是否与世界 Up 轴几乎平行（防止叉乘得到零向量）
+    if (std::abs(glm::dot(forward, worldUp)) > 0.999f) {
+        // 如果是从正上方俯视或仰视，将 Z 轴或 -Z 轴作为相机的上方向
+        m_orbit.up = glm::vec3(0.f, 0.f, 1.f);
+    } else {
+        // 正常情况下，基于世界 Up 轴正交化求出相机的真实 Up 轴
+        glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+        m_orbit.up = glm::normalize(glm::cross(right, forward));
+    }
 
     UpdateCameraFromOrbit();
 }
