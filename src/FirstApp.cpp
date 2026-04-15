@@ -596,7 +596,7 @@ void FirstApp::ResetView()
     UpdateCameraFromOrbit();
 }
 
-void FirstApp::SetCameraPose(glm::vec3 pos, glm::vec3 target)
+void FirstApp::SetCameraPose(glm::vec3 pos, glm::vec3 target, glm::vec3 up)
 {
     m_orbit.target = target;
     m_orbit.offset = pos - target;
@@ -604,19 +604,8 @@ void FirstApp::SetCameraPose(glm::vec3 pos, glm::vec3 target)
     m_orbit.distance = glm::length(m_orbit.offset);
     if (m_orbit.distance < orbitCfg.minDistance) m_orbit.distance = orbitCfg.minDistance;
 
-    // 重置相机姿态时，我们需要为其推导一个合理的 Up 向量
-    glm::vec3 forward = glm::normalize(-m_orbit.offset);
-    glm::vec3 worldUp = glm::vec3(0.f, 1.f, 0.f);
-
-    // 检查视线是否与世界 Up 轴几乎平行（防止叉乘得到零向量）
-    if (std::abs(glm::dot(forward, worldUp)) > 0.999f) {
-        // 如果是从正上方俯视或仰视，将 Z 轴或 -Z 轴作为相机的上方向
-        m_orbit.up = glm::vec3(0.f, 0.f, 1.f);
-    } else {
-        // 正常情况下，基于世界 Up 轴正交化求出相机的真实 Up 轴
-        glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
-        m_orbit.up = glm::normalize(glm::cross(right, forward));
-    }
+    // 直接使用传入的真实 Up 向量并归一化
+    m_orbit.up = glm::normalize(up);
 
     UpdateCameraFromOrbit();
 }

@@ -73,5 +73,8 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\pure_compute\shader_polar_reduce.comp -o res\shaders\spv\optimize\pure_compute\shader_polar_reduce.comp.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\optimize\pure_compute\shader_polar_PSO.comp -o res\shaders\spv\optimize\pure_compute\shader_polar_PSO.comp.spv
 
+REM 3D simulation
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_outline.vert -o res\shaders\spv\3dsimulation\shader_outline.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_outline.frag -o res\shaders\spv\3dsimulation\shader_outline.frag.spv
 
 pause

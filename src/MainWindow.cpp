@@ -72,8 +72,12 @@ void MainWindow::InitUI()
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
     QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
-    m_camPos = new QLineEdit("-10., 0., 0.", m_buttonWidget);
-    m_camTarget = new QLineEdit("1., 0., 0.", m_buttonWidget);
+    QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
+    QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
+    QLabel* labelUp = new QLabel("Camera Up", m_buttonWidget);
+    m_camPos = new QLineEdit("240., -100., 0.", m_buttonWidget);
+    m_camTarget = new QLineEdit("0., 0., 0.", m_buttonWidget);
+    m_camUp = new QLineEdit("0., -1., 0.", m_buttonWidget);
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
     buttonLayout->addWidget(btn2DSimulation);
@@ -81,8 +85,12 @@ void MainWindow::InitUI()
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
     buttonLayout->addWidget(btnInstanced);
+    buttonLayout->addWidget(labelPos);
     buttonLayout->addWidget(m_camPos);
+    buttonLayout->addWidget(labelTarget);
     buttonLayout->addWidget(m_camTarget);
+    buttonLayout->addWidget(labelUp);
+    buttonLayout->addWidget(m_camUp);
     buttonLayout->addWidget(btnUpdateCam);
     buttonLayout->addStretch();  // 让按钮靠上排列
     buttonLayout->addWidget(btnQuit);
@@ -133,9 +141,10 @@ void MainWindow::InitUI()
 
         glm::vec3 pos = parseVec3(m_camPos->text());
         glm::vec3 target = parseVec3(m_camTarget->text());
+        glm::vec3 up = parseVec3(m_camUp->text());
 
         if (m_vulkanApp) {
-            m_vulkanApp->SetCameraPose(pos, target);
+            m_vulkanApp->SetCameraPose(pos, target, up);
         }
     });
 }
@@ -180,6 +189,22 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 // 释放鼠标（可选）
                 if (!m_leftDown && !m_midDown && !m_rightDown) {
                     m_renderWidget->releaseMouse();
+
+                    // --- 在拖拽结束时输出相机坐标 ---
+                    if (m_vulkanApp) {
+                        glm::vec3 pos = m_vulkanApp->GetCameraPosition();
+                        glm::vec3 up = m_vulkanApp->GetCameraUp();
+
+                        // 自动回填UI
+                        m_camPos->setText(QString("%1, %2, %3")
+                                              .arg(pos.x, 0, 'f', 2)
+                                              .arg(pos.y, 0, 'f', 2)
+                                              .arg(pos.z, 0, 'f', 2));
+                        m_camUp->setText(QString("%1, %2, %3")
+                                             .arg(up.x, 0, 'f', 2)
+                                             .arg(up.y, 0, 'f', 2)
+                                             .arg(up.z, 0, 'f', 2));
+                    }
                 }
                 return true;
             }

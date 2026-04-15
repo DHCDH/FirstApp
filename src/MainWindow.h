@@ -46,6 +46,7 @@ private:
 
     QLineEdit* m_camPos;
     QLineEdit* m_camTarget;
+    QLineEdit* m_camUp;
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

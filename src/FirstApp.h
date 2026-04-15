@@ -62,7 +62,7 @@ public:
     /*实例化*/
     void BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount);
 
-    void SetCameraPose(glm::vec3 pos, glm::vec3 target);
+    void SetCameraPose(glm::vec3 pos, glm::vec3 target, glm::vec3 up);
 
 public:
     const entity::GrindingWheel& GetGrindingWheel() const
@@ -89,6 +89,14 @@ public:
     const std::vector<glm::mat4>& GetGrindingWheelInstances() const
     {
         return m_grndWheelInstances;
+    }
+    glm::vec3 GetCameraPosition() const
+    {
+        return m_orbit.target + m_orbit.offset;
+    }
+    glm::vec3 GetCameraUp() const
+    {
+        return m_orbit.up;
     }
 
 private:

@@ -29,6 +29,7 @@ private:
 	void CreateInstancedPipeline(VkRenderPass renderPass);
 	void CreateInvisibleInstancedPipeline(VkRenderPass renderPass);
 	void CreateTranslucentPipeline(VkRenderPass renderPass);
+	void CreateOutlinePipeline(VkRenderPass renderPass);
 
 	LveDevice& m_lveDevice;
 
@@ -36,6 +37,7 @@ private:
 	std::unique_ptr<LvePipeline> m_lvePipelineInstanced;	// 实例化管线
 	std::unique_ptr<LvePipeline> m_lvePipelineInstancedInvisible;	// 不可见实例化管线
 	std::unique_ptr<LvePipeline> m_lvePipelineTranslucent;	// 半透明管线
+    std::unique_ptr<LvePipeline> m_lvePipelineOutline;	// 线框管线
 	VkPipelineLayout m_pipelineLayout;
 	std::unique_ptr<LveModel> m_axisModel;
 };

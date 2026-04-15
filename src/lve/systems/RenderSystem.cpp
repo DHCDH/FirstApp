@@ -69,6 +69,7 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
     CreateTranslucentPipeline(renderPass);
     CreateInstancedPipeline(renderPass);
     CreateInvisibleInstancedPipeline(renderPass);
+    CreateOutlinePipeline(renderPass);
 }
 
 void RenderSystem::CreatePipeline(VkRenderPass renderPass)
@@ -210,12 +211,41 @@ void RenderSystem::CreateInvisibleInstancedPipeline(VkRenderPass renderPass)
     );
 }
 
+void RenderSystem::CreateOutlinePipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo outlineConfig{};
+    LvePipeline::DefaultPipelineConfigInfo(outlineConfig);
+    outlineConfig.renderPass = renderPass;
+    outlineConfig.pipelineLayout = m_pipelineLayout;
+
+    // --- 核心设置 ---
+    // 1. 深度测试开启，深度写入开启，防止轮廓透过前面的物体
+    outlineConfig.depthStencilInfo.depthTestEnable = VK_TRUE;
+    outlineConfig.depthStencilInfo.depthWriteEnable = VK_TRUE;
+
+    // 2. 剔除正面 (Front Face Culling)！这是外扩法描边的灵魂
+    outlineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    // 注意：如果你的模型原本法线是反的，这里可能要换成
+    // VK_CULL_MODE_BACK_BIT，具体看运行效果
+
+    // 3. 关闭颜色混合 (纯色覆盖)
+    outlineConfig.colorBlendAttachment.blendEnable = VK_FALSE;
+
+    outlineConfig.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
+    outlineConfig.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+
+    m_lvePipelineOutline =
+        std::make_unique<LvePipeline>(m_lveDevice,
+                                      "../../../res/shaders/spv/3dsimulation/shader_outline.vert.spv",
+                                      "../../../res/shaders/spv/3dsimulation/shader_outline.frag.spv",
+                                      outlineConfig);
+}
+
 /* 主循环中每帧都会调用renderGameObjects
  * 引用传递gameObjects，每次都会修改gameObjects中的数据并影响到下一个循环
  * gameObjects为FirstApp持有`
  * 
  */
-
 void RenderSystem::RenderObjects(FrameInfo& frameInfo)
 {
     // 原本使用无序的unordered_map，改为临时有序的map，保证透明度有效
@@ -345,7 +375,36 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
         }
     };
 
-    // --- 第一批次：渲染不透明物体 ---
+    // --- 第一批次：渲染线框 ---
+    m_lvePipelineOutline->Bind(frameInfo.commandBuffer);
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            0,
+                            1,
+                            &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
+
+    for (auto& kv : frameInfo.objects) {
+        if (kv.second.neededOutline) {
+            // 只需要 push constants 和顶点，因为 outline shader 不需要贴图(set 1/2)
+            SimplePushConstantData push{};
+            push.modelMatrix = kv.second.transform.mat4();
+            push.normalMatrix = kv.second.transform.normalMatrix();
+            vkCmdPushConstants(frameInfo.commandBuffer,
+                               m_pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0,
+                               sizeof(SimplePushConstantData),
+                               &push);
+
+            kv.second.model->Bind(frameInfo.commandBuffer);
+            kv.second.model->Draw(frameInfo.commandBuffer);  // 简单绘制整个模型即可
+        }
+    }
+
+    // --- 第二批次：渲染不透明物体 ---
     m_lvePipeline->Bind(frameInfo.commandBuffer);
 
     // 先绑定 set=0（全局 UBO），每帧一次
@@ -363,7 +422,7 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
         }
     }
 
-    // --- 第二批次：渲染半透明物体 ---
+    // --- 第三批次：渲染半透明物体 ---
     m_lvePipelineTranslucent->Bind(frameInfo.commandBuffer);
     vkCmdBindDescriptorSets(frameInfo.commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
