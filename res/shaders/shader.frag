@@ -46,6 +46,7 @@ void main()
 {
     // --- 自定义视点剔除 ---
     if(ubo.useCustomCulling == 1) {
+        // --- 开启背面/正面剔除 ---
         // 计算当前像素指向摄像机1的向量
         vec3 dirToObsCam = normalize(ubo.obsCamPos.xyz - fragPosWorld);
 
@@ -56,6 +57,11 @@ void main()
         if (dotResult <= 0.0) {
             discard; 
         }
+
+        // 剔除位于平面上方/下方的点
+        // if(fragPosWorld.y < 0.) {
+        //     discard;
+        // }
     }
 
 
@@ -64,6 +70,10 @@ void main()
 
     // 2. 计算环境光底色
     vec3 ambient = baseColor * ubo.ambientLightColor.rgb * ubo.ambientLightColor.a;
+
+    if(matu.flags.y == 1u) {
+        ambient = baseColor * 0.85;
+    }
 
     // 3. 准备光照向量
     vec3 N = normalize(fragNormalWorld);
@@ -93,15 +103,22 @@ void main()
 
         // 高光 (Specular - 呈现金属/塑料光泽)
         vec3 H = normalize(L + V);
-        float specFactor = pow(max(dot(N, H), 0.0), 64.0); // 64是高光锐度
-        specular += vec3(0.8) * lightColor * specFactor;   // 0.8控制高光反光强度
+        float specFactor = pow(max(dot(N, H), 0.0), 256.0); // 256是高光锐度
+        float specIntensity = gl_FrontFacing ? 0.5 : 0.15;
+        // specular += vec3(0.5) * lightColor * specFactor;   // 0.5控制高光反光强度
+
+        if(matu.flags.y == 1u) {
+            specIntensity = 0.;
+        }
+
+        specular += vec3(specIntensity) * lightColor * specFactor;
     }
 
     // 5. 合成最终光照
     vec3 finalColor = ambient + diffuse + specular;
 
     // 6. HDR 色调映射 (ACES 拟合或简单的 Reinhard) -> 防止白底光照过曝
-    finalColor = finalColor / (finalColor + vec3(1.0));
+    // finalColor = finalColor / (finalColor + vec3(1.0));
     
     // 7. Gamma 校正 -> 让暗部细节更清晰
     finalColor = pow(finalColor, vec3(1.0 / 2.2));

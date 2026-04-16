@@ -18,7 +18,8 @@ lve::LveObject Plane::CreateObject()
     GetRenderContext().submeshTextureSets[m_id].resize(subCount);
     GetRenderContext().submeshMatSets[m_id].resize(subCount);
 
-    m_materialUBO.baseColorFactor = {0.f, 1.f, 1.f, .5f};
+    m_materialUBO.baseColorFactor = {0.f, 0.45f, 0.85f, .6f};
+    m_materialUBO.flags = {0u, 1u, 0u, 0u}; // flag第二位为1，使用特殊光照模式渲染
     CreateMaterialParamSetsForSubmesh(m_id, 0, m_materialUBO);
 
     return plane;
