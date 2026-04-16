@@ -83,32 +83,74 @@ void main()
     vec3 diffuse = vec3(0.0);
     vec3 specular = vec3(0.0);
 
+    // // 4. 累加所有点光源的光照
+    // int n = ubo.numLights;
+    // for (int i = 0; i < n; ++i) {
+    //     vec3 Lpos = ubo.pointLights[i].position.xyz;
+    //     vec3 L = normalize(Lpos - fragPosWorld);
+        
+    //     // 光源衰减
+    //     // float dist = length(Lpos - fragPosWorld);
+    //     // float att = 1.0 / max(dist * dist, 0.001);
+    //     // vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a * att;
+
+    //     // 取消光源衰减，改为恒定亮度
+    //     vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a;
+
+    //     // 漫反射 (Diffuse)
+    //     float ndl = max(dot(N, L), 0.0);
+    //     diffuse += baseColor * lightColor * ndl;
+
+    //     // 高光 (Specular - 呈现金属/塑料光泽)
+    //     vec3 H = normalize(L + V);
+    //     float specFactor = pow(max(dot(N, H), 0.0), 256.0); // 256是高光锐度
+    //     float specIntensity = gl_FrontFacing ? 0.5 : 0.15;
+    //     // specular += vec3(0.5) * lightColor * specFactor;   // 0.5控制高光反光强度
+
+    //     if(matu.flags.y == 1u) {
+    //         specIntensity = 0.;
+    //     }
+
+    //     specular += vec3(specIntensity) * lightColor * specFactor;
+    // }
+
     // 4. 累加所有点光源的光照
     int n = ubo.numLights;
     for (int i = 0; i < n; ++i) {
         vec3 Lpos = ubo.pointLights[i].position.xyz;
         vec3 L = normalize(Lpos - fragPosWorld);
         
-        // 光源衰减
-        // float dist = length(Lpos - fragPosWorld);
-        // float att = 1.0 / max(dist * dist, 0.001);
-        // vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a * att;
-
         // 取消光源衰减，改为恒定亮度
         vec3 lightColor = ubo.pointLights[i].color.rgb * ubo.pointLights[i].color.a;
 
+        // ==========================================
         // 漫反射 (Diffuse)
-        float ndl = max(dot(N, L), 0.0);
-        diffuse += baseColor * lightColor * ndl;
+        // ==========================================
+        // 使用 abs() 确保砂轮被切开的内壁也能受光
+        float ndl = max(abs(dot(N, L)), 0.1); 
+        vec3 surfaceDiffuse = baseColor * lightColor * ndl;
 
+        // 【特权 1】：平面已经有了极高的环境光，不需要漫反射叠加，防止正视时过曝发白！
+        if (matu.flags.y == 1u) {
+            surfaceDiffuse = vec3(0.0);
+        }
+        // 【特权 2】：砂轮的内壁（被丢弃切开的部分）强行压暗 40%，增加清晰的折角立体感
+        else if (!gl_FrontFacing) {
+            surfaceDiffuse *= 0.6; 
+        }
+
+        diffuse += surfaceDiffuse;
+
+        // ==========================================
         // 高光 (Specular - 呈现金属/塑料光泽)
+        // ==========================================
         vec3 H = normalize(L + V);
-        float specFactor = pow(max(dot(N, H), 0.0), 256.0); // 256是高光锐度
+        float specFactor = pow(max(dot(N, H), 0.0), 256.0); 
         float specIntensity = gl_FrontFacing ? 0.5 : 0.15;
-        // specular += vec3(0.5) * lightColor * specFactor;   // 0.5控制高光反光强度
-
+        
+        // 【特权 3】：平面不需要高光，保持纯净底色
         if(matu.flags.y == 1u) {
-            specIntensity = 0.;
+            specIntensity = 0.0;
         }
 
         specular += vec3(specIntensity) * lightColor * specFactor;
