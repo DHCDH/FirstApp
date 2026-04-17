@@ -28,7 +28,7 @@ MainWindow::MainWindow(QWidget* parent)
 {
     setWindowTitle("FirstApp");
 
-    this->resize(1080, 720);
+    this->resize(1080, 800);
 
     QWidget* centralWidget = new QWidget(this);
     QHBoxLayout* mainLayout = new QHBoxLayout(centralWidget);
@@ -43,7 +43,7 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::InitRenderWidget()
 {
-    // m_renderWidget->setMinimumSize(800, 600);
+     m_renderWidget->setMinimumSize(720, 720);
 
     /*获取原生窗口句柄HWND*/
     m_renderWidget->winId();  // 确保窗口创建
@@ -75,9 +75,9 @@ void MainWindow::InitUI()
     QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
     QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
     QLabel* labelUp = new QLabel("Camera Up", m_buttonWidget);
-    m_camPos = new QLineEdit("180., -75., 0.", m_buttonWidget);
-    m_camTarget = new QLineEdit("0., 0., 0.", m_buttonWidget);
-    m_camUp = new QLineEdit("0., -1., 0.", m_buttonWidget);
+    m_camPos = new QLineEdit("217.63, -166.61, 216.58", m_buttonWidget);
+    m_camTarget = new QLineEdit("0, 0., 0.", m_buttonWidget);
+    m_camUp = new QLineEdit("-0.38, -0.84, -0.39", m_buttonWidget);
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
     buttonLayout->addWidget(btn2DSimulation);

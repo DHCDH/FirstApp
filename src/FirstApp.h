@@ -18,6 +18,8 @@
 #include "entities/Blank.h"
 #include "entities/GrindingWheel.h"
 #include "entities/Plane.h"
+#include "entities/Cube.h"
+#include "entities/Camera.h"
 #include "systems/PointLightSystem.h"
 #include "systems/RenderSystem.h"
 
@@ -185,6 +187,12 @@ private:
 
     std::unique_ptr<entity::Plane> m_plane;
     lve::LveObject::id_t m_planeId{};
+
+    std::unique_ptr<entity::Cube> m_cube;
+    lve::LveObject::id_t m_cubeId{};
+
+    std::unique_ptr<entity::Camera> m_camera;
+    lve::LveObject::id_t m_cameraId{};
 
     /*实例数组*/
     std::vector<glm::mat4> m_grndWheelInstances;        // CPU侧实例数组

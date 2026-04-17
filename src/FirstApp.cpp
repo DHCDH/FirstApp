@@ -201,6 +201,7 @@ void FirstApp::RunFrame()
     /*设置相机的视图与投影*/
     float aspect = m_lveRenderer->GetAspectRatio();  // 宽高比
     m_lveCamera->SetPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 5000.f);
+    //m_lveCamera->SetOrthographicProjection(-1.f, 1.f, -1.f, 1.f, 0.1f, 5000.f);
     // m_lveCamera->SetViewTarget(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f, 0.f, 1.f));
     UpdateCameraFromOrbit();
 
@@ -248,7 +249,7 @@ void FirstApp::RunFrame()
     /*更新跟随镜头点光源*/
     glm::vec3 camPos = m_lveCamera->GetPosition();
     if (auto it = m_objects.find(m_headlightId); it != m_objects.end()) {
-        it->second.transform.translation = camPos + glm::vec3(2.f, 2.f, 0.f);
+        it->second.transform.translation = camPos + glm::vec3(15.f, 20.f, 10.f);
         //std::cout << "[Camera]camPos: " << camPos.x << ", " << camPos.y << ", " << camPos.z << "\n";
         float d = m_orbit.distance;
         //it->second.pointLight->lightIntensity = 10.f * d * d;
@@ -259,14 +260,14 @@ void FirstApp::RunFrame()
     ubo.projection = m_lveCamera->GetProjection();
     ubo.view = m_lveCamera->GetView();
     ubo.inverseView = m_lveCamera->GetInverseView();
-    ubo.ambientLightColor.w = 0.25f;
+    ubo.ambientLightColor.w = 0.05f;
     m_pointLightSystem->Update(frameInfo, ubo);
     // 自定义视点剔除
-    ubo.obsCamPos = glm::vec4(0.f, -200.f, 0.f, 0.f);
-    ubo.useCustomCulling = 0;
+    ubo.obsCamPos = glm::vec4(200.f, 0.f, 0.f, 0.f);
+    ubo.useCustomCulling = 1;
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
-    // BuildGrindingWheelTrackInstances(0.f, 100.f, 100);
+    BuildGrindingWheelTrackInstances(0.f, 100.f, 100);
 
     /*进入本帧的主RenderPass*/
     m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
@@ -286,7 +287,7 @@ void FirstApp::RunFrame()
 void FirstApp::LoadObjects()
 {
     /*创建跟随相机的点光源*/
-    auto head = LveObject::MakePointLight(1.5f, 0.25, {1.f, .86f, .55f});
+    auto head = LveObject::MakePointLight(1.5f, 0.25, {1.f, 1.f, 1.f});
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
     m_objects.emplace(head.getId(), std::move(head));
@@ -313,6 +314,23 @@ void FirstApp::LoadObjects()
     m_planeId = plane.getId();
     m_objects.emplace(m_planeId, std::move(plane));
     std::cout << "[FirstApp] plane id: " << m_planeId << "\n";
+
+    // 立方体
+    #if 1
+    m_cube = std::make_unique<entity::Cube>(*m_renderContext);
+    auto cube = m_cube->CreateObject();
+    m_cubeId = cube.getId();
+    m_objects.emplace(m_cubeId, std::move(cube));
+    std::cout << "[FirstApp] cube id: " << m_cubeId << "\n";
+    #endif
+
+    // 摄像机
+    m_camera = std::make_unique<entity::Camera>(*m_renderContext);
+    auto camera = m_camera->CreateObject();
+    m_cameraId = camera.getId();
+    m_objects.emplace(m_cameraId, std::move(camera));
+    std::cout << "[FirstApp] camera id: " << m_cameraId << "\n";
+
 }
 
 void FirstApp::CreateSunLight()
