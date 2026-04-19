@@ -101,12 +101,12 @@ void main()
                 baseColor = pow(mix(backStart, backEnd, trackFactor), vec3(2.2)) * 0.9;
             }
 
-            // // 背面剔除
+            // 正面剔除
             if (dotResult > 0.0) {
                 discard;
             }
 
-            // 剔除 Y 轴坐标小于 0 的面片
+            // 剔除 X 轴坐标大于 0 的面片
             if(fragPosWorld.x > 0.0) {
                 discard;
             }

@@ -58,7 +58,13 @@ void MainWindow::InitRenderWidget()
     m_vulkanApp->ReadToolPath("D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt");
 
     /*启动渲染循环*/
-    connect(m_renderTimer, &QTimer::timeout, [this]() { m_vulkanApp->RunFrame(); });
+    connect(m_renderTimer, &QTimer::timeout, [this]() {
+#if 0
+        m_vulkanApp->RunFrame();
+#else
+            m_vulkanApp->RunFrameForThicknessMap();
+#endif
+    });
     m_renderTimer->start(16);  // 60 FPS
 }
 

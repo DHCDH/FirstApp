@@ -76,5 +76,9 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 REM 3D simulation
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_outline.vert -o res\shaders\spv\3dsimulation\shader_outline.vert.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_outline.frag -o res\shaders\spv\3dsimulation\shader_outline.frag.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_thickness.frag -o res\shaders\spv\3dsimulation\shader_thickness.frag.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_fullscreen.vert -o res\shaders\spv\3dsimulation\shader_fullscreen.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_fullscreen.frag -o res\shaders\spv\3dsimulation\shader_fullscreen.frag.spv
+
 
 pause

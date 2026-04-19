@@ -284,13 +284,68 @@ void FirstApp::RunFrame()
     m_lveRenderer->EndFrame();
 }
 
+void FirstApp::RunFrameForThicknessMap()
+{
+    if (m_lveWindow->WasWindowResized()) {
+        m_lveWindow->ResetWindowResizedFlag();
+        m_lveRenderer->RecreateSwapChain();
+    }
+
+    VkCommandBuffer commandBuffer = m_lveRenderer->BeginFrame();
+    if (commandBuffer == nullptr) return;
+
+    int frameIndex = m_lveRenderer->GetFrameIndex();
+
+    float viewSize = 110.f;  // 根据你的砂轮尺寸调整视口大小
+    float aspect = m_lveRenderer->GetAspectRatio();
+
+    m_lveCamera->SetOrthographicProjection(-viewSize * aspect,
+                                           viewSize * aspect,
+                                           -viewSize,
+                                           viewSize,
+                                           0.1f,
+                                           1000.f);
+
+    m_lveCamera->SetViewTarget(glm::vec3(200.f, 0.f, 0.f),
+                               glm::vec3(0.f, 0.f, 0.f),
+                               glm::vec3(0.f, -1.f, 0.f));
+
+    GlobalUbo ubo{};
+    ubo.projection = m_lveCamera->GetProjection();
+    ubo.view = m_lveCamera->GetView();
+    // 补齐自定义视点参数，确保 shader_thickness 能获取到正确的摄像机位置
+    ubo.obsCamPos = glm::vec4(200.f, 0.f, 0.f, 0.f);
+    ubo.useCustomCulling = 1;
+
+    m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
+
+    FrameInfo frameInfo{frameIndex,
+                        0.016f,  // 假定固定 timestep，因为不需要动画
+                        commandBuffer,
+                        *m_lveCamera,
+                        m_globalDescriptorSets[frameIndex],
+                        m_objects};
+
+    frameInfo.dummyTexSet = m_defaultTextureSet;
+    frameInfo.dummyMatSet = m_dummyMatSets[frameIndex];
+
+    m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
+
+    m_renderSystem->RenderThicknessMap(frameInfo);
+
+    m_lveRenderer->EndSwapChainRenderPass(commandBuffer);
+    m_lveRenderer->EndFrame();
+}
+
 void FirstApp::LoadObjects()
 {
     /*创建跟随相机的点光源*/
+    #if 0
     auto head = LveObject::MakePointLight(1.5f, 0.25, {1.f, 1.f, 1.f});
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
     m_objects.emplace(head.getId(), std::move(head));
+    #endif
 
     /*创建太阳光*/
     //CreateSunLight();
@@ -330,11 +385,13 @@ void FirstApp::LoadObjects()
     #endif
 
     // 摄像机
+    #if 0
     m_camera = std::make_unique<entity::Camera>(*m_renderContext);
     auto camera = m_camera->CreateObject();
     m_cameraId = camera.getId();
     m_objects.emplace(m_cameraId, std::move(camera));
     std::cout << "[FirstApp] camera id: " << m_cameraId << "\n";
+    #endif
 
     BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
 

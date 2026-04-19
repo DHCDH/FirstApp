@@ -76,6 +76,8 @@ void RenderSystem::CreatePipelines(VkRenderPass renderPass)
     CreateInstancedPipeline(renderPass);
     CreateInvisibleInstancedPipeline(renderPass);
     CreateOutlinePipeline(renderPass);
+    CreateThicknessMapPipeline(renderPass);
+    CreateFullscreenPipeline(renderPass);
 }
 
 void RenderSystem::CreatePipeline(VkRenderPass renderPass)
@@ -259,6 +261,87 @@ void RenderSystem::CreateOutlinePipeline(VkRenderPass renderPass)
         "../../../res/shaders/spv/3dsimulation/shader_outline.vert.spv",
         "../../../res/shaders/spv/3dsimulation/shader_outline.frag.spv",
         outlineConfig);
+}
+
+void RenderSystem::CreateThicknessMapPipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_pipelineLayout;
+
+    // 【核心 1】：彻底关闭颜色写入！它现在是个幽灵管线
+    config.colorBlendAttachment.colorWriteMask = 0;
+
+    // 【核心 2】：正反面全进 Shader，关闭深度测试
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+
+    // 【核心 3】：开启模板测试，让硬件帮我们算 Winding Number！
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+
+    // 正面：模板值 +1
+    config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.compareMask = 0xFF;
+    config.depthStencilInfo.front.writeMask = 0xFF;
+
+    // 背面：模板值 -1
+    config.depthStencilInfo.back.compareOp = VK_COMPARE_OP_ALWAYS;
+    config.depthStencilInfo.back.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+    config.depthStencilInfo.back.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.back.depthFailOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.back.compareMask = 0xFF;
+    config.depthStencilInfo.back.writeMask = 0xFF;
+
+    config.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
+    config.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+
+    m_lvePipelineThickness = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/shader.vert.spv",
+        "../../../res/shaders/spv/3dsimulation/shader_thickness.frag.spv",
+        config);
+}
+
+void RenderSystem::CreateFullscreenPipeline(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_pipelineLayout;
+
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+
+    // 开启模板测试：只有当屏幕像素的模板值 = 设定的参考值时，才画颜色
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+    config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_EQUAL;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.compareMask = 0xFF;
+    config.depthStencilInfo.front.writeMask = 0x00;  // 只读不写
+    config.depthStencilInfo.back = config.depthStencilInfo.front;
+
+    // 允许我们在绘制时，动态修改寻找的“模板目标值”
+    config.dynamicStateEnables.push_back(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
+    config.dynamicStateInfo.pDynamicStates = config.dynamicStateEnables.data();
+    config.dynamicStateInfo.dynamicStateCount =
+        static_cast<uint32_t>(config.dynamicStateEnables.size());
+
+    // 全屏绘制不需要传递顶点模型
+    config.bindingDescriptions.clear();
+    config.attributeDescriptions.clear();
+
+    m_lvePipelineFullscreen = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/3dsimulation/shader_fullscreen.vert.spv",
+        "../../../res/shaders/spv/3dsimulation/shader_fullscreen.frag.spv",
+        config);
 }
 
 /* 主循环中每帧都会调用renderGameObjects
@@ -521,6 +604,100 @@ void RenderSystem::RenderInstances(FrameInfo& frameInfo, const bool& shown)
                                 0,
                                 nullptr);
         batch.model->DrawInstanced(cmd, batch.instanceCount);
+    }
+}
+
+void RenderSystem::RenderThicknessMap(FrameInfo& frameInfo)
+{
+    // 手动强制清空本帧的模板缓冲为 0！
+    VkClearAttachment clearAttachment{};
+    clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+    clearAttachment.clearValue.depthStencil = {1.0f, 0};  // 0 是模板的清零值
+
+    VkClearRect clearRect{};
+    clearRect.rect.offset = {0, 0};
+    clearRect.rect.extent = {8192, 8192};  // 暴力覆盖最大可能的屏幕尺寸
+    clearRect.baseArrayLayer = 0;
+    clearRect.layerCount = 1;
+
+    // 在任何绘制开始前，直接将整个屏幕的模板值暴力抹平！
+    vkCmdClearAttachments(frameInfo.commandBuffer, 1, &clearAttachment, 1, &clearRect);
+
+    // =========================================================
+    // 阶段 1：静默累加算总账 (只写 Stencil Buffer，不画颜色)
+    // =========================================================
+    m_lvePipelineThickness->Bind(frameInfo.commandBuffer);
+
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            0,
+                            1,
+                            &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
+
+    for (auto& kv : frameInfo.objects) {
+        if (kv.second.model == nullptr) continue;
+        SimplePushConstantData push{};
+        push.modelMatrix = kv.second.transform.mat4();
+        push.normalMatrix = kv.second.transform.normalMatrix();
+        vkCmdPushConstants(frameInfo.commandBuffer,
+                           m_pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0,
+                           sizeof(SimplePushConstantData),
+                           &push);
+        kv.second.model->Bind(frameInfo.commandBuffer);
+        kv.second.model->Draw(frameInfo.commandBuffer);
+    }
+
+    // =========================================================
+    // 阶段 2：读取总账，进行全屏上色！
+    // =========================================================
+    m_lvePipelineFullscreen->Bind(frameInfo.commandBuffer);
+
+    // 绘制 正数区 (实体穿透区)：画不同深浅的 蓝色
+    for (int i = 1; i <= 6; i++) {
+        // 告诉 GPU：只在模板值为 i 的地方画画
+        vkCmdSetStencilReference(frameInfo.commandBuffer,
+                                 VK_STENCIL_FACE_FRONT_AND_BACK,
+                                 i);
+
+        float intensity = 0.4f + i * 0.1f;  // 数值越大，蓝色越亮
+        SimplePushConstantData pushColor{};
+        // 巧妙借用 push 结构体的第一行传递 vec4 颜色，避免管线结构报错
+        pushColor.modelMatrix[0] =
+            glm::vec4(0.0f, 0.2f * intensity, 1.0f * intensity, 1.0f);
+
+        vkCmdPushConstants(frameInfo.commandBuffer,
+                           m_pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0,
+                           sizeof(SimplePushConstantData),
+                           &pushColor);
+        vkCmdDraw(frameInfo.commandBuffer, 3, 1, 0, 0);  // 发射全屏三角形
+    }
+
+    // 绘制 负数区 (剖面区)：画不同深浅的 灰色
+    // Vulkan 的模板是 8位无符号整数：-1 就是 255，-2 就是 254
+    for (int i = 1; i <= 6; i++) {
+        uint32_t ref = 256 - i;
+        vkCmdSetStencilReference(frameInfo.commandBuffer,
+                                 VK_STENCIL_FACE_FRONT_AND_BACK,
+                                 ref);
+
+        float intensity = 0.2f + i * 0.15f;
+        SimplePushConstantData pushColor{};
+        pushColor.modelMatrix[0] = glm::vec4(intensity, intensity, intensity, 1.0f);
+
+        vkCmdPushConstants(frameInfo.commandBuffer,
+                           m_pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0,
+                           sizeof(SimplePushConstantData),
+                           &pushColor);
+        vkCmdDraw(frameInfo.commandBuffer, 3, 1, 0, 0);
     }
 }
 

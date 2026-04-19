@@ -21,6 +21,7 @@ public:
 
 	void RenderObjects(FrameInfo& frameInfo);
 	void RenderInstances(FrameInfo& frameInfo, const bool& shown);
+	void RenderThicknessMap(FrameInfo& frameInfo);
 
 private:
 	void CreatePipelineLayout(const std::vector<VkDescriptorSetLayout>& globalSetLayout);
@@ -30,6 +31,8 @@ private:
 	void CreateInvisibleInstancedPipeline(VkRenderPass renderPass);
 	void CreateTranslucentPipeline(VkRenderPass renderPass);
 	void CreateOutlinePipeline(VkRenderPass renderPass);
+    void CreateThicknessMapPipeline(VkRenderPass renderPass);
+	void CreateFullscreenPipeline(VkRenderPass renderPass);
 
 	LveDevice& m_lveDevice;
 
@@ -38,6 +41,8 @@ private:
 	std::unique_ptr<LvePipeline> m_lvePipelineInstancedInvisible;	// 不可见实例化管线
 	std::unique_ptr<LvePipeline> m_lvePipelineTranslucent;	// 半透明管线
     std::unique_ptr<LvePipeline> m_lvePipelineOutline;	// 线框管线
+    std::unique_ptr<LvePipeline> m_lvePipelineThickness;    // 渲染模板值管线
+    std::unique_ptr<LvePipeline> m_lvePipelineFullscreen;	// 全屏渲染管线
 	VkPipelineLayout m_pipelineLayout;
 	std::unique_ptr<LveModel> m_axisModel;
 };

@@ -168,7 +168,12 @@ void LveRenderer::BeginSwapChainRenderPass(VkCommandBuffer commandBuffer)
     renderPassInfo.renderArea.extent = m_lveSwapChain->GetSwapChainExtent();
 
     std::array<VkClearValue, 2> clearValues{};
+    // 设置背景颜色
+    #if 0
     clearValues[0].color = { 1.f, 1.f, 1.f, 1.0f };
+    #else
+    clearValues[0].color = { 0.f, 0.f, 0.f, 1.0f };
+    #endif
     clearValues[1].depthStencil = { 1.0f, 0 };
     renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
     renderPassInfo.pClearValues = clearValues.data();

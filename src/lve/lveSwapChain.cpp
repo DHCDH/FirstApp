@@ -2,24 +2,28 @@
 
 // std
 #include <array>
+#include <cassert>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <set>
 #include <stdexcept>
-#include <cassert>
 
-namespace lve {
-
-LveSwapChain::LveSwapChain(LveDevice &deviceRef, VkExtent2D extent, VkSurfaceKHR surface)
+namespace lve
+{
+LveSwapChain::LveSwapChain(LveDevice& deviceRef, VkExtent2D extent, VkSurfaceKHR surface)
     : m_device{deviceRef}, m_windowExtent{extent}, m_surface{surface}
 {
     Init();
 }
 
-LveSwapChain::LveSwapChain(LveDevice& deviceRef, VkExtent2D extent, std::shared_ptr<LveSwapChain> previous)
-    : m_device{deviceRef}, m_windowExtent{extent}, m_oldSwapChain{previous}, m_surface{previous->m_surface}
+LveSwapChain::LveSwapChain(LveDevice& deviceRef, VkExtent2D extent,
+                           std::shared_ptr<LveSwapChain> previous)
+    : m_device{deviceRef},
+      m_windowExtent{extent},
+      m_oldSwapChain{previous},
+      m_surface{previous->m_surface}
 {
     Init();
 
@@ -37,7 +41,7 @@ void LveSwapChain::Init()
     CreateSyncObjects();
 }
 
-LveSwapChain::~LveSwapChain() 
+LveSwapChain::~LveSwapChain()
 {
     // 1) 等所有在飞的提交结束，防止销毁同步对象/资源时仍被使用
     vkDeviceWaitIdle(m_device.device());
@@ -65,9 +69,12 @@ LveSwapChain::~LveSwapChain()
 
     // 深度资源（image view → image → memory）
     for (size_t i = 0; i < m_depthImages.size(); ++i) {
-        if (m_depthImageViews[i]) vkDestroyImageView(m_device.device(), m_depthImageViews[i], nullptr);
-        if (m_depthImages[i])     vkDestroyImage(m_device.device(), m_depthImages[i], nullptr);
-        if (m_depthImageMemorys[i]) vkFreeMemory(m_device.device(), m_depthImageMemorys[i], nullptr);
+        if (m_depthImageViews[i])
+            vkDestroyImageView(m_device.device(), m_depthImageViews[i], nullptr);
+        if (m_depthImages[i])
+            vkDestroyImage(m_device.device(), m_depthImages[i], nullptr);
+        if (m_depthImageMemorys[i])
+            vkFreeMemory(m_device.device(), m_depthImageMemorys[i], nullptr);
     }
     m_depthImageViews.clear();
     m_depthImages.clear();
@@ -92,15 +99,14 @@ LveSwapChain::~LveSwapChain()
     }
 }
 
-VkResult LveSwapChain::AcquireNextImage(uint32_t *imageIndex) 
+VkResult LveSwapChain::AcquireNextImage(uint32_t* imageIndex)
 {
     /*等待当前帧对应的fence（上一帧提交完成）*/
-    vkWaitForFences(
-        m_device.device(),
-        1,
-        &m_inFlightFences[m_currentFrame],
-        VK_TRUE,
-        (std::numeric_limits<uint64_t>::max)());
+    vkWaitForFences(m_device.device(),
+                    1,
+                    &m_inFlightFences[m_currentFrame],
+                    VK_TRUE,
+                    (std::numeric_limits<uint64_t>::max)());
 
     /*拿到下一张交换链图像*/
     VkResult result = vkAcquireNextImageKHR(
@@ -114,19 +120,24 @@ VkResult LveSwapChain::AcquireNextImage(uint32_t *imageIndex)
     return result;
 }
 
-VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex) 
+VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer* buffers,
+                                            uint32_t* imageIndex)
 {
     assert(*imageIndex < m_imagesInFlight.size());
 
     // 防止同一图像同时被提交
     if (m_imagesInFlight[*imageIndex] != VK_NULL_HANDLE) {
-        vkWaitForFences(m_device.device(), 1, &m_imagesInFlight[*imageIndex], VK_TRUE, UINT64_MAX);
+        vkWaitForFences(m_device.device(),
+                        1,
+                        &m_imagesInFlight[*imageIndex],
+                        VK_TRUE,
+                        UINT64_MAX);
     }
     m_imagesInFlight[*imageIndex] = m_inFlightFences[m_currentFrame];
 
-    VkSemaphore waitSemaphores[] = { m_imageAvailableSemaphores[m_currentFrame] };
-    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[*imageIndex] };
+    VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphores[m_currentFrame]};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphores[*imageIndex]};
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -139,7 +150,10 @@ VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer *buffers, uint
     submitInfo.pSignalSemaphores = signalSemaphores;
 
     vkResetFences(m_device.device(), 1, &m_inFlightFences[m_currentFrame]);
-    if (vkQueueSubmit(m_device.graphicsQueue(), 1, &submitInfo, m_inFlightFences[m_currentFrame]) != VK_SUCCESS) {
+    if (vkQueueSubmit(m_device.graphicsQueue(),
+                      1,
+                      &submitInfo,
+                      m_inFlightFences[m_currentFrame]) != VK_SUCCESS) {
         throw std::runtime_error("failed to submit draw command buffer!");
     }
 
@@ -148,7 +162,7 @@ VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer *buffers, uint
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
     presentInfo.swapchainCount = 1;
-    VkSwapchainKHR swapChains[] = { m_swapChain };
+    VkSwapchainKHR swapChains[] = {m_swapChain};
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = imageIndex;
 
@@ -158,7 +172,7 @@ VkResult LveSwapChain::SubmitCommandBuffers(const VkCommandBuffer *buffers, uint
     return result;
 }
 
-void LveSwapChain::CreateSwapChain() 
+void LveSwapChain::CreateSwapChain()
 {
     SwapChainSupportDetails swapChainSupport = m_device.getSwapChainSupport(m_surface);
 
@@ -202,27 +216,32 @@ void LveSwapChain::CreateSwapChain()
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
 
-    createInfo.oldSwapchain = m_oldSwapChain == nullptr ? VK_NULL_HANDLE : m_oldSwapChain->m_swapChain;
+    createInfo.oldSwapchain =
+        m_oldSwapChain == nullptr ? VK_NULL_HANDLE : m_oldSwapChain->m_swapChain;
 
-    if (vkCreateSwapchainKHR(m_device.device(), &createInfo, nullptr, &m_swapChain) != VK_SUCCESS) {
+    if (vkCreateSwapchainKHR(m_device.device(), &createInfo, nullptr, &m_swapChain) !=
+        VK_SUCCESS) {
         std::cout << "ImageExtent: " << createInfo.imageExtent.width << " x "
                   << createInfo.imageExtent.height << std::endl;
         throw std::runtime_error("failed to create swap chain!");
     }
 
-    // we only specified a minimum number of images in the swap chain, so the implementation is
-    // allowed to create a swap chain with more. That's why we'll first query the final number of
-    // images with vkGetSwapchainImagesKHR, then resize the container and finally call it again to
-    // retrieve the handles.
+    // we only specified a minimum number of images in the swap chain, so the
+    // implementation is allowed to create a swap chain with more. That's why we'll first
+    // query the final number of images with vkGetSwapchainImagesKHR, then resize the
+    // container and finally call it again to retrieve the handles.
     vkGetSwapchainImagesKHR(m_device.device(), m_swapChain, &ImageCount, nullptr);
     m_swapChainImages.resize(ImageCount);
-    vkGetSwapchainImagesKHR(m_device.device(), m_swapChain, &ImageCount, m_swapChainImages.data());
+    vkGetSwapchainImagesKHR(m_device.device(),
+                            m_swapChain,
+                            &ImageCount,
+                            m_swapChainImages.data());
 
     m_swapChainImageFormat = surfaceFormat.format;
     m_swapChainExtent = extent;
 }
 
-void LveSwapChain::CreateImageViews() 
+void LveSwapChain::CreateImageViews()
 {
     m_swapChainImageViews.resize(m_swapChainImages.size());
     for (size_t i = 0; i < m_swapChainImages.size(); i++) {
@@ -237,14 +256,16 @@ void LveSwapChain::CreateImageViews()
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
-        if (vkCreateImageView(m_device.device(), &viewInfo, nullptr, &m_swapChainImageViews[i]) !=
-            VK_SUCCESS) {
+        if (vkCreateImageView(m_device.device(),
+                              &viewInfo,
+                              nullptr,
+                              &m_swapChainImageViews[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create texture image view!");
         }
     }
 }
 
-void LveSwapChain::CreateRenderPass() 
+void LveSwapChain::CreateRenderPass()
 {
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = FindDepthFormat();
@@ -266,7 +287,8 @@ void LveSwapChain::CreateRenderPass()
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    //colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;    // 渲染模板值管线
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
@@ -282,16 +304,18 @@ void LveSwapChain::CreateRenderPass()
 
     VkSubpassDependency dependency = {};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependency.srcStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.dstSubpass = 0;
-    dependency.dstStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask =
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment,
+                                                          depthAttachment};
     VkRenderPassCreateInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -301,16 +325,18 @@ void LveSwapChain::CreateRenderPass()
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    if (vkCreateRenderPass(m_device.device(), &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(m_device.device(), &renderPassInfo, nullptr, &m_renderPass) !=
+        VK_SUCCESS) {
         throw std::runtime_error("failed to create render pass!");
     }
 }
 
-void LveSwapChain::CreateFramebuffers() 
+void LveSwapChain::CreateFramebuffers()
 {
     m_swapChainFramebuffers.resize(ImageCount());
     for (size_t i = 0; i < ImageCount(); i++) {
-        std::array<VkImageView, 2> attachments = { m_swapChainImageViews[i], m_depthImageViews[i]};
+        std::array<VkImageView, 2> attachments = {m_swapChainImageViews[i],
+                                                  m_depthImageViews[i]};
 
         VkExtent2D swapChainExtent = GetSwapChainExtent();
         VkFramebufferCreateInfo framebufferInfo = {};
@@ -322,17 +348,16 @@ void LveSwapChain::CreateFramebuffers()
         framebufferInfo.height = swapChainExtent.height;
         framebufferInfo.layers = 1;
 
-        if (vkCreateFramebuffer(
-                m_device.device(),
-                &framebufferInfo,
-                nullptr,
-                &m_swapChainFramebuffers[i]) != VK_SUCCESS) {
+        if (vkCreateFramebuffer(m_device.device(),
+                                &framebufferInfo,
+                                nullptr,
+                                &m_swapChainFramebuffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create framebuffer!");
         }
     }
 }
 
-void LveSwapChain::CreateDepthResources() 
+void LveSwapChain::CreateDepthResources()
 {
     VkFormat depthFormat = FindDepthFormat();
     m_swapChainDepthFormat = depthFormat;
@@ -359,11 +384,10 @@ void LveSwapChain::CreateDepthResources()
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageInfo.flags = 0;
 
-        m_device.createImageWithInfo(
-            imageInfo,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_depthImages[i],
-            m_depthImageMemorys[i]);
+        m_device.createImageWithInfo(imageInfo,
+                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                     m_depthImages[i],
+                                     m_depthImageMemorys[i]);
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -376,13 +400,16 @@ void LveSwapChain::CreateDepthResources()
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
-        if (vkCreateImageView(m_device.device(), &viewInfo, nullptr, &m_depthImageViews[i]) != VK_SUCCESS) {
+        if (vkCreateImageView(m_device.device(),
+                              &viewInfo,
+                              nullptr,
+                              &m_depthImageViews[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create texture image view!");
         }
     }
 }
 
-void LveSwapChain::CreateSyncObjects() 
+void LveSwapChain::CreateSyncObjects()
 {
     // 按帧：Acquire 阶段信号量 + Fences
     m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
@@ -401,24 +428,31 @@ void LveSwapChain::CreateSyncObjects()
 
     // 按帧创建
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (vkCreateSemaphore(m_device.device(), &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateFence(m_device.device(), &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(m_device.device(),
+                              &semaphoreInfo,
+                              nullptr,
+                              &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateFence(m_device.device(), &fenceInfo, nullptr, &m_inFlightFences[i]) !=
+                VK_SUCCESS) {
             throw std::runtime_error("failed to create frame sync objects!");
         }
     }
 
     // 按图像创建
     for (size_t i = 0; i < ImageCount(); i++) {
-        if (vkCreateSemaphore(m_device.device(), &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(m_device.device(),
+                              &semaphoreInfo,
+                              nullptr,
+                              &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create image renderFinished semaphore!");
         }
     }
 }
 
 VkSurfaceFormatKHR LveSwapChain::ChooseSwapSurfaceFormat(
-    const std::vector<VkSurfaceFormatKHR> &availableFormats) 
+    const std::vector<VkSurfaceFormatKHR>& availableFormats)
 {
-    for (const auto &availableFormat : availableFormats) {
+    for (const auto& availableFormat : availableFormats) {
         /*if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&*/
         if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
             availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -433,13 +467,13 @@ VkSurfaceFormatKHR LveSwapChain::ChooseSwapSurfaceFormat(
  * 从系统支持的多种显示呈现模式中选择合适的一种，用于决定图像如何从后台缓冲区显示到屏幕上
  * param：availablePresentModes: GPU支持的所有呈现模式的向量
  * return：选中的VkPresentModeKHR枚举值
-*/
+ */
 VkPresentModeKHR LveSwapChain::ChooseSwapPresentMode(
-    const std::vector<VkPresentModeKHR> &availablePresentModes) 
+    const std::vector<VkPresentModeKHR>& availablePresentModes)
 {
 #if 1
     /*优先选择Mailbox模式*/
-    for (const auto &availablePresentMode : availablePresentModes) {
+    for (const auto& availablePresentMode : availablePresentModes) {
         if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
             std::cout << "Present mode: Mailbox" << std::endl;
             return availablePresentMode;
@@ -447,39 +481,45 @@ VkPresentModeKHR LveSwapChain::ChooseSwapPresentMode(
     }
 #endif
 
-  // for (const auto &availablePresentMode : availablePresentModes) {
-  //   if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-  //     std::cout << "Present mode: Immediate" << std::endl;
-  //     return availablePresentMode;
-  //   }
-  // }
+    // for (const auto &availablePresentMode : availablePresentModes) {
+    //   if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+    //     std::cout << "Present mode: Immediate" << std::endl;
+    //     return availablePresentMode;
+    //   }
+    // }
 
     /*默认使用FIFO模式*/
     std::cout << "Present mode: V-Sync" << std::endl;
-    return VK_PRESENT_MODE_FIFO_KHR;    //fifo会使得在刷新率更高的显示器上运行速度更快,如120hz显示器中速度是60hz显示器的两倍
+    return VK_PRESENT_MODE_FIFO_KHR;  // fifo会使得在刷新率更高的显示器上运行速度更快,如120hz显示器中速度是60hz显示器的两倍
 }
 
-VkExtent2D LveSwapChain::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) {
-  if (capabilities.currentExtent.width != (std::numeric_limits<uint32_t>::max)()) {
-    return capabilities.currentExtent;
-  } else {
-    VkExtent2D actualExtent = m_windowExtent;
-    actualExtent.width = (std::max)(
-        capabilities.minImageExtent.width,
-        (std::min)(capabilities.maxImageExtent.width, actualExtent.width));
-    actualExtent.height = (std::max)(
-        capabilities.minImageExtent.height,
-        (std::min)(capabilities.maxImageExtent.height, actualExtent.height));
+VkExtent2D LveSwapChain::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
+{
+    if (capabilities.currentExtent.width != (std::numeric_limits<uint32_t>::max)()) {
+        return capabilities.currentExtent;
+    } else {
+        VkExtent2D actualExtent = m_windowExtent;
+        actualExtent.width =
+            (std::max)(capabilities.minImageExtent.width,
+                       (std::min)(capabilities.maxImageExtent.width, actualExtent.width));
+        actualExtent.height = (std::max)(
+            capabilities.minImageExtent.height,
+            (std::min)(capabilities.maxImageExtent.height, actualExtent.height));
 
-    return actualExtent;
-  }
+        return actualExtent;
+    }
 }
 
-VkFormat LveSwapChain::FindDepthFormat() {
-  return m_device.findSupportedFormat(
-      {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-      VK_IMAGE_TILING_OPTIMAL,
-      VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+VkFormat LveSwapChain::FindDepthFormat()
+{
+    // return m_device.findSupportedFormat(
+    //    {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT,
+    //    VK_FORMAT_D24_UNORM_S8_UINT}, VK_IMAGE_TILING_OPTIMAL,
+    //    VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    return m_device.findSupportedFormat(
+        {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);    // 渲染模板值管线
 }
 
 }  // namespace lve

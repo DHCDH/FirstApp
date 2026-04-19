@@ -42,6 +42,8 @@ public:
     void RunFrame();
     void WaitIdle();
 
+    void RunFrameForThicknessMap();
+
     /*交互*/
     void Orbit(float dxPixels, float dyPixels);  // 左键拖拽旋转
     void Pan(float dxPixels, float dyPixels);    // 中键平移
