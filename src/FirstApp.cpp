@@ -267,7 +267,7 @@ void FirstApp::RunFrame()
     ubo.useCustomCulling = 1;
     m_uboBuffers[frameIndex]->WriteToBuffer(&ubo);
 
-    BuildGrindingWheelTrackInstances(0.f, 100.f, 100);
+    //BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
 
     /*进入本帧的主RenderPass*/
     m_lveRenderer->BeginSwapChainRenderPass(commandBuffer);
@@ -277,7 +277,7 @@ void FirstApp::RunFrame()
     m_pointLightSystem->Render(frameInfo);
 
     /*实例化渲染*/
-    RenderGrindingWheelTrack(frameInfo);
+    //RenderGrindingWheelTrack(frameInfo);
 
     /*结束本帧RenderPass并提交*/
     m_lveRenderer->EndSwapChainRenderPass(commandBuffer);
@@ -305,18 +305,23 @@ void FirstApp::LoadObjects()
     m_grindingWheel = std::make_unique<entity::GrindingWheel>(*m_renderContext);
     auto grindingWheel = m_grindingWheel->CreateObject();
     m_grindingWheelId = grindingWheel.getId();
+    // 生成砂轮扫掠体
+    CreateGrindingWheelTrack(grindingWheel);
+
     m_objects.emplace(m_grindingWheelId, std::move(grindingWheel));
     std::cout << "[FirstApp] grndWheel id: " << m_grindingWheelId << "\n";
 
     /*平面*/
+    #if 0
     m_plane = std::make_unique<entity::Plane>(*m_renderContext);
     auto plane = m_plane->CreateObject();
     m_planeId = plane.getId();
     m_objects.emplace(m_planeId, std::move(plane));
     std::cout << "[FirstApp] plane id: " << m_planeId << "\n";
+    #endif
 
     // 立方体
-    #if 1
+    #if 0
     m_cube = std::make_unique<entity::Cube>(*m_renderContext);
     auto cube = m_cube->CreateObject();
     m_cubeId = cube.getId();
@@ -330,6 +335,8 @@ void FirstApp::LoadObjects()
     m_cameraId = camera.getId();
     m_objects.emplace(m_cameraId, std::move(camera));
     std::cout << "[FirstApp] camera id: " << m_cameraId << "\n";
+
+    BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
 
 }
 
@@ -386,14 +393,20 @@ void FirstApp::UpdateMaterialParamsPerFrame(uint32_t objId, int frameIndex,
 
 void FirstApp::BuildGrindingWheelTrackInstances(float t1, float t2, int sampleCount)
 {
-    if (m_toolpaths.empty()) {
-        //std::cerr << "toolpath is empty!"
-        //          << "\n";
-        return;
-    }
+    //if (m_toolpaths.empty()) {
+    //    std::cerr << "[FirstApp] toolpath is empty!"
+    //              << "\n";
+    //    return;
+    //}
+
+    auto it = m_objects.find(m_grindingWheelId);
+    if (it == m_objects.end()) return;
+    glm::mat4 realBaseMat = it->second.transform.mat4();
+    PrintMat4(realBaseMat, "[FirstApp: baseMat]");
 
     m_grndWheelInstances.clear();
-    m_grindingWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, m_toolpaths);
+    //m_grindingWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, m_toolpaths);
+    m_grindingWheel->CalculateGrindingWheelInstances(m_grndWheelInstances, realBaseMat);
 
     /*将实例数组上传GPU*/
     VkDeviceSize bufferSize = sizeof(glm::mat4) * m_grndWheelInstances.size();
@@ -430,7 +443,7 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     frameInfo.instanceBatches.clear();
 
     /*设置砂轮实例个数*/
-    BuildGrindingWheelTrackInstances(0., 30, 100);
+    //BuildGrindingWheelTrackInstances(0., 30, 100);
 
     if (!m_grndWheelInstanceBuffer || m_grndWheelInstanceCount == 0) {
         return;
@@ -453,18 +466,16 @@ void FirstApp::RenderGrindingWheelTrack(FrameInfo& frameInfo)
     batch.instanceStride = sizeof(glm::mat4);
 
     // （可选）复用砂轮的贴图/材质参数
-    if (frameInfo.materialDescriptorSets) {
-        auto& mapTex = *frameInfo.materialDescriptorSets;
-        auto itTex = mapTex.find(m_grindingWheelId);
-        if (itTex != mapTex.end()) {
-            batch.set1 = itTex->second;  // set = 1
+    if (frameInfo.submeshTexSets) {
+        auto itTex = frameInfo.submeshTexSets->find(m_grindingWheelId);
+        if (itTex != frameInfo.submeshTexSets->end() && !itTex->second.empty()) {
+            batch.set1 = itTex->second[0];  // 获取砂轮第一个子网格的贴图
         }
     }
-    if (frameInfo.materialParamSets) {
-        auto& mapMat = *frameInfo.materialParamSets;
-        auto itMat = mapMat.find(m_grindingWheelId);
-        if (itMat != mapMat.end()) {
-            batch.set2 = itMat->second;  // set = 2
+    if (frameInfo.submeshMatSetThisFrame) {
+        auto itMat = frameInfo.submeshMatSetThisFrame->find(m_grindingWheelId);
+        if (itMat != frameInfo.submeshMatSetThisFrame->end() && !itMat->second.empty()) {
+            batch.set2 = itMat->second[0];  // 获取砂轮专属的材质参数 (包含橘红色和 flag)
         }
     }
 
@@ -540,6 +551,60 @@ int FirstApp::ReadToolPath(std::filesystem::path path)
     #endif
 
     return 0;
+}
+
+void FirstApp::CreateGrindingWheelTrack(const lve::LveObject& grindingWheel)
+{
+    glm::vec3 basePos = grindingWheel.transform.translation;
+    glm::quat baseQuat = glm::quat(grindingWheel.transform.rotation);
+    auto sharedModel = grindingWheel.model;
+    float baseTransparency = grindingWheel.transparency;
+
+    // --- 生成砂轮螺旋扫掠 ---
+    int sampleCount = 4;
+    float startX = 0.f;  // 这个是相对 X 轴前进的距离起点
+    float endX = -15.f;    // 相对前进 100
+    float helixAngleDegrees = 45.f;
+    //float helixRadius = 5.f;
+    float helixRadius = glm::length(glm::vec2(basePos.y, basePos.z));
+    float radAngle = glm::radians(helixAngleDegrees);
+    float pitch = 2.0f * glm::pi<float>() * helixRadius * glm::tan(radAngle);
+    float totalDistance = endX - startX;
+
+    for (int i = 1; i < sampleCount; ++i) {  // 从 1 开始，0 是本体
+        float t = static_cast<float>(i) / (sampleCount - 1);
+        float currentX = startX + t * totalDistance;
+
+        // 计算当前绕 X 轴应该旋转多少度
+        float theta = (currentX / pitch) * 2.0f * glm::pi<float>();
+
+        auto inst = lve::LveObject::CreateObject();
+        uint32_t instId = inst.getId();
+
+        inst.model = sharedModel;
+        inst.transparency = baseTransparency;
+
+        //inst.neededOutline = true;
+
+        // 构造一个单纯绕 X 轴旋转 theta 度的四元数
+        glm::quat rotX = glm::angleAxis(theta, glm::vec3(1.0f, 0.0f, 0.0f));
+
+        // 1. 【姿态计算】：先把本体的朝向绕着 X 轴转 theta 度
+        inst.transform.rotation = glm::eulerAngles(rotX * baseQuat);
+
+        // 2. 【位置计算】：先把本体的初始坐标系绕 X 轴旋转，然后再在 X 方向上推远
+        // currentX
+        glm::vec3 rotatedPos = rotX * basePos;
+        inst.transform.translation = rotatedPos + glm::vec3(currentX, 0.0f, 0.0f);
+
+        inst.transform.scale = glm::vec3(1.25f, 1.25f, 1.25f);
+
+        // 克隆材质绑定
+        m_submeshTextureSets[instId] = m_submeshTextureSets[m_grindingWheelId];
+        m_submeshMatSets[instId] = m_submeshMatSets[m_grindingWheelId];
+
+        m_objects.emplace(instId, std::move(inst));
+    }
 }
 
 /*******************************************************interaction****************************************************************************/

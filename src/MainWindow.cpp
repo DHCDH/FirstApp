@@ -43,7 +43,7 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::InitRenderWidget()
 {
-     m_renderWidget->setMinimumSize(720, 720);
+    m_renderWidget->setMinimumSize(720, 720);
 
     /*获取原生窗口句柄HWND*/
     m_renderWidget->winId();  // 确保窗口创建
@@ -75,9 +75,11 @@ void MainWindow::InitUI()
     QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
     QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
     QLabel* labelUp = new QLabel("Camera Up", m_buttonWidget);
-    m_camPos = new QLineEdit("217.63, -166.61, 216.58", m_buttonWidget);
-    m_camTarget = new QLineEdit("0, 0., 0.", m_buttonWidget);
-    m_camUp = new QLineEdit("-0.38, -0.84, -0.39", m_buttonWidget);
+    m_camPos = new QLineEdit("224., -124.22, 224", m_buttonWidget);
+    //m_camPos = new QLineEdit("-200, 0, ", m_buttonWidget);
+    m_camTarget = new QLineEdit("11.20, 33.38, 7.56", m_buttonWidget);
+    m_camUp = new QLineEdit("-0.54, -0.64, -0.54", m_buttonWidget);
+    //m_camUp = new QLineEdit("0, -1, 0", m_buttonWidget);
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
     buttonLayout->addWidget(btn2DSimulation);
@@ -194,12 +196,17 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     if (m_vulkanApp) {
                         glm::vec3 pos = m_vulkanApp->GetCameraPosition();
                         glm::vec3 up = m_vulkanApp->GetCameraUp();
+                        glm::vec3 target = m_vulkanApp->GetCameraTarget();
 
                         // 自动回填UI
                         m_camPos->setText(QString("%1, %2, %3")
                                               .arg(pos.x, 0, 'f', 2)
                                               .arg(pos.y, 0, 'f', 2)
                                               .arg(pos.z, 0, 'f', 2));
+                        m_camTarget->setText(QString("%1, %2, %3")
+                                                 .arg(target.x, 0, 'f', 2)
+                                                 .arg(target.y, 0, 'f', 2)
+                                                 .arg(target.z, 0, 'f', 2));
                         m_camUp->setText(QString("%1, %2, %3")
                                              .arg(up.x, 0, 'f', 2)
                                              .arg(up.y, 0, 'f', 2)

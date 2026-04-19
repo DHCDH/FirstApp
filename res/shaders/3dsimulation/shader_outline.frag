@@ -24,17 +24,14 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     int useCustomCulling;
 } ubo;
 
-void main() {
+layout(set = 2, binding = 0, std140) uniform UMaterial {
+    vec4 baseColorFactor;
+    vec4 uvTilingOffset;
+    vec4 pbrAoAlpha;
+    uvec4 flags;
+} matu;
 
-    // 和主着色器一样的自定义剔除逻辑
-    if (ubo.useCustomCulling == 1) {
-        vec3 dirToObsCam = normalize(ubo.obsCamPos.xyz - fragPosWorld);
-        float dotResult = dot(normalize(fragNormalWorld), dirToObsCam);
-        
-        if (dotResult <= 0.0) {
-            discard; // 丢弃背对相机的描边像素！
-        }
-    }
+void main() {
 
     // 纯黑色，完全不透明
     outColor = vec4(0.0, 0.0, 0.0, 1.0); 

@@ -17,7 +17,7 @@ public:
 
 private:
     std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/quad.obj"};
+        "D:/Data/Study/vulkan/FirstApp/output_stuff/img/model_for_img/quad.obj"};
     uint32_t m_id{};
 };
 }  // namespace entity

@@ -27,14 +27,26 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     int useCustomCulling;
 } ubo;
 
+layout(set = 2, binding = 0, std140) uniform UMaterial {
+    vec4 baseColorFactor;
+    vec4 uvTilingOffset;
+    vec4 pbrAoAlpha;
+    uvec4 flags;
+} matu;
+
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
     mat4 normalMatrix;
 } push;
 
 void main() {
+
+    if(matu.flags.w != 1u) {
+        return;
+    }
+
     // 这里的 0.1 是描边粗细，你需要根据砂轮的实际尺寸适当调大或调小
-    float outlineThickness = 0.1;
+    float outlineThickness = 0.5;
     
     // 让顶点沿着法线方向向外膨胀
     vec3 inflatedPos = position + normal * outlineThickness;

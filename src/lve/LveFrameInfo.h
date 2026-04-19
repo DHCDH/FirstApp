@@ -42,7 +42,7 @@ struct alignas(16) MaterialUBO {
 	glm::vec4 baseColorFactor;
 	glm::vec4 uvTilingOffset;
 	glm::vec4 pbrAoAlpha;
-	glm::uvec4 flags;
+    glm::uvec4 flags;
 };
 
 struct InstanceBatch {

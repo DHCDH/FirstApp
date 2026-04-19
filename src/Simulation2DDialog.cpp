@@ -392,10 +392,10 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
              .helixAngle{[](double u1) { return 30.; }},
-             .radius{[](double u1) { return 6.; }},
+             .radius{[](double u1) { return 5.; }},
              .radiusDeriv{[](double u1) { return 0.; }},
              .coreRadius{[](double u1) { return 3.; }},
-             .slotAngle{[](double u1) { return 50.; }},
+             .slotAngle{[](double u1) { return 65.; }},
              .radialRakeAngle{[](double u1) { return 10.; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(

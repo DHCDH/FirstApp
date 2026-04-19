@@ -42,6 +42,14 @@ layout(push_constant) uniform Push {
     mat4 normalMatrix;
 } push;
 
+// 3D 空间伪随机哈希函数（映射到 -1.0 ~ 1.0）
+vec3 hash3(vec3 p) {
+    vec3 q = vec3( dot(p,vec3(127.1,311.7, 74.7)),
+                   dot(p,vec3(269.5,183.3,246.1)),
+                   dot(p,vec3(113.5,271.9,124.6)));
+    return fract(sin(q)*43758.5453) * 2.0 - 1.0;
+}
+
 void main() 
 {
     // ==========================================
@@ -50,6 +58,19 @@ void main()
     vec3 N = normalize(fragNormalWorld);
     vec3 camPos = ubo.invView[3].xyz; 
     vec3 V = normalize(camPos - fragPosWorld);
+
+    if(matu.flags.x == 0u) {
+        // 获取砂轮的局部坐标 (保证砂轮旋转时颗粒跟着转)
+        vec3 localPos = (inverse(push.modelMatrix) * vec4(fragPosWorld, 1.0)).xyz;
+
+        // 生成高频法线扰动。
+        // [参数调节]：500.0 是颗粒的密度(频率)。值越大，砂轮颗粒越细；值越小，颗粒越粗(像碎石)。
+        vec3 normalJitter = hash3(localPos * 1500.0);
+
+        // 将噪点叠加到原本完美的法线上。
+        // [参数调节]：0.15 是凹凸的强度。值越大表面越粗糙、暗淡；值越小越接近原本的光滑。
+        N = normalize(N + normalJitter * 0.04);
+    }
 
     // 获取基础色
     // vec3 baseColor = matu.baseColorFactor.rgb;
@@ -64,54 +85,75 @@ void main()
             vec3 dirToObsCam = normalize(ubo.obsCamPos.xyz - fragPosWorld);
             float dotResult = dot(normalize(fragNormalWorld), dirToObsCam);
 
+            float objCenterX = push.modelMatrix[3].x;
+            float distanceMoved = abs(objCenterX - (-0.642588));
+            float trackFactor = clamp(distanceMoved / 10, 0.0, 1.0);
+            vec3 frontStart = vec3(0.05, 0.15, 0.35); // 第 1 个砂轮的颜色：红
+            vec3 frontEnd   = vec3(0.12, 0.45, 0.85); // 最后 1 个砂轮的颜色：蓝
+            baseColor = pow(mix(frontStart, frontEnd, trackFactor), vec3(2.2));
+
             // 背面颜色加深
             if (dotResult <= 0.0) {
-                // baseColor *= 0.3;
-                vec3 srgb = vec3(1., 0.2706, 0.);
-                baseColor = pow(srgb, vec3(2.2)) * 0.8;
+                // vec3 srgb = vec3(1.00, 0.45, 0.15);
+                // baseColor = pow(srgb, vec3(2.2)) * 0.8;
+                vec3 backStart = vec3(0.149, 0.1765, 0.2392); // 第 1 个砂轮的剖面色：明黄
+                vec3 backEnd   = vec3(0.3608, 0.4078, 0.5176); // 最后 1 个砂轮的剖面色：翠绿
+                baseColor = pow(mix(backStart, backEnd, trackFactor), vec3(2.2)) * 0.9;
             }
 
-            // 背面剔除
-            // if (dotResult <= 0.0) {
-            //     discard;
-            // }
+            // // 背面剔除
+            if (dotResult > 0.0) {
+                discard;
+            }
 
             // 剔除 Y 轴坐标小于 0 的面片
-            // if(fragPosWorld.x > 0.0) {
-            //     discard;
-            // }
+            if(fragPosWorld.x > 0.0) {
+                discard;
+            }
         }
 
         // --- 平面 ---
         if(matu.flags.x == 1u) {
             if(matu.flags.z == 1u) {
                 // --- 平面网格化 ---
-                // 1. 网格参数配置
-                float cells = 10.0;     // 把平面精确地划分为 10x10 的方格
-                float thickness = 0.03; // 内部网格线的粗细比例
+                float cells = 10.0;
+                float thickness = 0.03;
 
+                // 1. 将 UV 坐标分块，并折叠到中心
+                vec2 uv = fragUV * cells;
+                // 计算当前点到最近网格线的距离 (0.0 表示在网格正中央，1.0 表示在网格线上)
+                vec2 dist = abs(fract(uv) - 0.5) * 2.0; 
+
+                // 2. 屏幕空间导数
+                // fwidth 能知道相邻像素在 UV 空间里跨度有多大
+                vec2 fw = fwidth(uv) * 2.0; 
+
+                // 3. 防止断线
+                // 如果摄像机太远，线宽小于了屏幕上的 1 个像素 (fw/2.0)，就强行把线撑宽到 1 个像素！
+                vec2 renderThickness = max(vec2(thickness), fw / 2.0); 
+
+                // 4. 平滑抗锯齿
+                // 使用 smoothstep 在线的边缘制造半透明过渡
+                vec2 edgeMask = smoothstep(1.0 - renderThickness - fw, 1.0 - renderThickness + fw, dist);
+                float gridFactor = max(edgeMask.x, edgeMask.y);
+
+                // --- 边框处理（原理同上） ---
+                vec2 uvDist = abs(fragUV - 0.5) * 2.0; 
+                vec2 borderFw = fwidth(fragUV) * 2.0;
                 float uvThickness = thickness / cells;
-                
-                // 2. 【核心修改】：使用 fragUV (0.0~1.0) 代替 fragPosWorld
-                vec2 grid = fract(fragUV * cells);
-                
-                // 3. 判定当前像素是不是网格线
-                bool isGridLine = (grid.x < thickness || grid.y < thickness);
-                
-                // 4. 【高阶细节】：给平面的最外侧加上一圈闭合边框，防止格子在边缘漏气
-                // 0.01 是外边框的粗细，可以根据你的喜好微调
-                bool isBorder = (fragUV.x < uvThickness || fragUV.x > 1 - uvThickness || 
-                                fragUV.y < uvThickness || fragUV.y >1 - uvThickness);
+                vec2 borderRenderThick = max(vec2(uvThickness), borderFw / 2.0);
+                vec2 borderMask = smoothstep(1.0 - borderRenderThick - borderFw, 1.0 - borderRenderThick + borderFw, uvDist);
+                float borderFactor = max(borderMask.x, borderMask.y);
 
-                // 5. 上色
-                if (isBorder || isGridLine) {
-                    outColor = vec4(baseColor, 0.8);  // 边框和网格线用深色、不透明
-                } else {
-                    // outColor = vec4(baseColor, 0.15); // 格子内部用极浅的玻璃底色
+                // --- 合并与输出 ---
+                float finalFactor = max(gridFactor, borderFactor);
+
+                if (finalFactor < 0.01) {
                     discard;
                 }
                 
-                // 渲染完这块“标定板”直接返回！
+                // 把算出来的抗锯齿边缘因子乘到 Alpha 上
+                outColor = vec4(baseColor, 0.8 * finalFactor);
                 return;
             }
         }
@@ -195,8 +237,10 @@ void main()
 
         // 高光
         vec3 H = normalize(L + V);
-        float specFactor = pow(max(dot(N, H), 0.0), 256.0); 
-        float specIntensity = gl_FrontFacing ? 0.4 : 0.1;
+        float shininess = (matu.flags.x == 0u) ? 128.0 : 256.0; 
+        float specFactor = pow(max(dot(N, H), 0.0), shininess); 
+
+        float specIntensity = gl_FrontFacing ? 0.15 : 0.02;
         
         if(matu.flags.x == 1u && matu.flags.y == 1u) {
             specIntensity = 0.0; // 平面去除高光
@@ -209,6 +253,9 @@ void main()
     // ==========================================
     vec3 finalColor = ambient + diffuse + specular;
     
+    // Reinhard 色调映射，柔和地压制强光，防止高光区发黄/死白
+    finalColor = finalColor / (finalColor + vec3(1.0));
+
     // Gamma 校正
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
 

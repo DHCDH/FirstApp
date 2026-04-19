@@ -100,6 +100,10 @@ public:
     {
         return m_orbit.up;
     }
+    glm::vec3 GetCameraTarget() const
+    {
+        return m_orbit.target;
+    }
 
 private:
     void InitLveComponants(void* nativeWindowHandle, void* nativeInstanceHandle, int w,
@@ -108,6 +112,7 @@ private:
     void UpdateCameraFromOrbit();
     void CreateSunLight();
     void RenderGrindingWheelTrack(lve::FrameInfo& frameInfo);
+    void CreateGrindingWheelTrack(const lve::LveObject& grindingWheel);
 
 private:
     struct OrbiState {

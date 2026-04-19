@@ -141,6 +141,10 @@ void RenderSystem::CreateInstancedPipeline(VkRenderPass renderPass)
     pipelineConfig.renderPass = renderPass;
     pipelineConfig.pipelineLayout = m_pipelineLayout;
 
+    // 开启Alpha混合，开启深度写入
+    LvePipeline::EnableAlphaBlending(pipelineConfig);
+    pipelineConfig.depthStencilInfo.depthWriteEnable = VK_TRUE;
+
     /*binding = 0*/
     auto bindingDescs = LveModel::Vertex::GetBindingDescriptions();
     auto attributeDescs = LveModel::Vertex::GetAttributeDescriptions();
@@ -399,6 +403,16 @@ void RenderSystem::RenderObjects(FrameInfo& frameInfo)
                             0,
                             1,
                             &frameInfo.globalDescriptorSet,
+                            0,
+                            nullptr);
+
+    VkDescriptorSet sets12[2] = {frameInfo.dummyTexSet, frameInfo.dummyMatSet};
+    vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout,
+                            1,  // 从 Set 1 开始绑
+                            2,  // 绑 2 个集
+                            sets12,
                             0,
                             nullptr);
 
