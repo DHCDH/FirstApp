@@ -143,7 +143,7 @@ void main() {
                 if (coreRadius <= push.radius) { 
                     float targetSlotAngle = 65.;
                     float targetArcLength = push.radius * radians(targetSlotAngle); 
-                    float targetCoreRadius = 3.;
+                    float targetCoreRadius = 2.4;
 
                     float resultArcLength = radians(finalSlotAngle) * push.radius; 
                     float slotAngleError = abs(resultArcLength - targetArcLength);
