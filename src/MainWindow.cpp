@@ -59,7 +59,7 @@ void MainWindow::InitRenderWidget()
 
     /*启动渲染循环*/
     connect(m_renderTimer, &QTimer::timeout, [this]() {
-#if 0
+#if 1
         m_vulkanApp->RunFrame();
 #else
             m_vulkanApp->RunFrameForThicknessMap();

@@ -296,7 +296,7 @@ void FirstApp::RunFrameForThicknessMap()
 
     int frameIndex = m_lveRenderer->GetFrameIndex();
 
-    float viewSize = 110.f;  // 根据你的砂轮尺寸调整视口大小
+    float viewSize = 70.f;  // 根据你的砂轮尺寸调整视口大小
     float aspect = m_lveRenderer->GetAspectRatio();
 
     m_lveCamera->SetOrthographicProjection(-viewSize * aspect,
@@ -307,7 +307,7 @@ void FirstApp::RunFrameForThicknessMap()
                                            1000.f);
 
     m_lveCamera->SetViewTarget(glm::vec3(200.f, 0.f, 0.f),
-                               glm::vec3(0.f, 0.f, 0.f),
+                               glm::vec3(0.f, -20.f, 0.f),
                                glm::vec3(0.f, -1.f, 0.f));
 
     GlobalUbo ubo{};
@@ -340,7 +340,7 @@ void FirstApp::RunFrameForThicknessMap()
 void FirstApp::LoadObjects()
 {
     /*创建跟随相机的点光源*/
-    #if 0
+    #if 1
     auto head = LveObject::MakePointLight(1.5f, 0.25, {1.f, 1.f, 1.f});
     // auto head = LveObject::MakePointLight(3., 0.25, { 0.7f, .7f, .7f });
     m_headlightId = head.getId();
@@ -351,17 +351,19 @@ void FirstApp::LoadObjects()
     //CreateSunLight();
 
     /*毛坯*/
-    //m_blank = std::make_unique<entity::Blank>(*m_renderContext);
-    //auto blank = m_blank->CreateObject();
-    //uint32_t blankId = blank.getId();
-    //m_objects.emplace(blank.getId(), std::move(blank));
+    #if 1
+    m_blank = std::make_unique<entity::Blank>(*m_renderContext);
+    auto blank = m_blank->CreateObject();
+    uint32_t blankId = blank.getId();
+    m_objects.emplace(blank.getId(), std::move(blank));
+    #endif
 
     /*砂轮*/
     m_grindingWheel = std::make_unique<entity::GrindingWheel>(*m_renderContext);
     auto grindingWheel = m_grindingWheel->CreateObject();
     m_grindingWheelId = grindingWheel.getId();
     // 生成砂轮扫掠体
-    CreateGrindingWheelTrack(grindingWheel);
+    //CreateGrindingWheelTrack(grindingWheel);
 
     m_objects.emplace(m_grindingWheelId, std::move(grindingWheel));
     std::cout << "[FirstApp] grndWheel id: " << m_grindingWheelId << "\n";
@@ -393,7 +395,7 @@ void FirstApp::LoadObjects()
     std::cout << "[FirstApp] camera id: " << m_cameraId << "\n";
     #endif
 
-    BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
+    //BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
 
 }
 

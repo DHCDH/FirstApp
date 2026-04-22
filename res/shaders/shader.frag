@@ -87,18 +87,40 @@ void main()
 
             float objCenterX = push.modelMatrix[3].x;
             float distanceMoved = abs(objCenterX - (-0.642588));
-            float trackFactor = clamp(distanceMoved / 10, 0.0, 1.0);
+            float trackFactor = clamp(distanceMoved / 15., 0.0, 1.0);
+
+            /*
+            trackFactor = round(trackFactor * 3.) / 3.;
             vec3 frontStart = vec3(0.05, 0.15, 0.35); // 第 1 个砂轮的颜色：红
-            vec3 frontEnd   = vec3(0.12, 0.45, 0.85); // 最后 1 个砂轮的颜色：蓝
+            vec3 frontEnd   = vec3(0.25, 0.7, 1.); // 最后 1 个砂轮的颜色：蓝
             baseColor = pow(mix(frontStart, frontEnd, trackFactor), vec3(2.2));
+            */
+
+            // --- 硬编码砂轮颜色 ---
+            float steps = 3.0; 
+            int stepIndex = int(round(trackFactor * steps));
+            stepIndex = clamp(stepIndex, 0, 3);
+            vec3 frontColors[4] = vec3[](
+                vec3(0.0078, 0.1333, 0.3882),
+                vec3(0.0745, 0.2196, 0.6902),
+                vec3(0.1255, 0.4549, 0.8314),
+                vec3(0.1686, 0.7059, 0.8706)
+            );
+            vec3 backColors[4] = vec3[](
+                vec3(0.1451, 0.1451, 0.1451),
+                vec3(0.2353, 0.2353, 0.2353),
+                vec3(0.3882, 0.3882, 0.3882),
+                vec3(0.6784, 0.6784, 0.6784) 
+            );
+            baseColor = pow(frontColors[stepIndex], vec3(2.2));
 
             // 背面颜色加深
             if (dotResult <= 0.0) {
-                // vec3 srgb = vec3(1.00, 0.45, 0.15);
-                // baseColor = pow(srgb, vec3(2.2)) * 0.8;
-                vec3 backStart = vec3(0.149, 0.1765, 0.2392); // 第 1 个砂轮的剖面色：明黄
-                vec3 backEnd   = vec3(0.3608, 0.4078, 0.5176); // 最后 1 个砂轮的剖面色：翠绿
-                baseColor = pow(mix(backStart, backEnd, trackFactor), vec3(2.2)) * 0.9;
+                // vec3 backStart = vec3(0.149, 0.1765, 0.2392); // 第 1 个砂轮的剖面色：明黄
+                // vec3 backEnd   = vec3(0.3608, 0.4078, 0.5176); // 最后 1 个砂轮的剖面色：翠绿
+                // baseColor = pow(mix(backStart, backEnd, trackFactor), vec3(2.2)) * 0.9;
+
+                baseColor = pow(backColors[stepIndex], vec3(2.2));
             }
 
             // 正面剔除

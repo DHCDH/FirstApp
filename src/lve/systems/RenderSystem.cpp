@@ -270,6 +270,9 @@ void RenderSystem::CreateThicknessMapPipeline(VkRenderPass renderPass)
     config.renderPass = renderPass;
     config.pipelineLayout = m_pipelineLayout;
 
+#if 0
+    // --- 输出混合后的模板值用 ---
+
     // 【核心 1】：彻底关闭颜色写入！它现在是个幽灵管线
     config.colorBlendAttachment.colorWriteMask = 0;
 
@@ -281,17 +284,21 @@ void RenderSystem::CreateThicknessMapPipeline(VkRenderPass renderPass)
     // 【核心 3】：开启模板测试，让硬件帮我们算 Winding Number！
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
 
-    // 正面：模板值 +1
+    // --- mark：模板值+1-1似乎与模型反向 ---
+
+    // 正面：模板值 -1
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
-    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+    //config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;  // 屏蔽+1
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.compareMask = 0xFF;
     config.depthStencilInfo.front.writeMask = 0xFF;
 
-    // 背面：模板值 -1
+    // 背面：模板值 +1
     config.depthStencilInfo.back.compareOp = VK_COMPARE_OP_ALWAYS;
-    config.depthStencilInfo.back.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+    config.depthStencilInfo.back.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    //config.depthStencilInfo.back.passOp = VK_STENCIL_OP_KEEP;  // 屏蔽-1
     config.depthStencilInfo.back.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.back.depthFailOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.back.compareMask = 0xFF;
@@ -299,6 +306,30 @@ void RenderSystem::CreateThicknessMapPipeline(VkRenderPass renderPass)
 
     config.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
     config.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+#else
+    // --- 输出未经过混合的模板值用 ---
+
+    config.colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT;
+
+    config.colorBlendAttachment.blendEnable = VK_TRUE;
+    config.colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    config.colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    config.colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    config.colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    config.colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    config.colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    config.depthStencilInfo.stencilTestEnable = VK_FALSE;
+
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+
+    config.bindingDescriptions = LveModel::Vertex::GetBindingDescriptions();
+    config.attributeDescriptions = LveModel::Vertex::GetAttributeDescriptions();
+#endif
 
     m_lvePipelineThickness = std::make_unique<LvePipeline>(
         m_lveDevice,
@@ -609,20 +640,6 @@ void RenderSystem::RenderInstances(FrameInfo& frameInfo, const bool& shown)
 
 void RenderSystem::RenderThicknessMap(FrameInfo& frameInfo)
 {
-    // 手动强制清空本帧的模板缓冲为 0！
-    VkClearAttachment clearAttachment{};
-    clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-    clearAttachment.clearValue.depthStencil = {1.0f, 0};  // 0 是模板的清零值
-
-    VkClearRect clearRect{};
-    clearRect.rect.offset = {0, 0};
-    clearRect.rect.extent = {8192, 8192};  // 暴力覆盖最大可能的屏幕尺寸
-    clearRect.baseArrayLayer = 0;
-    clearRect.layerCount = 1;
-
-    // 在任何绘制开始前，直接将整个屏幕的模板值暴力抹平！
-    vkCmdClearAttachments(frameInfo.commandBuffer, 1, &clearAttachment, 1, &clearRect);
-
     // =========================================================
     // 阶段 1：静默累加算总账 (只写 Stencil Buffer，不画颜色)
     // =========================================================
@@ -652,19 +669,21 @@ void RenderSystem::RenderThicknessMap(FrameInfo& frameInfo)
         kv.second.model->Draw(frameInfo.commandBuffer);
     }
 
+#if 0
     // =========================================================
     // 阶段 2：读取总账，进行全屏上色！
     // =========================================================
     m_lvePipelineFullscreen->Bind(frameInfo.commandBuffer);
 
     // 绘制 正数区 (实体穿透区)：画不同深浅的 蓝色
-    for (int i = 1; i <= 6; i++) {
+    for (int i = 1; i <= 4; i++) {
         // 告诉 GPU：只在模板值为 i 的地方画画
         vkCmdSetStencilReference(frameInfo.commandBuffer,
                                  VK_STENCIL_FACE_FRONT_AND_BACK,
                                  i);
 
-        float intensity = 0.4f + i * 0.1f;  // 数值越大，蓝色越亮
+        const float blueSteps[4] = {0.08f, 0.3f, 0.65f, 1.f};
+        float intensity = blueSteps[i - 1];
         SimplePushConstantData pushColor{};
         // 巧妙借用 push 结构体的第一行传递 vec4 颜色，避免管线结构报错
         pushColor.modelMatrix[0] =
@@ -681,13 +700,14 @@ void RenderSystem::RenderThicknessMap(FrameInfo& frameInfo)
 
     // 绘制 负数区 (剖面区)：画不同深浅的 灰色
     // Vulkan 的模板是 8位无符号整数：-1 就是 255，-2 就是 254
-    for (int i = 1; i <= 6; i++) {
+    for (int i = 1; i <= 4; i++) {
         uint32_t ref = 256 - i;
         vkCmdSetStencilReference(frameInfo.commandBuffer,
                                  VK_STENCIL_FACE_FRONT_AND_BACK,
                                  ref);
 
-        float intensity = 0.2f + i * 0.15f;
+        const float graySteps[4] = {0.08f, 0.28f, 0.48f, 0.68f};
+        float intensity = graySteps[i - 1];
         SimplePushConstantData pushColor{};
         pushColor.modelMatrix[0] = glm::vec4(intensity, intensity, intensity, 1.0f);
 
@@ -699,6 +719,7 @@ void RenderSystem::RenderThicknessMap(FrameInfo& frameInfo)
                            &pushColor);
         vkCmdDraw(frameInfo.commandBuffer, 3, 1, 0, 0);
     }
+#endif
 }
 
 }  // namespace lve

@@ -7,9 +7,17 @@ lve::LveObject Camera::CreateObject()
     p_model = lve::LveModel::CreateModelFromFile(GetRenderContext().device, m_filepath);
     auto camera = lve::LveObject::CreateObject();
     camera.model = p_model;
+
+    #if 1
+    // 侧视图
     camera.transform.translation = {70.f, -10.f, 0.f};
     camera.transform.rotation = {0.f, glm::pi<float>()/2.f, 0.f};
     camera.transform.scale = {2.2f, 2.2f, 2.2f};
+    #else
+    camera.transform.translation = {170.f, -10.f, 0.f};
+    camera.transform.rotation = {0.f, glm::pi<float>() / 2.f, 0.f};
+    camera.transform.scale = {1.f, 1.f, 1.f};
+    #endif
 
     // 设置透明度
     camera.transparency = 1.f;
