@@ -7,12 +7,13 @@
 
 #include "entities\Blank.h"
 #include "entities\GrindingWheel.h"
+#include "slice/SliceView.h"
 #include "optimize/GrindingWheelPoseOptimizer.h"
 #include "optimize/OptimizeResourceContext.h"
 #include "optimize/OptimizeMaskRenderSystem.h"
 #include "optimize/OptimizePoseRenderSystem.h"
 
-class SliceView;
+
 class QTimer;
 class QLineEdit;
 class QLabel;
@@ -32,7 +33,7 @@ public:
 
 private:
     lve::LveDevice& m_lveDevice;
-    std::unique_ptr<SliceView> m_sliceView = nullptr;
+    std::unique_ptr<slice::SliceView> m_sliceView = nullptr;
     QTimer* m_renderTimer = nullptr;
     QWidget* m_renderWidget = nullptr;
     QTimer* m_resizeTimer = nullptr;  // 防抖定时器

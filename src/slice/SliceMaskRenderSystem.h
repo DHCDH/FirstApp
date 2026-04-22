@@ -10,6 +10,8 @@
 #include "LveObject.h"
 #include "LvePipeline.h"
 
+namespace slice
+{
 struct SliceMaskRenderPassData {
     VkRenderPass renderPass;
     uint32_t width;
@@ -22,12 +24,10 @@ struct SliceMaskRenderPassData {
     uint32_t grndWheelInstancesCount;
 };
 
-namespace lve
-{
 class SliceMaskRenderSystem
 {
 public:
-    SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
+    SliceMaskRenderSystem(lve::LveDevice& device, VkRenderPass renderPass,
                           VkDescriptorSetLayout graphicsSetLayouts,
                           VkDescriptorSetLayout computeSetLayouts,
                           VkDescriptorSetLayout bboxSetLayout);
@@ -66,39 +66,39 @@ public:
 
     // 整合计算逻辑
     void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
-                      LveBuffer* tipInfoBuffer);
+                      lve::LveBuffer* tipInfoBuffer);
 
     void ComputeBBox(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
                      uint32_t width, uint32_t height, uint32_t planeIdx);
 
 private:
-    LveDevice& m_lveDevice;
+    lve::LveDevice& m_lveDevice;
 
 private:
     // --- 图形资源 ---
     VkPipelineLayout m_pipelineLayout;
 
     // 棒料 (Blank) - 普通管线
-    std::unique_ptr<LvePipeline> m_blankStencilPipeline;
-    std::unique_ptr<LvePipeline> m_blankColorPipeline;
-    std::unique_ptr<LvePipeline> m_blankDepthPipeline;
+    std::unique_ptr<lve::LvePipeline> m_blankStencilPipeline;
+    std::unique_ptr<lve::LvePipeline> m_blankColorPipeline;
+    std::unique_ptr<lve::LvePipeline> m_blankDepthPipeline;
 
     // 砂轮 (Wheel) - 实例管线
-    std::unique_ptr<LvePipeline> m_grndWheelStencilFrontPipeline;
-    std::unique_ptr<LvePipeline> m_grndWheelStencilBackPipeline;
+    std::unique_ptr<lve::LvePipeline> m_grndWheelStencilFrontPipeline;
+    std::unique_ptr<lve::LvePipeline> m_grndWheelStencilBackPipeline;
 
     // 砂轮 (Wheel) - 线框管线
-    std::unique_ptr<LvePipeline> m_grndWheelWireframePipeline;
+    std::unique_ptr<lve::LvePipeline> m_grndWheelWireframePipeline;
 
-    std::unique_ptr<LvePipeline> m_planeInjectionPipeline;
+    std::unique_ptr<lve::LvePipeline> m_planeInjectionPipeline;
 
-    std::unique_ptr<LvePipeline> m_grndWheelEdgePipeline;
+    std::unique_ptr<lve::LvePipeline> m_grndWheelEdgePipeline;
 
     // 计算轮廓几何着色器管线
-    std::unique_ptr<LvePipeline> m_sliceContourPipeline;
+    std::unique_ptr<lve::LvePipeline> m_sliceContourPipeline;
 
-    std::unique_ptr<LvePipeline> m_stencilResolvePipeline;  // 固化Stencil到Color
-    std::unique_ptr<LvePipeline> m_stencilClearPipeline;    // 清空Stencil
+    std::unique_ptr<lve::LvePipeline> m_stencilResolvePipeline;  // 固化Stencil到Color
+    std::unique_ptr<lve::LvePipeline> m_stencilClearPipeline;    // 清空Stencil
 
     void CreatePipelineLayout(const VkDescriptorSetLayout& setLayout);
     void CreatePipelines(VkRenderPass renderPass);
@@ -128,18 +128,18 @@ private:
 
     // 提取交集轮廓点
     VkPipelineLayout m_computePipelineLayout;
-    std::unique_ptr<LvePipeline> m_extractContourPipeline;
+    std::unique_ptr<lve::LvePipeline> m_extractContourPipeline;
 
     // 轮廓点排序
-    std::unique_ptr<LvePipeline> m_knnPipeline;
-    std::unique_ptr<LvePipeline> m_tracePipeline;
-    std::unique_ptr<LvePipeline> m_alignPipeline;
+    std::unique_ptr<lve::LvePipeline> m_knnPipeline;
+    std::unique_ptr<lve::LvePipeline> m_tracePipeline;
+    std::unique_ptr<lve::LvePipeline> m_alignPipeline;
 
     // 计算前角
-    std::unique_ptr<LvePipeline> m_rakeAnglePipeline;
+    std::unique_ptr<lve::LvePipeline> m_rakeAnglePipeline;
 
     VkPipelineLayout m_bboxPipelineLayout;
-    std::unique_ptr<LvePipeline> m_bboxPipeline;
+    std::unique_ptr<lve::LvePipeline> m_bboxPipeline;
 };
 
-}  // namespace lve
+}

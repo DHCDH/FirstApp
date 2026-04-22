@@ -8,9 +8,12 @@
 #include "../Global.h"
 #include "LveRenderer.h"
 #include "SliceProcessor.h"
-#include "systems/SliceDisplaySystem.h"
-#include "systems/SliceMaskRenderSystem.h"
-#include "systems/SliceOverlayRenderSystem.h"
+#include "SliceDisplaySystem.h"
+#include "SliceMaskRenderSystem.h"
+#include "SliceOverlayRenderSystem.h"
+
+namespace slice
+{
 
 class SliceView
 {
@@ -89,3 +92,5 @@ private:
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;
 };
+
+}  // namespace slice

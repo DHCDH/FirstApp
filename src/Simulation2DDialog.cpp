@@ -17,7 +17,6 @@
 
 #include "algorithm/DualNURBSCurveInterpolator.h"
 #include "optimize/OptimizeGlobalConfig.h"
-#include "slice/SliceView.h"
 
 const std::filesystem::path DEFAULT_TOOL_PATH =
     "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
@@ -164,7 +163,7 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
 {
     SliceViewConfig config = UpdateView();
 
-    m_sliceView = std::make_unique<SliceView>(device,
+    m_sliceView = std::make_unique<slice::SliceView>(device,
                                               config,
                                               hwnd,
                                               hinstance,

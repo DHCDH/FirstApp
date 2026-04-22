@@ -4,8 +4,10 @@
 #include <vector>
 
 #include "SliceResourceContext.h"
-#include "systems/SliceMaskRenderSystem.h"
+#include "SliceMaskRenderSystem.h"
 
+namespace slice
+{
 // 离屏渲染/光栅化器
 class SliceRasterizer
 {
@@ -52,7 +54,7 @@ private:
     lve::LveDevice& m_lveDevice;
 
     // 管线系统
-    std::unique_ptr<lve::SliceMaskRenderSystem> m_renderSystem;
+    std::unique_ptr<SliceMaskRenderSystem> m_renderSystem;
 
     // 实例缓冲区
     std::unique_ptr<lve::LveBuffer> m_grndWheelInstancesBuffer;
@@ -60,3 +62,4 @@ private:
 
     std::vector<SliceViewConfig> m_lastMicroConfigs;
 };
+}  // namespace slice

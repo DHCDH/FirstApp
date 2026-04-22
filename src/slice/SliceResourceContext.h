@@ -10,6 +10,8 @@
 #include "LveDevice.h"
 #include "LveModel.h"
 
+namespace slice
+{
 class SliceRasterizer;
 class SliceAnalyzer;
 
@@ -169,3 +171,5 @@ private:
     // 回读专用staging buffer
     std::unique_ptr<lve::LveBuffer> m_readbackBuffer = nullptr;
 };
+
+}  // namespace slice

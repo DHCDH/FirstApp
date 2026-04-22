@@ -395,7 +395,7 @@ void FirstApp::LoadObjects()
     std::cout << "[FirstApp] camera id: " << m_cameraId << "\n";
     #endif
 
-    //BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
+    BuildGrindingWheelTrackInstances(0.f, 10.f, 10);
 
 }
 

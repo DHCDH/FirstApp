@@ -46,10 +46,14 @@ private:
     // std::string m_filepath{
     //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
     //    "wheel_d100_w10_r0.1_Z/wheel_d100_w10_r0.1_Z.obj"};
-    //std::string m_filepath{
-    //    "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1V1\\1V1_D100_W10_R0.1_A60\\1V1_D100_W10_R0.1_A60.obj"};
     std::string m_filepath{
-        "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\img\\model_for_img\\1V1\\1V1_1.obj"};
+        "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_"
+        "w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};
+
+    // --- 渲染用砂轮 ---
+    // std::string m_filepath{
+    //     "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\img\\model_for_img\\1V1\\1V1_1.obj"};
+
     bool m_motionEnabled = false;
     uint32_t m_id{};
     HelixMotion m_helixMotion;

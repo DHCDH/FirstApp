@@ -8,6 +8,9 @@
 
 using namespace lve;
 
+namespace slice
+{
+
 SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& context)
     : m_lveDevice(lveDevice)
 {
@@ -697,3 +700,5 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
 
     return;
 }
+
+}  // namespace slice

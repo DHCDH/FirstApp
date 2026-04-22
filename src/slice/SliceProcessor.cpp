@@ -2,6 +2,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceProcessor::SliceProcessor(LveDevice& lveDevice, uint32_t width, uint32_t height)
     : m_lveDevice{lveDevice}
 {
@@ -124,3 +126,5 @@ void SliceProcessor::Resize(uint32_t width, uint32_t height)
 }
 
 SliceProcessor::~SliceProcessor() = default;
+
+}  // namespace slice

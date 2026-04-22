@@ -9,7 +9,9 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace lve
+using namespace lve;
+
+namespace slice
 {
 struct SlicePushConstants {
     glm::mat4 modelMatrix;

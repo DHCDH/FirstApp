@@ -14,6 +14,8 @@
 
 using namespace lve;
 
+namespace slice
+{
 SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
                      void* nativeWindowHandle, void* nativeInstanceHandle, int w, int h,
                      std::string name)
@@ -266,3 +268,5 @@ SliceView::~SliceView()
         m_surface = VK_NULL_HANDLE;
     }
 }
+
+}  // namespace slice
