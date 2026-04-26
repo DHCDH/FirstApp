@@ -91,6 +91,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${VENDOR}/entt
     ${VENDOR}/tinynurbs
     ${VENDOR}/renderdoc
+    ${VENDOR}/tkspline
     ${LVE}
     ${GLOB}
 )

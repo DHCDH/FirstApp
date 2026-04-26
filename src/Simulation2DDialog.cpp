@@ -15,6 +15,7 @@
 #include <QWheelEvent>
 #include <fstream>
 
+#include "Logger.h"
 #include "algorithm/DualNURBSCurveInterpolator.h"
 #include "optimize/OptimizeGlobalConfig.h"
 
@@ -27,6 +28,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
       m_renderTimer(new QTimer(this)),
       m_lveDevice(device)
 {
+    DEBUG("Construct Simulation2DDialog");
+
     this->setWindowTitle("2D Simulation");
     this->resize(1920, 1080);
 
@@ -85,9 +88,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     void* hinstance = GetModuleHandle(nullptr);
 
     InitSliceView(device, hwnd, hinstance);
-
-    // connect(m_renderTimer, &QTimer::timeout, [this]() { BuildContactMask(); });
-    // m_renderTimer->start(16);
+    m_wearCalculator = std::make_unique<wear::GrindingWheelWearCalculator>(
+        wear::CutterParameters{.R{5.f}, .helixAngle{30.f}, .lead{54.414}},
+        wear::WearParameters{.position{-25.703600, -44.267521, -16.997980},
+                             .normal{-0.786256, 0.275217, 0.553224}});
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         std::cout << "[Real Widget Size] W: " << m_renderWidget->width()
@@ -164,12 +168,12 @@ void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
     SliceViewConfig config = UpdateView();
 
     m_sliceView = std::make_unique<slice::SliceView>(device,
-                                              config,
-                                              hwnd,
-                                              hinstance,
-                                              m_renderWidget->width(),
-                                              m_renderWidget->height(),
-                                              "2D Simulation");
+                                                     config,
+                                                     hwnd,
+                                                     hinstance,
+                                                     m_renderWidget->width(),
+                                                     m_renderWidget->height(),
+                                                     "2D Simulation");
 }
 
 void Simulation2DDialog::UpdateEntitiesData(
@@ -278,7 +282,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 4096u;
+    const uint32_t FIXED_RES = 2048u;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 
@@ -367,8 +371,8 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
              .gr2{0.1},
              .width{10.},
              .radius{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
-                  //std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
-                  //         << "\n";
+                 // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
+                 //         << "\n";
                  if (u0 < gr1) {
                      return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
                  } else if (u0 > (width - gr1) && u0 <= width) {
@@ -503,15 +507,13 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
     flushSeg();
 
 // 插值
-#if 0
+#if 1
     for (int i = 0; i < m_toolpaths.size(); i++) {
         m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
-
-        std::cout << "toolpath[" << i << "].size: " << m_toolpaths[i].size << " \n";
     }
 #endif
 
-    std::cout << "Parse tool path succeed: " << path.string() << "\n";
+    DEBUG("Parse tool path succeed: ", path.string());
 
     return 0;
 }

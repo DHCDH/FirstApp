@@ -4,6 +4,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "Logger.h"
+
 using namespace lve;
 
 namespace slice
@@ -77,9 +79,9 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
 
             totalPoints += count;
 
-            outFile << "plane : p(" << planes[i].point.x << ", " << planes[i].point.y
-                    << ", " << planes[i].point.z << "), n(" << planes[i].normal.x << ", "
-                    << planes[i].normal.y << ", " << planes[i].normal.z << ")\n";
+            //outFile << "plane : p(" << planes[i].point.x << ", " << planes[i].point.y
+            //        << ", " << planes[i].point.z << "), n(" << planes[i].normal.x << ", "
+            //        << planes[i].normal.y << ", " << planes[i].normal.z << ")\n";
 
             for (uint32_t p = 0; p < count; p++) {
                 glm::vec2 pos = srcBegin[i * MAX_POINTS + p];
@@ -90,10 +92,9 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
 
         outFile.close();
         if (outFile.fail()) {
-            std::cerr << "[ERROR] Write file: " << filepath << " failed" << std::endl;
+            ERROR("Write file: %s failed", filepath.c_str());
         } else {
-            std::cout << "[SUCCESS] Write coordinates into file：" << filepath
-                      << std::endl;
+            INFO("Write coordinates into file：%s", filepath.c_str());
         }
     }
 #endif

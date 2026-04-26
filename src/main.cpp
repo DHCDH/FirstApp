@@ -4,6 +4,8 @@
 
 #include "MainWindow.h"
 
+#include "global/Logger.h"
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);

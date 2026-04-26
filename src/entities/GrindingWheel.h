@@ -41,14 +41,15 @@ public:
                                          const glm::mat4& baseMat) const;
 
 private:
+    // --- 计算管线用砂轮 ---
     // std::string m_filepath{
-    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/1A1_D100_W10.obj"};
-    // std::string m_filepath{
-    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
-    //    "wheel_d100_w10_r0.1_Z/wheel_d100_w10_r0.1_Z.obj"};
+    //    "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_"
+    //    "w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};
+
+    // --- 模拟磨损用砂轮 ---
     std::string m_filepath{
-        "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_"
-        "w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};
+        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
+        "1a1_d100_w10_r0.3_x_calculate_wear/1a1_d100_w10_r0.1_x_calculate_wear.obj"};
 
     // --- 渲染用砂轮 ---
     // std::string m_filepath{
