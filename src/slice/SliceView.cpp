@@ -4,7 +4,6 @@
 // windows.h must be included before vulkan.h
 #include <vulkan/vulkan_win32.h>
 
-
 #include <QCoreApplication>
 #include <QMetaObject>
 #include <fstream>
@@ -149,7 +148,11 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     }
 
     // 将requestThisFrame信号传递给Processor
-    m_processor->ProcessFrame(commandBuffer, frameData, m_viewConfig, requestThisFrame);
+    m_processor->ProcessFrame(commandBuffer,
+                              frameData,
+                              m_viewConfig,
+                              requestThisFrame,
+                              m_isParametricWheel);
 
     // 屏上显示
     m_renderer->BeginSwapChainRenderPass(commandBuffer);

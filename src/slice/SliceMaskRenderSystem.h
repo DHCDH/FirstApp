@@ -24,6 +24,17 @@ struct SliceMaskRenderPassData {
     uint32_t grndWheelInstancesCount;
 };
 
+struct ParametricInstancedData {
+    bool useParametricWheel{false};
+    // --- UV 模板的 Buffer 和 Index ---
+    VkBuffer unitGridBuffer;
+    VkBuffer unitGridIndexBuffer;
+    uint32_t indexCount;
+    // --- 实例化的 Buffer ---
+    VkBuffer instanceBuffer;
+    uint32_t instanceCount;
+};
+
 class SliceMaskRenderSystem
 {
 public:
@@ -62,7 +73,8 @@ public:
     // 整合渲染逻辑
     void RenderMask(VkCommandBuffer commandBuffer,
                     const SliceMaskRenderPassData& renderPassData,
-                    const RasterizerData& rasData, Plane plane);
+                    const RasterizerData& rasData, Plane plane,
+                    const ParametricInstancedData& parametricData);
 
     // 整合计算逻辑
     void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
@@ -70,6 +82,11 @@ public:
 
     void ComputeBBox(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
                      uint32_t width, uint32_t height, uint32_t planeIdx);
+
+    void RenderParametricInstances(VkCommandBuffer commandBuffer,
+                                   const ParametricInstancedData& data,
+                                   VkDescriptorSet globalDescriptorSet,
+                                   uint32_t firstInstance);
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -123,6 +140,9 @@ private:
 
     void CreateBBoxPipeline(VkDescriptorSetLayout descriptorSetLayout);
 
+    void CreateWearPipelineLayout(VkDescriptorSetLayout graphicsSetLayout);
+    void CreateWearPipelines(VkRenderPass renderPass);
+
 private:
     // --- 计算资源 ---
 
@@ -140,6 +160,10 @@ private:
 
     VkPipelineLayout m_bboxPipelineLayout;
     std::unique_ptr<lve::LvePipeline> m_bboxPipeline;
+
+    VkPipelineLayout m_wearPipelineLayout;
+    std::unique_ptr<lve::LvePipeline> m_wearStencilFrontPipeline;
+    std::unique_ptr<lve::LvePipeline> m_wearStencilBackPipeline;
 };
 
-}
+}  // namespace slice

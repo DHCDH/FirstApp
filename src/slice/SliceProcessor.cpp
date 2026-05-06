@@ -16,7 +16,8 @@ SliceProcessor::SliceProcessor(LveDevice& lveDevice, uint32_t width, uint32_t he
 void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
                                   const SliceFrameData& frameData,
                                   const SliceViewConfig& viewConfig,
-                                  bool isAnalysisRequested)
+                                  bool isAnalysisRequested,
+                                  bool isParametricWheelRequested)
 {
     // 检查计算是否已读回完毕
     if (!m_analyzer->IsReadyForNewTask()) {
@@ -43,12 +44,19 @@ void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
                                   m_blankMatrix,
                                   m_grndWheelInstances};
 
+    ParametricInstancedData parametricData{};
+    parametricData.useParametricWheel = isParametricWheelRequested;
+    parametricData.unitGridBuffer = m_context->GetUnitGridBuffer()->GetBuffer();
+    parametricData.unitGridIndexBuffer = m_context->GetUnitGridIndexBuffer()->GetBuffer();
+    parametricData.indexCount = m_context->GetUnitGridVertexCount();
+
     m_rasterizer->ProcessAllPlanes(commandBuffer,
                                    *m_context,
                                    rasterizerData,
                                    frameData,
                                    viewConfig,
-                                   isAnalysisRequested);
+                                   isAnalysisRequested,
+                                   parametricData);
 
     return;
 }

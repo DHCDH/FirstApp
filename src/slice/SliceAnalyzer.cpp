@@ -10,7 +10,6 @@ using namespace lve;
 
 namespace slice
 {
-
 SliceAnalyzer::SliceAnalyzer(lve::LveDevice& device, SliceResourceContext& context)
     : m_lveDevice(device)
 {
@@ -66,7 +65,7 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
         // 将点外轮廓点写入文件
         std::cout << "Contour points size: " << m_contourPoints.size() << std::endl;
         std::string filepath =
-            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\points.txt";
+            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\wear\\flute_1V1_r0.3_parametric.txt";
         std::ofstream outFile(filepath);
 
         uint32_t totalPoints = 0;
@@ -79,14 +78,14 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
 
             totalPoints += count;
 
-            //outFile << "plane : p(" << planes[i].point.x << ", " << planes[i].point.y
-            //        << ", " << planes[i].point.z << "), n(" << planes[i].normal.x << ", "
+            // outFile << "plane : p(" << planes[i].point.x << ", " << planes[i].point.y
+            //        << ", " << planes[i].point.z << "), n(" << planes[i].normal.x << ",
+            //        "
             //        << planes[i].normal.y << ", " << planes[i].normal.z << ")\n";
 
             for (uint32_t p = 0; p < count; p++) {
                 glm::vec2 pos = srcBegin[i * MAX_POINTS + p];
-                outFile << "(" << pos.x << ", " << pos.y << ")"
-                        << "\n";
+                outFile << pos.x << ", " << pos.y << "\n";
             }
         }
 

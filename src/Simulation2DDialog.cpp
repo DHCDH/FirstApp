@@ -16,6 +16,7 @@
 #include <fstream>
 
 #include "Logger.h"
+#include "RenderDocHelper.h"
 #include "algorithm/DualNURBSCurveInterpolator.h"
 #include "optimize/OptimizeGlobalConfig.h"
 
@@ -55,6 +56,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
+    QCheckBox* checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
+    checkParametricWheelRequested->setChecked(false);
 
     controlLayout->addWidget(m_labelRes);
     controlLayout->addWidget(btnToolPath);
@@ -70,6 +73,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
+    controlLayout->addWidget(checkParametricWheelRequested);
     controlLayout->addStretch();
 
     /*初始化防抖定时器*/
@@ -88,10 +92,13 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     void* hinstance = GetModuleHandle(nullptr);
 
     InitSliceView(device, hwnd, hinstance);
+
+#if 0
     m_wearCalculator = std::make_unique<wear::GrindingWheelWearCalculator>(
         wear::CutterParameters{.R{5.f}, .helixAngle{30.f}, .lead{54.414}},
         wear::WearParameters{.position{-25.703600, -44.267521, -16.997980},
                              .normal{-0.786256, 0.275217, 0.553224}});
+#endif
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         std::cout << "[Real Widget Size] W: " << m_renderWidget->width()
@@ -160,6 +167,17 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         UpdateToolPath(path);
         UpdateGrindingWheelInstances();
     });
+
+    connect(checkParametricWheelRequested,
+            &QCheckBox::stateChanged,
+            this,
+            [this](int state) {
+                if (state == Qt::Checked) {
+                    m_sliceView->SetParametricWheelRequested(true);
+                } else {
+                    m_sliceView->SetParametricWheelRequested(false);
+                }
+            });
 }
 
 void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
@@ -187,6 +205,8 @@ void Simulation2DDialog::UpdateEntitiesData(
 
 void Simulation2DDialog::BuildContactMask()
 {
+    RENDERDOC_START;
+
     bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE);
 
     if (wasAnalysisRequested) {
@@ -239,6 +259,8 @@ void Simulation2DDialog::BuildContactMask()
 
     /*执行GPU计算*/
     m_sliceView->BuildContactMask(frameData);
+
+    RENDERDOC_END;
 
     // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
     if (wasAnalysisRequested) {

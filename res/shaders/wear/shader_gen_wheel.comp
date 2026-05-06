@@ -1,0 +1,71 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct Vertex {
+    vec3 pos;
+    vec3 normal;
+};
+
+layout(std430, binding = 0) buffer OutVBO {
+    Vertex vertices[];
+};
+
+layout(push_constant) uniform Push {
+    float gr1;
+    float gR;
+    float width;
+    float ga;
+    uint segmentsX; // 轴向细分数
+    uint segmentsTheta; // 周向细分数
+} push;
+
+// 1V1轴向u0对应半径
+float calculateGwRadius(float gr1Pi, float u0) 
+{
+    float gr1 = gr1Pi;
+    float gR = push.gR;
+    float ga = push.ga;
+    float gb = push.width;
+    float gr2 = gr1;    // 暂时假设砂轮两端磨损相同
+
+    if(u0 >= 0 && u0 < gr1 + gr1 * cos(ga)) {
+        return gR - gr1 + sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+    } else if(u0 >= gr1 + gr1 * cos(ga) && u0 < gb - (gr2 - gr2 * cos(ga))) {
+        return gR - gr1 + gr1 * sin(ga) -
+                           (u0 - (gr1 + gr1 * cos(ga))) * (1.0 / tan(ga));
+    } else if(u0 >= gb - (gr2 - gr2 * cos(ga)) && u0 <= gb) {
+        return gR - gr1 * (1 - 1.0 / tan(ga / 2)) - gb / tan(ga) -
+                           gr2 * tan(ga / 2) +
+                           sqrt(gr2 * gr2 - (gr2 - gb + u0) * (gr2 - gb + u0));
+    }
+
+    return push.gR;
+}
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    uint totalVertices = (push.segmentsX + 1) * push.segmentsTheta;
+
+    if (idx >= totalVertices) return;
+
+    uint iX = idx / push.segmentsTheta;
+    uint iTheta = idx % push.segmentsTheta;
+
+    // 1. 计算轴向位置 u0 (0 到 width)
+    float u0 = (float(iX) / float(push.segmentsX)) * push.width;
+    
+    // 2. 根据公式获取该位置的半径
+    float r = calculateGwRadius(0.3, u0);
+    
+    // 3. 计算旋转角度
+    float theta = (float(iTheta) / float(push.segmentsTheta)) * 6.2831853;
+    
+    // 4. 生成顶点 (假设 X 为轴向) [cite: 130-136]
+    vec3 pos = vec3(u0, r * cos(theta), r * sin(theta));
+    
+    vertices[idx].pos = pos;
+    // 简单的法线计算：由轴线指向顶点
+    vertices[idx].normal = normalize(vec3(0.0, cos(theta), sin(theta)));
+}

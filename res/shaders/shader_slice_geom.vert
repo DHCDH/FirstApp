@@ -17,6 +17,7 @@ layout(push_constant) uniform Push {
 
 void main() {
     mat4 instanceModel = mat4(modelRow0, modelRow1, modelRow2, modelRow3);
+    // mat4 instanceModel = mat4(1.0);
 
     vec4 worldPos = instanceModel * vec4(inPosition, 1.0);
     vWorldPos = worldPos.xyz;

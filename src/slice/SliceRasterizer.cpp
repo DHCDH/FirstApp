@@ -5,12 +5,12 @@
 #include <iostream>
 
 #include "LveCamera.h"
+#include "RenderDocHelper.h"
 
 using namespace lve;
 
 namespace slice
 {
-
 SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& context)
     : m_lveDevice(lveDevice)
 {
@@ -78,7 +78,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        const RasterizerData& rasterizerData,
                                        const SliceFrameData& frameData,
                                        const SliceViewConfig& viewConfig,
-                                       bool isAnalysisRequested)
+                                       bool isAnalysisRequested,
+                                       const ParametricInstancedData& parametricData)
 {
     uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
     if (numPlanes == 0) {
@@ -102,7 +103,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
             m_renderSystem->RenderMask(commandBuffer,
                                        renderPassData,
                                        rasterizerData,
-                                       frameData.displayPlane);
+                                       frameData.displayPlane,
+                                       parametricData);
         }
 
         // --- 插入图像内存屏障，手动转换图像布局 ---
@@ -196,7 +198,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
             m_renderSystem->RenderMask(scoutCmd,
                                        renderPassData,
                                        rasterizerData,
-                                       frameData.planes[i]);
+                                       frameData.planes[i],
+                                       parametricData);
         }
 
         VkImageMemoryBarrier scoutImageBarrier{};
@@ -471,7 +474,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                 m_renderSystem->RenderMask(commandBuffer,
                                            renderPassData,
                                            rasterizerData,
-                                           frameData.planes[i]);
+                                           frameData.planes[i],
+                                           parametricData);
             }
 
             DispatchCompute(commandBuffer,

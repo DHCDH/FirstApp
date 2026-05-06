@@ -80,5 +80,8 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_fullscreen.vert -o res\shaders\spv\3dsimulation\shader_fullscreen.vert.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\3dsimulation\shader_fullscreen.frag -o res\shaders\spv\3dsimulation\shader_fullscreen.frag.spv
 
+REM wear
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\wear_parametric.vert -o res\shaders\spv\wear\wear_parametric.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\wear_parametric.frag -o res\shaders\spv\wear\wear_parametric.frag.spv
 
 pause

@@ -47,6 +47,10 @@ public:
     {
         m_runningMode = mode;
     }
+    void SetParametricWheelRequested(bool isParametricWheel)
+    {
+        m_isParametricWheel = isParametricWheel;
+    }
 
     lve::LveWindow* GetWindow() const
     {
@@ -85,6 +89,7 @@ private:
 
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
+    bool m_isParametricWheel = false;
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
     bool m_isWaitingForAnalysis = false;  // 是否挂起等待GPU
     uint32_t m_analysisPlaneCount = 0;    // 记住派发了多少个面

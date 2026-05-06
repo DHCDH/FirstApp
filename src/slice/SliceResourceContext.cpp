@@ -3,11 +3,13 @@
 #include <stdexcept>
 
 #include "LveFrameInfo.h"
+#include "SliceGlobal.h"
 
 using namespace lve;
 
 namespace slice
 {
+
 SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
                                            uint32_t height)
     : m_lveDevice(lveDevice), m_width(width), m_height(height)
@@ -23,6 +25,7 @@ SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
     CreateOffscreenImage();
     CreateFramebuffers();
     CreateComputeResources();
+    CreateUnitGridBuffer();
 }
 
 void SliceResourceContext::CreateSampler()
@@ -483,6 +486,99 @@ void SliceResourceContext::CreateComputeResources()
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     return;
+}
+
+// --- 构建UV模板 ---
+void SliceResourceContext::CreateUnitGridBuffer()
+{
+    // 设定网格分辨率 (轴向 x 圆周)
+    const uint32_t radialRes = 360;  // 圆周方向采样
+    const uint32_t axialRes = 100;   // 轴向(宽度)采样
+
+    std::vector<ParametricVertex> vertices;
+
+    for (uint32_t i = 0; i <= axialRes; i++) {
+        float u = static_cast<float>(i) / axialRes;
+        for (uint32_t j = 0; j <= radialRes; j++) {
+            float v = static_cast<float>(j) / radialRes;
+            vertices.push_back({{u, v}});
+        }
+    }
+
+    std::vector<uint32_t> indices;
+    for (uint32_t i = 0; i < axialRes; i++) {
+        for (uint32_t j = 0; j < radialRes; j++) {
+            uint32_t start = i * (radialRes + 1) + j;
+            // 第一个三角形
+            indices.push_back(start);
+            indices.push_back(start + 1);
+            indices.push_back(start + radialRes + 1);
+            // 第二个三角形
+            indices.push_back(start + 1);
+            indices.push_back(start + radialRes + 2);
+            indices.push_back(start + radialRes + 1);
+        }
+    }
+
+    m_unitGridVertexCount = static_cast<uint32_t>(indices.size());
+    VkDeviceSize bufferSize = sizeof(ParametricVertex) * vertices.size();
+    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
+
+    // 1. 创建顶点 Staging Buffer 并拷贝数据
+    lve::LveBuffer vertexStaging(
+        m_lveDevice,
+        sizeof(ParametricVertex),
+        static_cast<uint32_t>(vertices.size()),
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vertexStaging.Map();
+    vertexStaging.WriteToBuffer(vertices.data());
+
+    // --- 创建索引 Staging Buffer 并拷贝数据 ---
+    lve::LveBuffer indexStaging(
+        m_lveDevice,
+        sizeof(uint32_t),
+        static_cast<uint32_t>(indices.size()),
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    indexStaging.Map();
+    indexStaging.WriteToBuffer(indices.data());
+
+    // --- 创建设备本地 Buffer ---
+    m_unitGridBuffer = std::make_unique<lve::LveBuffer>(
+        m_lveDevice,
+        sizeof(ParametricVertex),
+        static_cast<uint32_t>(vertices.size()),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    m_unitGridIndexBuffer = std::make_unique<lve::LveBuffer>(
+        m_lveDevice,
+        sizeof(uint32_t),
+        static_cast<uint32_t>(indices.size()),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // --- 执行拷贝命令 ---
+    VkCommandBuffer commandBuffer = m_lveDevice.beginSingleTimeCommands();
+
+    VkBufferCopy copyRegion{};
+    copyRegion.size = bufferSize;
+    vkCmdCopyBuffer(commandBuffer,
+                    vertexStaging.GetBuffer(),
+                    m_unitGridBuffer->GetBuffer(),
+                    1,
+                    &copyRegion);
+
+    VkBufferCopy indexCopyRegion{};
+    indexCopyRegion.size = indexBufferSize;
+    vkCmdCopyBuffer(commandBuffer,
+                    indexStaging.GetBuffer(),
+                    m_unitGridIndexBuffer->GetBuffer(),
+                    1,
+                    &indexCopyRegion);
+
+    m_lveDevice.endSingleTimeCommands(commandBuffer);
 }
 
 void SliceResourceContext::Resize(uint32_t newWidth, uint32_t newHeight)

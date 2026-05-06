@@ -94,6 +94,19 @@ public:
         return m_bboxDescriptorSet;
     }
 
+    lve::LveBuffer* GetUnitGridBuffer() const
+    {
+        return m_unitGridBuffer.get();
+    }
+    lve::LveBuffer* GetUnitGridIndexBuffer() const
+    {
+        return m_unitGridIndexBuffer.get();
+    }
+    uint32_t GetUnitGridVertexCount() const
+    {
+        return m_unitGridVertexCount;
+    }
+
 private:
     void CreateSampler();          // 创建采样器
     void CreateGlobalResources();  // UBO
@@ -107,6 +120,8 @@ private:
 
     void CleanupMaskResource(VkImage& image, VkImageView& view, VkDeviceMemory& memory,
                              VkFramebuffer& framebuffer);
+
+    void CreateUnitGridBuffer();
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -170,6 +185,10 @@ private:
 
     // 回读专用staging buffer
     std::unique_ptr<lve::LveBuffer> m_readbackBuffer = nullptr;
+
+    std::unique_ptr<lve::LveBuffer> m_unitGridBuffer;
+    std::unique_ptr<lve::LveBuffer> m_unitGridIndexBuffer;
+    uint32_t m_unitGridVertexCount{0};
 };
 
 }  // namespace slice

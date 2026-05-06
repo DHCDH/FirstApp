@@ -9,6 +9,9 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include "Logger.h"
+#include "SliceGlobal.h"
+
 using namespace lve;
 
 namespace slice
@@ -28,6 +31,15 @@ struct SliceComputePushConstants {
     int isRightCut{1};
 };
 
+struct WearPushConstants {
+    alignas(16) glm::vec3 normal;  // 切片法向
+    alignas(16) glm::vec4 grVec;   // 砂轮圆角
+    alignas(16) glm::vec3 point;   // 截面点
+    alignas(16) glm::vec4 gaVec;   // 砂轮斜角（rad）
+    alignas(16) float gR;          // 砂轮半径
+    alignas(16) float width;       // 砂轮宽度
+};
+
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
                                              VkDescriptorSetLayout graphicsSetLayouts,
                                              VkDescriptorSetLayout computeSetLayouts,
@@ -41,6 +53,9 @@ SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass ren
     CreateComputePipeline();
 
     CreateBBoxPipeline(bboxSetLayout);
+
+    CreateWearPipelineLayout(graphicsSetLayouts);
+    CreateWearPipelines(renderPass);
 }
 
 SliceMaskRenderSystem::~SliceMaskRenderSystem()
@@ -140,7 +155,6 @@ void SliceMaskRenderSystem::CreateBBoxPipeline(VkDescriptorSetLayout bboxSetLayo
         "../../../res/shaders/spv/shader_find_bbox.comp.spv",
         configInfo);
 }
-
 
 void SliceMaskRenderSystem::CreatePipelines(VkRenderPass renderPass)
 {
@@ -290,8 +304,8 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
 
     // 关闭深度测试
     config.depthStencilInfo.depthTestEnable = VK_FALSE;  // mark
-    //config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    //config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
+    // config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+    // config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;
@@ -348,9 +362,9 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilBackPipeline(
     config.colorBlendAttachment.colorWriteMask = 0;  // 不写颜色
 
     // 关闭深度测试
-    config.depthStencilInfo.depthTestEnable = VK_FALSE; // MARK
-    //config.depthStencilInfo.depthWriteEnable = VK_FALSE;
-    //config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;  // MARK
+    // config.depthStencilInfo.depthWriteEnable = VK_FALSE;
+    // config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.writeMask = 0x7F;
@@ -928,7 +942,8 @@ void SliceMaskRenderSystem::RenderSliceContour(const SliceInstancedInfo& info)
 
 void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                        const SliceMaskRenderPassData& renderPassData,
-                                       const RasterizerData& rasData, Plane plane)
+                                       const RasterizerData& rasData, Plane plane,
+                                       const ParametricInstancedData& parametricData)
 {
     // --- 配置离屏Render Pass ---
     VkRenderPassBeginInfo renderPassInfo{};
@@ -1013,21 +1028,45 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                     plane.normal,
                                     plane.point};
         const uint32_t BATCH_SIZE = 100;
+
         for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
              i += BATCH_SIZE) {
             // 计算当前批次大小
             uint32_t curCount = BATCH_SIZE < renderPassData.grndWheelInstancesCount - i
                                     ? BATCH_SIZE
                                     : renderPassData.grndWheelInstancesCount - i;
-            instInfo.instanceCount = curCount;
 
-            /*绘制砂轮前表面*/
-            m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
-            RenderGrindingWheelInstances(instInfo, i);
+            if (parametricData.useParametricWheel == true) {
+                auto data = parametricData;
+                data.instanceBuffer =
+                    renderPassData.grndWheelInstancesBuffer->GetBuffer();
+                data.instanceCount = curCount;
 
-            /*绘制砂轮后表面*/
-            m_grndWheelStencilBackPipeline->Bind(commandBuffer);
-            RenderGrindingWheelInstances(instInfo, i);
+                RenderParametricInstances(commandBuffer,
+                                          data,
+                                          renderPassData.globalDescriptorSet,
+                                          i);
+            } else {
+                instInfo.instanceCount = curCount;
+
+                /*绘制砂轮前表面*/
+                m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
+                RenderGrindingWheelInstances(instInfo, i);
+
+                /*绘制砂轮后表面*/
+                m_grndWheelStencilBackPipeline->Bind(commandBuffer);
+                RenderGrindingWheelInstances(instInfo, i);
+            }
+
+            vkCmdBindDescriptorSets(
+                commandBuffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                m_pipelineLayout,  // 注意：这里用回原本的 m_pipelineLayout
+                0,
+                1,
+                &renderPassData.globalDescriptorSet,
+                0,
+                nullptr);
 
             m_stencilResolvePipeline->Bind(commandBuffer);
             vkCmdDraw(commandBuffer, 3, 1, 0, 0);
@@ -1150,12 +1189,15 @@ void SliceMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
 }
 
 void SliceMaskRenderSystem::ComputeBBox(VkCommandBuffer commandBuffer,
-                                      VkDescriptorSet bboxDescriptorSet,
-    uint32_t width, uint32_t height, uint32_t planeIdx)
+                                        VkDescriptorSet bboxDescriptorSet, uint32_t width,
+                                        uint32_t height, uint32_t planeIdx)
 {
     m_bboxPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          m_bboxPipelineLayout, 0, 1,
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_bboxPipelineLayout,
+                            0,
+                            1,
                             &bboxDescriptorSet,
                             0,
                             nullptr);
@@ -1172,4 +1214,150 @@ void SliceMaskRenderSystem::ComputeBBox(VkCommandBuffer commandBuffer,
     vkCmdDispatch(commandBuffer, groupX, groupY, 1);
 }
 
-}  // namespace lve
+void SliceMaskRenderSystem::CreateWearPipelineLayout(VkDescriptorSetLayout setLayout)
+{
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(WearPushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &setLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_wearPipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create wear pipeline layout!");
+    }
+}
+
+void SliceMaskRenderSystem::CreateWearPipelines(VkRenderPass renderPass)
+{
+    PipelineConfigInfo config{};
+    LvePipeline::DefaultPipelineConfigInfo(config);
+    config.renderPass = renderPass;
+    config.pipelineLayout = m_wearPipelineLayout;
+
+    config.bindingDescriptions = ParametricVertex::getBindingDescriptions();
+    config.attributeDescriptions = ParametricVertex::getAttributeDescriptions();
+
+    VkVertexInputBindingDescription instanceBinding{};
+    instanceBinding.binding = 1;
+    instanceBinding.stride = sizeof(glm::mat4);
+    instanceBinding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    config.bindingDescriptions.push_back(instanceBinding);
+
+    for (uint32_t i = 0; i < 4; i++) {
+        VkVertexInputAttributeDescription attribute{};
+        attribute.binding = 1;
+        attribute.location = i + 1;
+        attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attribute.offset = sizeof(glm::vec4) * i;
+        config.attributeDescriptions.push_back(attribute);
+    }
+
+    config.colorBlendAttachment.colorWriteMask = 0;
+    config.depthStencilInfo.depthTestEnable = VK_FALSE;
+    config.depthStencilInfo.stencilTestEnable = VK_TRUE;
+
+    config.depthStencilInfo.front.writeMask = 0x7F;
+    config.depthStencilInfo.front.compareMask = 0x7F;
+    config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
+    config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
+    config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
+
+    // --- FRONT PIPELINE ---
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+    config.depthStencilInfo.back = config.depthStencilInfo.front;
+
+    m_wearStencilFrontPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/wear/wear_parametric.vert.spv",
+        "../../../res/shaders/spv/wear/wear_parametric.frag.spv",
+        config);
+
+    // --- BACK PIPELINE ---
+    config.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT;
+    config.depthStencilInfo.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    config.depthStencilInfo.back = config.depthStencilInfo.front;
+
+    m_wearStencilBackPipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/wear/wear_parametric.vert.spv",
+        "../../../res/shaders/spv/wear/wear_parametric.frag.spv",
+        config);
+}
+
+void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuffer,
+                                                      const ParametricInstancedData& data,
+                                                      VkDescriptorSet globalDescriptorSet,
+                                                      uint32_t firstInstance)
+{
+    WearPushConstants push{};
+    push.gR = 49.7804f;
+    push.grVec = glm::vec4(0.3f, 0.3f, 0.f, 0.f);
+    push.gaVec = glm::vec4(glm::radians(60.f), 0.f, 0.f, 0.f);
+    push.width = 10.f;
+    push.normal = glm::vec3(1.f, 0.f, 0.f);
+    push.point = glm::vec3(0.f, 0.f, 0.f);
+
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_wearPipelineLayout,
+                            0,
+                            1,
+                            &globalDescriptorSet,
+                            0,
+                            nullptr);
+
+    VkBuffer vBuffers[] = {data.unitGridBuffer};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vBuffers, offsets);
+    vkCmdBindIndexBuffer(commandBuffer,
+                         data.unitGridIndexBuffer,
+                         0,
+                         VK_INDEX_TYPE_UINT32);
+
+    if (data.instanceBuffer == VK_NULL_HANDLE) {
+        ERROR("Instance buffer is null!");
+    }
+    VkBuffer instBuffers[] = {data.instanceBuffer};
+    vkCmdBindVertexBuffers(commandBuffer, 1, 1, instBuffers, offsets);
+
+    m_wearStencilFrontPipeline->Bind(commandBuffer);
+    vkCmdPushConstants(commandBuffer,
+                       m_wearPipelineLayout,
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0,
+                       sizeof(WearPushConstants),
+                       &push);
+    vkCmdDrawIndexed(commandBuffer,
+                     data.indexCount,
+                     data.instanceCount,
+                     0,
+                     0,
+                     firstInstance);
+
+    m_wearStencilBackPipeline->Bind(commandBuffer);
+    vkCmdPushConstants(commandBuffer,
+                       m_wearPipelineLayout,
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0,
+                       sizeof(WearPushConstants),
+                       &push);
+    vkCmdDrawIndexed(commandBuffer,
+                     data.indexCount,
+                     data.instanceCount,
+                     0,
+                     0,
+                     firstInstance);
+}
+
+}  // namespace slice

@@ -155,8 +155,7 @@ void FirstApp::InitLveComponants(void* nativeWindowHandle, void* nativeInstanceH
 
     m_renderSystem = std::make_unique<RenderSystem>(
         *m_lveDevice,
-        m_lveRenderer->GetSwapChainRenderPass(),
-        std::vector<VkDescriptorSetLayout>{
+        m_lveRenderer->GetSwapChainRenderPass(), std::vector<VkDescriptorSetLayout>{
             m_globalSetLayout->GetDescriptorSetLayout(),           // set = 0
             m_materialSetLayout->GetDescriptorSetLayout(),         // set = 1
             m_materialParamSetLayout->GetDescriptorSetLayout()});  // set = 2

@@ -3,8 +3,8 @@
 #include <memory>
 #include <vector>
 
-#include "SliceResourceContext.h"
 #include "SliceMaskRenderSystem.h"
+#include "SliceResourceContext.h"
 
 namespace slice
 {
@@ -25,7 +25,8 @@ public:
     void ProcessAllPlanes(VkCommandBuffer commandBuffer, SliceResourceContext& context,
                           const RasterizerData& rasterizerData,
                           const SliceFrameData& frameData,
-                          const SliceViewConfig& viewConfig, bool isAnalysisRequested);
+                          const SliceViewConfig& viewConfig, bool isAnalysisRequested,
+                          const ParametricInstancedData& parametricData);
 
     // 执行计算
     void DispatchCompute(VkCommandBuffer commandBuffer, SliceResourceContext& context,
