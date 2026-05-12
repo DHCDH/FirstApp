@@ -161,6 +161,7 @@ void LveDevice::createLogicalDevice()
     deviceFeatures.logicOp = VK_TRUE;
     // 开启几何着色器
     deviceFeatures.geometryShader = VK_TRUE;
+    deviceFeatures.fragmentStoresAndAtomics = VK_TRUE;
 
     VkPhysicalDeviceVulkan12Features deviceFeatures12{};
     deviceFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;

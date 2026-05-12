@@ -142,8 +142,6 @@ void GrindingWheelPoseOptimizer::RunOptimization(
 
     vkResetCommandBuffer(m_cmdCompute, 0);
 
-    RENDERDOC_START;
-
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     vkBeginCommandBuffer(m_cmdCompute, &beginInfo);
 
@@ -202,7 +200,6 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     // 依然死等 GPU 算完这一批，再进入下一次循环
     vkQueueWaitIdle(m_lveDevice.graphicsQueue());
 
-    RENDERDOC_END;
 }
 
 void GrindingWheelPoseOptimizer::ReadBackBestResult(

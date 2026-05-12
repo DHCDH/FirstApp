@@ -186,7 +186,6 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
                              nullptr);
 
         // --- 评估第一个候选点 ---
-        DEBUG("Evaluate first candidate");
         parametricData.candidatesRadius = x1;
         parametricData.grIndex = 0;
         m_rasterizer.ProcessAllPlanes(iterCmd,
@@ -198,7 +197,6 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
                                       parametricData);
 
         // --- 评估第二个候选点 ---
-        DEBUG("Evaluate second candidate");
         parametricData.candidatesRadius = x2;
         parametricData.grIndex = 1;
         m_rasterizer.ProcessAllPlanes(iterCmd,

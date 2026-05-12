@@ -7,14 +7,14 @@
 
 #include "../Global.h"
 #include "LveRenderer.h"
-#include "SliceProcessor.h"
 #include "SliceDisplaySystem.h"
 #include "SliceMaskRenderSystem.h"
 #include "SliceOverlayRenderSystem.h"
+#include "SliceProcessor.h"
+#include "wear/GrindingWheelWearCalculatorNew.h"
 
 namespace slice
 {
-
 class SliceView
 {
 public:
@@ -31,12 +31,15 @@ public:
     void WaitIdle();
 
     // 主渲染流程
-    void BuildContactMask(const SliceFrameData& frameData);
+    void BuildContactMask(const SliceFrameData& frameData,
+                          bool isParametricWheelRequested, std::string targetFlutefile);
 
     // 更新视图配置
     void UpdateSliceViewConfig(const SliceViewConfig& config);
 
     void SetModel(lve::LveModel* blank, lve::LveModel* grndWheel);
+
+    void RunWearFittingTask(const std::string& path);
 
 public:
     void SetDisplayWireframe(const bool& display)
@@ -96,6 +99,8 @@ private:
 
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;
+
+    std::unique_ptr<wear::GrindingWheelWearCalculatorNew> m_wearCalculator;
 };
 
 }  // namespace slice

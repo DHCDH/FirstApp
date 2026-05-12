@@ -20,13 +20,13 @@ public:
 
     glm::vec4 CalculateSdfMapInfo(uint32_t width, uint32_t height);
 
-    std::vector<glm::vec3> GetFlutePointSet() const
+    std::vector<glm::vec4> GetFlutePointSet() const
     {
         return m_targetFlutePoints;
     }
 
 private:
-    std::vector<glm::vec3> m_targetFlutePoints;
+    std::vector<glm::vec4> m_targetFlutePoints;
 };
 
 }

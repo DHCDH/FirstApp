@@ -11,6 +11,7 @@
 
 #include "Logger.h"
 #include "SliceGlobal.h"
+#include "CalculateGrindingWheelMaxRadius.h"
 
 using namespace lve;
 
@@ -20,6 +21,7 @@ struct SlicePushConstants {
     glm::mat4 modelMatrix;
     alignas(16) glm::vec3 normal;
     alignas(16) glm::vec3 point;
+    alignas(16) uint32_t index;  // 用于砂轮磨损圆角计算
 };
 
 struct SliceComputePushConstants {
@@ -38,12 +40,15 @@ struct WearPushConstants {
     alignas(16) glm::vec4 gaVec;   // 砂轮斜角（rad）
     alignas(16) float gR;          // 砂轮半径
     alignas(16) float width;       // 砂轮宽度
+    alignas(16) uint32_t index;    // 候选砂轮圆角半径索引
 };
 
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
                                              VkDescriptorSetLayout graphicsSetLayouts,
                                              VkDescriptorSetLayout computeSetLayouts,
-                                             VkDescriptorSetLayout bboxSetLayout)
+                                             VkDescriptorSetLayout bboxSetLayout,
+                                             VkDescriptorSetLayout sdfLossSetLayout,
+                                             VkDescriptorSetLayout sdfGenerateSetLayout)
     : m_lveDevice(device)
 {
     CreatePipelineLayout(graphicsSetLayouts);  // 定义渲染管线的layout
@@ -56,6 +61,11 @@ SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass ren
 
     CreateWearPipelineLayout(graphicsSetLayouts);
     CreateWearPipelines(renderPass);
+
+    CreateWearResolvePipelineLayout(computeSetLayouts, sdfLossSetLayout);
+    CreateWearResolvePipeline();
+
+    CreateSdfGeneratePipeline(sdfGenerateSetLayout);
 }
 
 SliceMaskRenderSystem::~SliceMaskRenderSystem()
@@ -1019,7 +1029,9 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
     }
 
     // --- 绘制砂轮实例 ---
-    if (rasData.grndWheelModel != nullptr && renderPassData.grndWheelInstancesCount > 0) {
+    if (rasData.grndWheelModel != nullptr && renderPassData.grndWheelInstancesCount > 0 &&
+        !parametricData.useParametricWheel) {
+        DEBUG("Use obj");
         SliceInstancedInfo instInfo{commandBuffer,
                                     *rasData.grndWheelModel,
                                     renderPassData.grndWheelInstancesBuffer->GetBuffer(),
@@ -1036,27 +1048,15 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                     ? BATCH_SIZE
                                     : renderPassData.grndWheelInstancesCount - i;
 
-            if (parametricData.useParametricWheel == true) {
-                auto data = parametricData;
-                data.instanceBuffer =
-                    renderPassData.grndWheelInstancesBuffer->GetBuffer();
-                data.instanceCount = curCount;
+            instInfo.instanceCount = curCount;
 
-                RenderParametricInstances(commandBuffer,
-                                          data,
-                                          renderPassData.globalDescriptorSet,
-                                          i);
-            } else {
-                instInfo.instanceCount = curCount;
+            /*绘制砂轮前表面*/
+            m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
+            RenderGrindingWheelInstances(instInfo, i);
 
-                /*绘制砂轮前表面*/
-                m_grndWheelStencilFrontPipeline->Bind(commandBuffer);
-                RenderGrindingWheelInstances(instInfo, i);
-
-                /*绘制砂轮后表面*/
-                m_grndWheelStencilBackPipeline->Bind(commandBuffer);
-                RenderGrindingWheelInstances(instInfo, i);
-            }
+            /*绘制砂轮后表面*/
+            m_grndWheelStencilBackPipeline->Bind(commandBuffer);
+            RenderGrindingWheelInstances(instInfo, i);
 
             vkCmdBindDescriptorSets(
                 commandBuffer,
@@ -1075,10 +1075,54 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
             vkCmdDraw(commandBuffer, 3, 1, 0, 0);
         }
     } else {
-        throw std::runtime_error("Grinding wheel model is a null model!");
+        if (parametricData.useParametricWheel == true) {
+            SliceInstancedInfo instInfo{
+                commandBuffer,
+                *rasData.grndWheelModel,
+                renderPassData.grndWheelInstancesBuffer->GetBuffer(),
+                renderPassData.grndWheelInstancesCount,
+                renderPassData.globalDescriptorSet,
+                plane.normal,
+                plane.point};
+            const uint32_t BATCH_SIZE = 100;
+
+            for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
+                 i += BATCH_SIZE) {
+                uint32_t curCount =
+                    BATCH_SIZE < renderPassData.grndWheelInstancesCount - i
+                        ? BATCH_SIZE
+                        : renderPassData.grndWheelInstancesCount - i;
+                auto data = parametricData;
+                data.instanceBuffer =
+                    renderPassData.grndWheelInstancesBuffer->GetBuffer();
+                data.instanceCount = curCount;
+
+                RenderParametricInstances(commandBuffer,
+                                          data,
+                                          renderPassData.globalDescriptorSet,
+                                          i);
+
+                vkCmdBindDescriptorSets(commandBuffer,
+                                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        m_pipelineLayout,
+                                        0,
+                                        1,
+                                        &renderPassData.globalDescriptorSet,
+                                        0,
+                                        nullptr);
+                m_stencilResolvePipeline->Bind(commandBuffer);
+                vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+                m_stencilClearPipeline->Bind(commandBuffer);
+                vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+            }
+        } else {
+            throw std::runtime_error("Grinding wheel model is a null model!");
+        }
     }
 
-    vkCmdEndRenderPass(commandBuffer);
+    // 反演模式下，RenderPass将保持开启，随后调用ComputeSdfLoss
+    if (parametricData.useParametricWheel == false) vkCmdEndRenderPass(commandBuffer);
     return;
 }
 
@@ -1295,14 +1339,54 @@ void SliceMaskRenderSystem::CreateWearPipelines(VkRenderPass renderPass)
         config);
 }
 
+void SliceMaskRenderSystem::CreateWearResolvePipelineLayout(
+    VkDescriptorSetLayout computeLayout, VkDescriptorSetLayout sdfLossLayout)
+{
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = 128;
+
+    std::array<VkDescriptorSetLayout, 2> layouts = {computeLayout, sdfLossLayout};
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(layouts.size());
+    pipelineLayoutInfo.pSetLayouts = layouts.data();
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_wearResolvePipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create wear resolve pipeline layout!");
+    }
+}
+
+void SliceMaskRenderSystem::CreateWearResolvePipeline()
+{
+    PipelineConfigInfo config{};
+    config.pipelineLayout = m_wearResolvePipelineLayout;
+
+    m_wearResolvePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/wear/shader_wear_resolve.comp.spv",
+        config);
+}
+
 void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuffer,
                                                       const ParametricInstancedData& data,
                                                       VkDescriptorSet globalDescriptorSet,
                                                       uint32_t firstInstance)
 {
     WearPushConstants push{};
-    push.gR = 49.7804f;
-    push.grVec = glm::vec4(0.3f, 0.3f, 0.f, 0.f);
+    //push.gR = 49.926795;
+    push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
+        50.f,
+        data.candidatesRadius,
+        glm::radians(60.f));
+    push.grVec = glm::vec4(data.candidatesRadius, data.candidatesRadius, 0.f, 0.f);
     push.gaVec = glm::vec4(glm::radians(60.f), 0.f, 0.f, 0.f);
     push.width = 10.f;
     push.normal = glm::vec3(1.f, 0.f, 0.f);
@@ -1358,6 +1442,173 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
                      0,
                      0,
                      firstInstance);
+}
+
+void SliceMaskRenderSystem::RecordGrindingWheelCornerRadiusCandiates(
+    VkCommandBuffer commandBuffer, VkDescriptorSet globalDescriptorSet,
+    VkDescriptorSet sdfLossDescriptorSet, const ParametricInstancedData& pData,
+    const std::vector<float>& candidates, uint32_t start, uint32_t end)
+{
+    WearPushConstants push{};
+    push.gR = 49.7804f;
+    push.grVec = glm::vec4(candidates[0], candidates[0], 0.f, 0.f);
+    push.gaVec = glm::vec4(glm::radians(60.f), 0.f, 0.f, 0.f);
+    push.width = 10.f;
+    push.normal = glm::vec3(1.f, 0.f, 0.f);
+    push.point = glm::vec3(0.f, 0.f, 0.f);
+
+    // 准备 Resolve 管线的描述符集 (Set 0 和 Set 1)
+    std::array<VkDescriptorSet, 2> resolveSets = {globalDescriptorSet,
+                                                  sdfLossDescriptorSet};
+
+    for (uint32_t i = start; i < end; i++) {
+        push.grVec = glm::vec4(candidates[i], candidates[i], 0.f, 0.f);
+        push.index = i;
+
+        vkCmdBindDescriptorSets(commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_wearPipelineLayout,
+                                0,
+                                1,
+                                &globalDescriptorSet,
+                                0,
+                                nullptr);
+
+        m_wearStencilFrontPipeline->Bind(commandBuffer);
+
+        vkCmdPushConstants(commandBuffer,
+                           m_wearPipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0,
+                           sizeof(WearPushConstants),
+                           &push);
+        vkCmdDrawIndexed(commandBuffer, pData.indexCount, pData.instanceCount, 0, 0, 0);
+
+        m_wearStencilBackPipeline->Bind(commandBuffer);
+        vkCmdPushConstants(commandBuffer,
+                           m_wearPipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0,
+                           sizeof(WearPushConstants),
+                           &push);
+        vkCmdDrawIndexed(commandBuffer, pData.indexCount, pData.instanceCount, 0, 0, 0);
+
+        // --- Stencil Resolve (采样 SDF 纹理并计算 Loss) ---
+        // 注意：Resolve 管线使用原有的 m_pipelineLayout
+        // Set 0: Global UBO, Set 1: SDF + Loss SSBO
+        vkCmdBindDescriptorSets(commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_wearResolvePipelineLayout,
+                                0,
+                                static_cast<uint32_t>(resolveSets.size()),
+                                resolveSets.data(),
+                                0,
+                                nullptr);
+
+        // 通过 Push Constant 告知 Shader 当前正在处理第几个候选者 (写入 values[i])
+        vkCmdPushConstants(commandBuffer,
+                           m_wearResolvePipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           96,
+                           sizeof(uint32_t),
+                           &i);  // 将“i”推到push constant中的第96字节处
+
+        m_wearResolvePipeline->Bind(commandBuffer);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+        vkCmdBindDescriptorSets(commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_pipelineLayout,
+                                0,
+                                1,
+                                &globalDescriptorSet,
+                                0,
+                                nullptr);
+        m_stencilClearPipeline->Bind(commandBuffer);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    }
+}
+
+void SliceMaskRenderSystem::ComputeSdfLoss(VkCommandBuffer commandBuffer,
+                                           VkDescriptorSet contourDescriptorSet,
+                                           VkDescriptorSet sdfLossDescriptorSet,
+                                           const ParametricInstancedData& pData,
+                                           float width, float height)
+{
+    // 1. 准备 Resolve 描述符集 (Set 0: 全局 UBO, Set 1: SDF 纹理 + Loss 缓冲区)
+    std::array<VkDescriptorSet, 2> sets = {contourDescriptorSet, sdfLossDescriptorSet};
+
+    m_wearResolvePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_wearResolvePipelineLayout,
+                            0,
+                            2,
+                            sets.data(),
+                            0,
+                            nullptr);
+
+    uint32_t grIndex = pData.grIndex;
+    vkCmdPushConstants(commandBuffer,
+                       m_wearResolvePipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       96,
+                       sizeof(uint32_t),
+                       &grIndex);
+
+    vkCmdDispatch(commandBuffer, (width + 15) / 16, (height + 15) / 16, 1);
+}
+
+void SliceMaskRenderSystem::CreateSdfGeneratePipeline(VkDescriptorSetLayout setLayout)
+{
+    VkPushConstantRange pushRange{VK_SHADER_STAGE_COMPUTE_BIT,
+                                  0,
+                                  sizeof(SdfGeneratePushConstants)};
+
+    VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &setLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    vkCreatePipelineLayout(m_lveDevice.device(),
+                           &layoutInfo,
+                           nullptr,
+                           &m_sdfGeneratePipelineLayout);
+
+    PipelineConfigInfo config{};
+    config.pipelineLayout = m_sdfGeneratePipelineLayout;
+    m_sdfGeneratePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/wear/shader_sdf_generate.comp.spv",
+        config);
+}
+
+void SliceMaskRenderSystem::ComputeSdfGenerate(VkCommandBuffer commandBuffer,
+                                               VkDescriptorSet descriptorSet,
+                                               const SdfGeneratePushConstants& push,
+                                               float width, float height)
+{
+
+    m_sdfGeneratePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_sdfGeneratePipelineLayout,
+                            0,
+                            1,
+                            &descriptorSet,
+                            0,
+                            nullptr);
+    vkCmdPushConstants(commandBuffer,
+                       m_sdfGeneratePipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT,
+                       0,
+                       sizeof(SdfGeneratePushConstants),
+                       &push);
+
+    // 2048x2048 分辨率，16x16 的线程组
+    vkCmdDispatch(commandBuffer, (width + 15) / 16, (height + 15) / 16, 1);
 }
 
 }  // namespace slice

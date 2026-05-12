@@ -65,7 +65,7 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
         // 将点外轮廓点写入文件
         std::cout << "Contour points size: " << m_contourPoints.size() << std::endl;
         std::string filepath =
-            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\wear\\flute_1V1_r0.3_parametric.txt";
+            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\wear\\TMP.txt";
         std::ofstream outFile(filepath);
 
         uint32_t totalPoints = 0;
@@ -93,7 +93,7 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
         if (outFile.fail()) {
             ERROR("Write file: %s failed", filepath.c_str());
         } else {
-            INFO("Write coordinates into file：%s", filepath.c_str());
+            INFO("Write coordinates into file: %s", filepath.c_str());
         }
     }
 #endif

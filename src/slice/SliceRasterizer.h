@@ -34,6 +34,9 @@ public:
                          const SliceViewConfig& viewConfig, uint32_t planeIndex,
                          bool isAnalysisRequested);
 
+    void TransitionImageLayout(VkCommandBuffer cmd, VkImage image,
+                               VkImageLayout oldLayout, VkImageLayout newLayout);
+
     VkBuffer GetGrndWheelInstancesBuffer() const
     {
         return m_grndWheelInstancesBuffer ? m_grndWheelInstancesBuffer->GetBuffer()
@@ -46,6 +49,10 @@ public:
     const std::vector<SliceViewConfig>& GetLastMicroConfigs() const
     {
         return m_lastMicroConfigs;
+    }
+    SliceMaskRenderSystem& GetRenderSystem() const
+    {
+        return *m_renderSystem;
     }
 
 private:

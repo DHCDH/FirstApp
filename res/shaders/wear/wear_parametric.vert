@@ -80,7 +80,13 @@ void main()
     // ================== 对齐 .obj 坐标系==================
     vec3 localPos = vec3(u0, r * cos(theta), r * sin(theta));
 
-    mat4 instanceModel = mat4(modelRow0, modelRow1, modelRow2, modelRow3);
+    // 砂轮反演需要将刀轨的y、z，ny、nz取反，原因未知
+    vec4 modelRow0Invert = vec4(modelRow0.x, -modelRow0.y, -modelRow0.z, modelRow0.w);
+    vec4 modelRow1Invert = vec4(-modelRow1.x, modelRow1.y, modelRow1.z, modelRow1.w);
+    vec4 modelRow2Invert = vec4(-modelRow2.x, modelRow2.y, modelRow2.z, modelRow2.w);
+    vec4 modelRow3Invert = vec4(modelRow3.x, -modelRow3.y, -modelRow3.z, modelRow3.w);
+
+    mat4 instanceModel = mat4(modelRow0Invert, modelRow1Invert, modelRow2Invert, modelRow3Invert);
     // mat4 instanceModel = mat4(1.0);
 
     vec4 worldPos = instanceModel * vec4(localPos, 1.0);

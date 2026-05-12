@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 
+#include "Logger.h"
 #include "LveCamera.h"
 #include "RenderDocHelper.h"
 
@@ -20,7 +21,9 @@ SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& con
         context.m_maskRenderPass,
         context.m_globalSetLayout->GetDescriptorSetLayout(),
         context.m_contourComputeSetLayout->GetDescriptorSetLayout(),
-        context.m_bboxComputeSetLayout->GetDescriptorSetLayout());
+        context.m_bboxComputeSetLayout->GetDescriptorSetLayout(),
+        context.m_sdfLossSetLayout->GetDescriptorSetLayout(),
+        context.m_sdfGenerateSetLayout->GetDescriptorSetLayout());
 }
 
 void SliceRasterizer::UpdateInstances(const std::vector<glm::mat4>& instanceData)
@@ -99,12 +102,17 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
     std::vector<GlobalUbo> updatedUbos(numPlanes);
 
     if (!isAnalysisRequested) {
+
         if (m_renderSystem) {
             m_renderSystem->RenderMask(commandBuffer,
                                        renderPassData,
                                        rasterizerData,
                                        frameData.displayPlane,
                                        parametricData);
+        }
+
+        if (parametricData.useParametricWheel) {
+            vkCmdEndRenderPass(commandBuffer);
         }
 
         // --- 插入图像内存屏障，手动转换图像布局 ---
@@ -130,6 +138,46 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                              nullptr,
                              1,
                              &colorBarrier);
+
+        return;
+    }
+
+    // --- 如果是砂轮圆角反演计算，拦截后续的BBox逻辑 ---
+    if (isAnalysisRequested && parametricData.useParametricWheel) {
+        m_renderSystem->RenderMask(commandBuffer,
+                                   renderPassData,
+                                   rasterizerData,
+                                   frameData.displayPlane,
+                                   parametricData);
+
+        vkCmdEndRenderPass(commandBuffer);
+
+        // --- 插入屏障，将 m_blankMaskImage 转为 Compute Shader 可读的状态 ---
+        VkImageMemoryBarrier colorBarrier{};
+        colorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        colorBarrier.image = context.m_blankMaskImage;
+        colorBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        colorBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        colorBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        colorBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &colorBarrier);
+
+        m_renderSystem->ComputeSdfLoss(commandBuffer,
+                                       context.m_contourDescriptorSet,
+                                       context.m_sdfLossDescriptorSet,
+                                       parametricData,
+                                       context.m_width,
+                                       context.m_height);
 
         return;
     }
@@ -703,6 +751,41 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
                          nullptr);
 
     return;
+}
+
+void SliceRasterizer::TransitionImageLayout(VkCommandBuffer cmd, VkImage image,
+                                            VkImageLayout oldLayout,
+                                            VkImageLayout newLayout)
+{
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL &&
+        newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL &&
+               newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }
+
+    vkCmdPipelineBarrier(
+        cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,
+        &barrier);
 }
 
 }  // namespace slice

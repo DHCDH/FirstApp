@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// 1. 点集 SSBO
+layout(std430, binding = 0) readonly buffer PointSet {
+    vec3 points[];
+};
+
+// 2. 输出 Storage Image (R32F)
+layout(binding = 1, r32f) uniform writeonly image2D outSdf;
+
+// 3. 变换参数
+layout(push_constant) uniform PushConstants{
+    vec3 targetPoint;
+    float xMin;
+    float zMax;
+    float dx;
+    float dy;
+    uint pointCount;
+} push;
+
+void main() {
+    ivec2 texSize = imageSize(outSdf);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    
+    if (pos.x >= texSize.x || pos.y >= texSize.y) return;
+
+    // 🚀 物理坐标映射：加上 0.5f 偏移以对齐像素中心，提升拟合精度
+    float physZ = push.targetPoint.z + (push.xMin + (float(pos.x) + 0.5) * push.dx);
+    float physY = push.targetPoint.y + (push.zMax - (float(pos.y) + 0.5) * push.dy);
+
+    float minDistanceSq = 1e10;
+
+    // 🚀 暴力搜索最小距离
+    for (uint i = 0; i < push.pointCount; i++) {
+        float dZ = physZ - points[i].z;
+        float dY = physY - points[i].y;
+        float d2 = dZ * dZ + dY * dY;
+        if (d2 < minDistanceSq) {
+            minDistanceSq = d2;
+        }
+    }
+
+    // 写入结果
+    imageStore(outSdf, pos, vec4(sqrt(minDistanceSq), 0.0, 0.0, 0.0));
+}

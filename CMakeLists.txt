@@ -2,6 +2,8 @@
 set(TARGET_NAME "APP")
 project(${TARGET_NAME} VERSION 0.1 LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 include(qt.cmake)
 
 add_compile_options(/utf-8)

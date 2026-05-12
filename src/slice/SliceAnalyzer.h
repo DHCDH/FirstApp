@@ -4,6 +4,7 @@
 
 #include "../Global.h"
 #include "SliceResourceContext.h"
+#include "SliceWearFitter.h"
 
 namespace slice
 {

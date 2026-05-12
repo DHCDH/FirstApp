@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "../Global.h"
+#include "Logger.h"
 #include "LveFrameInfo.h"
 #include "SliceGlobal.h"
 
@@ -9,7 +11,6 @@ using namespace lve;
 
 namespace slice
 {
-
 SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
                                            uint32_t height)
     : m_lveDevice(lveDevice), m_width(width), m_height(height)
@@ -26,6 +27,8 @@ SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
     CreateFramebuffers();
     CreateComputeResources();
     CreateUnitGridBuffer();
+    CreateSdfResources();
+    CreateSdfGenerateResources();
 }
 
 void SliceResourceContext::CreateSampler()
@@ -441,9 +444,10 @@ void SliceResourceContext::CreateComputeResources()
     // 更新描述符池
     m_computeDescriptorPool =
         LveDescriptorPool::Builder(m_lveDevice)
-            .SetMaxSets(2)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8)
+            .SetMaxSets(5)  // Contour + BBox + SDF + SDFLoss + 1
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                         10)  // contour(7) + bbox(1) + loss(1)
             .Build();
 
     // 绑定资源并构建 Descriptor Set
@@ -492,8 +496,8 @@ void SliceResourceContext::CreateComputeResources()
 void SliceResourceContext::CreateUnitGridBuffer()
 {
     // 设定网格分辨率 (轴向 x 圆周)
-    const uint32_t radialRes = 360;  // 圆周方向采样
-    const uint32_t axialRes = 100;   // 轴向(宽度)采样
+    const uint32_t radialRes = 720;  // 圆周方向采样
+    const uint32_t axialRes = 1000;   // 轴向(宽度)采样
 
     std::vector<ParametricVertex> vertices;
 
@@ -615,9 +619,12 @@ void SliceResourceContext::Resize(uint32_t newWidth, uint32_t newHeight)
         m_stencilSampleView = VK_NULL_HANDLE;
     }
 
+    CleanupSdfResources();
+
     // 重建图像和Framebuffer
     CreateOffscreenImage();
     CreateFramebuffers();
+    CreateSdfResources();
 
     // 更新Compute Shader的Descriptor Set（因为ImageView变了）
     VkDescriptorImageInfo imageInfo{};
@@ -662,9 +669,174 @@ void SliceResourceContext::UpdateGlobalUbo(void* uboData, size_t size)
     m_cameraUboBuffer->Flush();
 }
 
+void SliceResourceContext::CreateSdfResources()
+{
+    // --- 创建Image ---
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R32_SFLOAT;  // 32位单通道浮点数格式
+    imageInfo.extent.width = m_width;         // 保持与离屏分辨率一致
+    imageInfo.extent.height = m_height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_STORAGE_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    m_lveDevice.createImageWithInfo(imageInfo,
+                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                    m_sdfImage,
+                                    m_sdfImageMemory);
+
+    // --- 创建ImageView ---
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_sdfImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(m_lveDevice.device(), &viewInfo, nullptr, &m_sdfImageView) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("failed to create SDF image view!");
+    }
+
+    // --- 创建高精度双线性Sampler ---
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;  // 开启线性过滤，获得微米级亚像素插值
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+
+    if (vkCreateSampler(m_lveDevice.device(), &samplerInfo, nullptr, &m_sdfSampler) !=
+        VK_SUCCESS) {
+        throw std::runtime_error("failed to create SDF sampler!");
+    }
+
+    // --- 创建专用Descriptor Set并绑定纹理 ---
+    if (m_sdfSetLayout == nullptr) {
+        m_sdfSetLayout = LveDescriptorSetLayout::Builder(m_lveDevice)
+                             .AddBinding(0,
+                                         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                         VK_SHADER_STAGE_FRAGMENT_BIT)
+                             .Build();
+    }
+
+    VkDescriptorImageInfo sdfImageInfo{m_sdfSampler,
+                                       m_sdfImageView,
+                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    if (m_sdfDescriptorSet == VK_NULL_HANDLE) {
+        LveDescriptorWriter(*m_sdfSetLayout,
+                            *m_computeDescriptorPool)  // 复用现有的 compute pool
+            .WriteImage(0, &sdfImageInfo)
+            .Build(m_sdfDescriptorSet);
+    } else {
+        LveDescriptorWriter(*m_sdfSetLayout, *m_computeDescriptorPool)
+            .WriteImage(0, &sdfImageInfo)
+            .Overwrite(m_sdfDescriptorSet);
+    }
+
+    // =====================loss===================
+    m_lossBuffer = std::make_unique<lve::LveBuffer>(
+        m_lveDevice,
+        sizeof(uint32_t),  // 每个候选者的 Loss 是一个 uint32
+        MAX_CANDIDATES,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,  // 支持原子加和清零
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT  // CPU 可直接映射读取
+    );
+
+    if (m_sdfLossSetLayout == nullptr) {
+        m_sdfLossSetLayout =
+            lve::LveDescriptorSetLayout::Builder(m_lveDevice)
+                .AddBinding(0,
+                            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                                VK_SHADER_STAGE_COMPUTE_BIT)
+                .AddBinding(1,
+                            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                                VK_SHADER_STAGE_COMPUTE_BIT)
+                .Build();
+    }
+
+    auto lossBufferInfo = m_lossBuffer->DescriptorInfo();
+
+    if (m_sdfLossDescriptorSet == VK_NULL_HANDLE) {
+        LveDescriptorWriter(*m_sdfLossSetLayout, *m_computeDescriptorPool)
+            .WriteImage(0, &sdfImageInfo)
+            .WriteBuffer(1, &lossBufferInfo)
+            .Build(m_sdfLossDescriptorSet);
+    } else {
+        LveDescriptorWriter(*m_sdfLossSetLayout, *m_computeDescriptorPool)
+            .WriteImage(0, &sdfImageInfo)
+            .WriteBuffer(1, &lossBufferInfo)
+            .Overwrite(m_sdfLossDescriptorSet);
+    }
+
+    // --- 初始状态布局转换 ---
+    VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.image = m_sdfImage;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &barrier);
+    m_lveDevice.endSingleTimeCommands(cmd);
+
+    return;
+}
+
+void SliceResourceContext::CleanupSdfResources()
+{
+    m_lossBuffer.reset();
+
+    if (m_sdfImageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(m_lveDevice.device(), m_sdfImageView, nullptr);
+        m_sdfImageView = VK_NULL_HANDLE;
+    }
+    if (m_sdfImage != VK_NULL_HANDLE) {
+        vkDestroyImage(m_lveDevice.device(), m_sdfImage, nullptr);
+        m_sdfImage = VK_NULL_HANDLE;
+    }
+    if (m_sdfImageMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(m_lveDevice.device(), m_sdfImageMemory, nullptr);
+        m_sdfImageMemory = VK_NULL_HANDLE;
+    }
+    if (m_sdfSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(m_lveDevice.device(), m_sdfSampler, nullptr);
+        m_sdfSampler = VK_NULL_HANDLE;
+    }
+}
+
 SliceResourceContext::~SliceResourceContext()
 {
     vkDeviceWaitIdle(m_lveDevice.device());
+
+    CleanupSdfResources();
 
     if (m_maskRenderPass) {
         vkDestroyRenderPass(m_lveDevice.device(), m_maskRenderPass, nullptr);
@@ -696,6 +868,34 @@ SliceResourceContext::~SliceResourceContext()
         vkDestroySampler(m_lveDevice.device(), m_maskSampler, nullptr);
         m_maskSampler = VK_NULL_HANDLE;
     }
+}
+
+void SliceResourceContext::CreateSdfGenerateResources()
+{
+    m_sdfPointBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(glm::vec4),  // 16字节步长与GPU对齐
+        100000,  // 预留10万个点
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    m_sdfPointBuffer->Map();
+
+    m_sdfGenerateSetLayout =
+        LveDescriptorSetLayout::Builder(m_lveDevice)
+            .AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+
+    auto bufferInfo = m_sdfPointBuffer->DescriptorInfo();
+    VkDescriptorImageInfo imageInfo{VK_NULL_HANDLE,
+                                    m_sdfImageView,
+                                    VK_IMAGE_LAYOUT_GENERAL};
+
+    LveDescriptorWriter(*m_sdfGenerateSetLayout, *m_computeDescriptorPool)
+        .WriteBuffer(0, &bufferInfo)
+        .WriteImage(1, &imageInfo)
+        .Build(m_sdfGenerateDescriptorSet);
 }
 
 }  // namespace slice

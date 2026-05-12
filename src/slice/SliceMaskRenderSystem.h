@@ -33,6 +33,18 @@ struct ParametricInstancedData {
     // --- 实例化的 Buffer ---
     VkBuffer instanceBuffer;
     uint32_t instanceCount;
+
+    float candidatesRadius;
+    uint32_t grIndex;
+};
+
+struct SdfGeneratePushConstants {
+    glm::vec3 targetPoint;
+    float xMin;
+    float zMax;
+    float dx;
+    float dy;
+    uint32_t pointCount;
 };
 
 class SliceMaskRenderSystem
@@ -41,7 +53,9 @@ public:
     SliceMaskRenderSystem(lve::LveDevice& device, VkRenderPass renderPass,
                           VkDescriptorSetLayout graphicsSetLayouts,
                           VkDescriptorSetLayout computeSetLayouts,
-                          VkDescriptorSetLayout bboxSetLayout);
+                          VkDescriptorSetLayout bboxSetLayout,
+                          VkDescriptorSetLayout sdfLossSetLayout,
+                          VkDescriptorSetLayout sdfGenerateSetLayout);
     ~SliceMaskRenderSystem();
 
     SliceMaskRenderSystem(const SliceMaskRenderSystem&) = delete;
@@ -79,7 +93,6 @@ public:
     // 整合计算逻辑
     void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
                       lve::LveBuffer* tipInfoBuffer);
-
     void ComputeBBox(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
                      uint32_t width, uint32_t height, uint32_t planeIdx);
 
@@ -87,6 +100,21 @@ public:
                                    const ParametricInstancedData& data,
                                    VkDescriptorSet globalDescriptorSet,
                                    uint32_t firstInstance);
+    void RecordGrindingWheelCornerRadiusCandiates(VkCommandBuffer commandBuffer,
+                                                  VkDescriptorSet globalDescriptorSet,
+                                                  VkDescriptorSet sdfLossDescriptorSet,
+                                                  const ParametricInstancedData& pData,
+                                                  const std::vector<float>& candidates,
+                                                  uint32_t start, uint32_t end);
+
+    void ComputeSdfLoss(VkCommandBuffer commandBuffer,
+                        VkDescriptorSet contourDescriptorSet,
+                        VkDescriptorSet sdfLossDescriptorSet,
+                        const ParametricInstancedData& pData, float width, float height);
+
+    void ComputeSdfGenerate(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
+                            const SdfGeneratePushConstants& push, float width,
+                            float height);
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -143,6 +171,12 @@ private:
     void CreateWearPipelineLayout(VkDescriptorSetLayout graphicsSetLayout);
     void CreateWearPipelines(VkRenderPass renderPass);
 
+    void CreateWearResolvePipelineLayout(VkDescriptorSetLayout globalLayout,
+                                         VkDescriptorSetLayout sdfLossLayout);
+    void CreateWearResolvePipeline();
+
+    void CreateSdfGeneratePipeline(VkDescriptorSetLayout setLayout);
+
 private:
     // --- 计算资源 ---
 
@@ -164,6 +198,11 @@ private:
     VkPipelineLayout m_wearPipelineLayout;
     std::unique_ptr<lve::LvePipeline> m_wearStencilFrontPipeline;
     std::unique_ptr<lve::LvePipeline> m_wearStencilBackPipeline;
+    std::unique_ptr<lve::LvePipeline> m_wearResolvePipeline;
+    VkPipelineLayout m_wearResolvePipelineLayout = VK_NULL_HANDLE;
+
+    std::unique_ptr<lve::LvePipeline> m_sdfGeneratePipeline;
+    VkPipelineLayout m_sdfGeneratePipelineLayout;
 };
 
 }  // namespace slice

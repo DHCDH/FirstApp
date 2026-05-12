@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include "Logger.h"
+#include "../Global.h"
 
 static constexpr float MAX_FLOAT = std::numeric_limits<float>::max();
 
@@ -18,6 +19,8 @@ GrindingWheelWearCalculatorNew::GrindingWheelWearCalculatorNew(std::string flute
 
 bool GrindingWheelWearCalculatorNew::ParseFlutePointSet(const std::string& filePath)
 {
+    PROFILE_SCOPE("ParseFlutePointSet");
+
     m_targetFlutePoints.clear();
 
     std::ifstream file(filePath);
@@ -49,7 +52,7 @@ bool GrindingWheelWearCalculatorNew::ParseFlutePointSet(const std::string& fileP
         std::stringstream ss(line);
         float x, y;
         if (ss >> x >> y) {
-            m_targetFlutePoints.emplace_back(0, y, x);
+            m_targetFlutePoints.emplace_back(0, y, x, 1.f);
         }
     }
 
@@ -64,6 +67,8 @@ bool GrindingWheelWearCalculatorNew::ParseFlutePointSet(const std::string& fileP
 glm::vec4 GrindingWheelWearCalculatorNew::CalculateSdfMapInfo(uint32_t width,
                                                               uint32_t height)
 {
+    PROFILE_SCOPE("CalculateSdfMapInfo");
+
     if (m_targetFlutePoints.empty()) {
         throw std::runtime_error("No target flute points found");
     }
@@ -81,16 +86,17 @@ glm::vec4 GrindingWheelWearCalculatorNew::CalculateSdfMapInfo(uint32_t width,
     float centerZ = (minZ + maxZ) * 0.5f;
     float centerY = (minY + maxY) * 0.5f;
 
-    float physW = (maxZ - minZ) * 1.1f;  // 宽度余量
-    float physH = (maxY - minY) * 1.1f;  // 高度余量
+    float rangeZ = maxZ - minZ;
+    float rangeY = maxY - minY;
+    float maxSide = std::max(rangeZ, rangeY) * 1.2f;
 
-    float dx = physW / (float)width;
-    float dz = physH / (float)height;
+    float dx = maxSide / static_cast<float>(width);
+    float dz = maxSide / static_cast<float>(height);
 
     DEBUG("[SDF Mapping] Geometric Center: (%f, %f)", centerY, centerZ);
     DEBUG("[SDF Mapping] Pixel accuracy dx: %fmm, dz: %fmm", dx, dz);
 
-    return glm::vec4(centerZ - physW * 0.5f, centerY - physH * 0.5f, dx, dz);
+    return glm::vec4(centerZ - maxSide * 0.5f, centerY - maxSide * 0.5f, dx, dz);
 }
 
 }  // namespace wear

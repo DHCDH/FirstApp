@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "../Global.h"
 #include "LveBuffer.h"
 #include "LveDescriptors.h"
 #include "LveDevice.h"
@@ -14,6 +15,7 @@ namespace slice
 {
 class SliceRasterizer;
 class SliceAnalyzer;
+class SliceWearFitter;
 
 struct ResultData {
     glm::vec2 coreRadiusPoint{0.f};
@@ -40,12 +42,14 @@ struct BBoxData {
 
 constexpr uint32_t MAX_PLANES = 300;
 constexpr uint32_t MAX_POINTS = 50000;
+constexpr uint32_t MAX_CANDIDATES = 128;
 
 // --- 管理离屏渲染资源、计算资源、分辨率变更和资源生命周期
 class SliceResourceContext
 {
     friend class SliceRasterizer;
     friend class SliceAnalyzer;
+    friend class SliceWearFitter;
 
 public:
     SliceResourceContext(lve::LveDevice& lveDevice, uint32_t width, uint32_t height);
@@ -107,6 +111,37 @@ public:
         return m_unitGridVertexCount;
     }
 
+    // --- SDF ---
+    VkImage GetSdfImage() const
+    {
+        return m_sdfImage;
+    }
+    VkImageView GetSdfImageView() const
+    {
+        return m_sdfImageView;
+    }
+    VkSampler GetSdfSampler() const
+    {
+        return m_sdfSampler;
+    }
+    VkDescriptorSet GetSdfDescriptorSet() const
+    {
+        return m_sdfDescriptorSet;
+    }
+    lve::LveBuffer& GetSdfBuffer() const
+    {
+        return *m_sdfPointBuffer;
+    }
+    void SetSdfBuffer(const std::vector<glm::vec4>& points)
+    {
+        m_sdfPointBuffer->WriteToBuffer(const_cast<glm::vec4*>(points.data()),
+                                        points.size() * sizeof(glm::vec4));
+    }
+    VkDescriptorSet GetSdfGenerateDescriptorSet() const
+    {
+        return m_sdfGenerateDescriptorSet;
+    }
+
 private:
     void CreateSampler();          // 创建采样器
     void CreateGlobalResources();  // UBO
@@ -122,6 +157,11 @@ private:
                              VkFramebuffer& framebuffer);
 
     void CreateUnitGridBuffer();
+
+    void CreateSdfResources();
+    void CleanupSdfResources();
+
+    void CreateSdfGenerateResources();
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -189,6 +229,23 @@ private:
     std::unique_ptr<lve::LveBuffer> m_unitGridBuffer;
     std::unique_ptr<lve::LveBuffer> m_unitGridIndexBuffer;
     uint32_t m_unitGridVertexCount{0};
+
+    // --- SDF ---
+    VkImage m_sdfImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_sdfImageMemory = VK_NULL_HANDLE;
+    VkImageView m_sdfImageView = VK_NULL_HANDLE;
+    VkSampler m_sdfSampler = VK_NULL_HANDLE;
+
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_sdfSetLayout = nullptr;
+    VkDescriptorSet m_sdfDescriptorSet = VK_NULL_HANDLE;
+
+    std::unique_ptr<lve::LveBuffer> m_lossBuffer = nullptr;
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_sdfLossSetLayout = nullptr;
+    VkDescriptorSet m_sdfLossDescriptorSet = VK_NULL_HANDLE;
+
+    std::unique_ptr<lve::LveBuffer> m_sdfPointBuffer;
+    VkDescriptorSet m_sdfGenerateDescriptorSet = VK_NULL_HANDLE;
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_sdfGenerateSetLayout;
 };
 
 }  // namespace slice

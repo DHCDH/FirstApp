@@ -11,6 +11,8 @@
 #include <limits>
 #include <thread>
 
+#include "RenderDocHelper.h"
+
 using namespace lve;
 
 namespace slice
@@ -115,7 +117,9 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
     RecreateDisplayDescriptorSet();
 }
 
-void SliceView::BuildContactMask(const SliceFrameData& frameData)
+void SliceView::BuildContactMask(const SliceFrameData& frameData,
+                                 bool isParametricWheelRequested,
+                                 std::string targetFlutefile)
 {
     if (!m_window) return;
 
@@ -139,6 +143,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     m_processor->SetModels(m_blankModel, m_grndWheelModel);
     m_processor->SetBlankMatrix(frameData.blankMatrix);
     m_processor->SetGrindingWheelInstances(frameData.wheelMatrixes);
+
+    RENDERDOC_START;
 
     // --- 开启渲染命令录制 ---
     VkCommandBuffer commandBuffer = m_renderer->BeginFrame();
@@ -180,6 +186,15 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData)
     VkFence computeFence = m_processor->GetComputeFence();
 
     m_renderer->EndFrame(m_processor->GetComputeFence());
+
+    RENDERDOC_END;
+
+    // --- 砂轮圆角反演逻辑 ---
+    if (isParametricWheelRequested && !targetFlutefile.empty()) {
+        WaitIdle();
+
+        m_processor->ExecuteWearAnalysis(targetFlutefile, frameData);
+    }
 
     // --- 后台线程等待fence并触发UI回调 ---
     if (requestThisFrame && computeFence != VK_NULL_HANDLE) {
@@ -257,6 +272,13 @@ void SliceView::RunFrame()
 void SliceView::WaitIdle()
 {
     vkDeviceWaitIdle(m_device.device());
+}
+
+void SliceView::RunWearFittingTask(const std::string& path)
+{ 
+    WaitIdle();
+
+    //m_processor->ExecuteWearAnalysis(path, frameData);
 }
 
 SliceView::~SliceView()

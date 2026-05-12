@@ -6,6 +6,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <gtx/quaternion.hpp>
 #include <gtx/vector_angle.hpp>
+#include "Logger.h"
 
 namespace entity
 {
@@ -119,6 +120,7 @@ lve::TransformComponent GrindingWheel::EvaluateAtTime(const float& t)
 void GrindingWheel::CalculateGrindingWheelInstances(
     std::vector<glm::mat4>& instances, const std::vector<ToolPath>& toolPaths) const
 {
+
     lve::TransformComponent transform{};
     size_t totalSize = 0;
     for (const auto& path : toolPaths) totalSize += path.size;
@@ -135,23 +137,6 @@ void GrindingWheel::CalculateGrindingWheelInstances(
             const glm::vec3& pos = path.points[i];
             const glm::vec3& norm = path.normals[i];
 
-            // std::cout << "toolpath[" << count << "][" << i
-            //          << "]: pos(" << pos.x << ", " << pos.y << ", " << pos.z << "), "
-            //          << "norm(" << norm.x << ", " << norm.y << ", " << norm.z << ")\n";
-
-#if 0
-            lve::TransformComponent transform{};
-            transform.translation = pos;
-            transform.scale = glm::vec3(1.f);
-
-            // 计算旋转
-            glm::quat rotationQuat = glm::rotation(defaultNorm, glm::normalize(norm));
-            // 转为欧拉角
-            transform.rotation = glm::eulerAngles(rotationQuat);
-
-            lve::InstanceData instance{};
-            instance.modelMatrix = transform.mat4();
-#else
             // 1. 位移矩阵 (Translation)
             glm::mat4 translationMat = glm::translate(glm::mat4(1.0f), pos);
 
@@ -166,14 +151,11 @@ void GrindingWheel::CalculateGrindingWheelInstances(
             // 4. 组合最终矩阵 (M = T * R * S)
             // 注意乘法顺序：先缩放，再旋转，最后位移
             glm::mat4 instance = translationMat * rotationMat * scaleMat;
-#endif
 
             instances.emplace_back(instance);
 
             if (i > 400) break;
         }
-        // std::cout << "===count: " << count << "\n";
-
         count++;
     }
 

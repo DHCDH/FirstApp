@@ -7,6 +7,8 @@
 #include "SliceAnalyzer.h"
 #include "SliceRasterizer.h"
 #include "SliceResourceContext.h"
+#include "SliceWearFitter.h"
+#include "wear/GrindingWheelWearCalculatorNew.h"
 
 namespace slice
 {
@@ -33,6 +35,9 @@ public:
     VkFence GetComputeFence() const;
 
     void Resize(uint32_t width, uint32_t height);
+
+    void ExecuteWearAnalysis(const std::string& targetFluteFilePath,
+                             const SliceFrameData& frameData);
 
 public:
     void SetModels(lve::LveModel* blank, lve::LveModel* grndWheel)
@@ -82,7 +87,9 @@ public:
 
 private:
     void UpdateCameraUbo(const glm::vec3& normal, const glm::vec3& point,
-                         const SliceViewConfig& viewConfig);
+                         const SliceViewConfig& viewConfig, bool invertUp = false);
+
+    ParametricInstancedData BuildFreshParametricInstancedData(bool isParametricRequested);
 
     lve::LveDevice& m_lveDevice;
 
@@ -97,6 +104,10 @@ private:
     std::unique_ptr<SliceAnalyzer> m_analyzer = nullptr;
 
     std::unique_ptr<lve::LveCamera> m_camera;
+
+    std::unique_ptr<wear::GrindingWheelWearCalculatorNew> m_wearCalculator;
+    ParametricInstancedData m_parametricInstancedData;
+    std::unique_ptr<SliceWearFitter> m_wearFitter;
 };
 
 }  // namespace slice
