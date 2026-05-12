@@ -119,7 +119,8 @@ enum class RunningMode : uint32_t
 {
     DISPLAY_ONLY = 0,
     DISPLAY_AND_ANALYZE = 1,
-    OPTIMIZE = 2
+    OPTIMIZE = 2,
+    WEAR_CALCULATION = 3
 };
 
 struct ToolPath {

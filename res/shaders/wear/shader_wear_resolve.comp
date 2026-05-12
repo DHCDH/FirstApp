@@ -1,0 +1,128 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Set 0: 来自 m_contourDescriptorSet (包含颜色掩码图 m_blankMaskImage)
+layout(set = 0, binding = 0) uniform usampler2D inputMask;
+
+// Set 1: 来自 m_sdfLossDescriptorSet (包含SDF纹理和Loss数组)
+layout(set = 1, binding = 0) uniform sampler2D sdfTexture;
+layout(set = 1, binding = 1) buffer LossBuffer {
+    uint values[];
+} lossBuffer;
+
+// 接收来自 C++ 的 push constant
+layout(push_constant) uniform Push {
+    layout(offset = 96) uint index;
+} push;
+
+// 读取点p在掩码图中的值 (3u代表交集容屑槽)
+float getRawVal(ivec2 p) {
+    return (texelFetch(inputMask, p, 0).r == 3u) ? 1.0 : 0.0;
+}
+
+// 5x5 Sobel 融合算子 (完全复用你的逻辑)
+vec3 getFusedGradient(ivec2 center) {
+    float Gx = 0.0;
+    float Gy = 0.0;
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            float val = getRawVal(center + ivec2(x, y));
+            if (val == 0.0) continue;
+
+            float wX = 0.0;
+            if (x == -2) wX = 1.0; else if (x == -1) wX = 2.0;
+            else if (x == 1) wX = -2.0; else if (x == 2) wX = -1.0;
+            if (wX != 0.0) {
+                float smoothY = 0.0;
+                if (abs(y) == 2) smoothY = 1.0; else if (abs(y) == 1) smoothY = 4.0; else if (y == 0) smoothY = 6.0;
+                Gx += val * wX * smoothY;
+            }
+
+            float wY = 0.0;
+            if (y == -2) wY = 1.0; else if (y == -1) wY = 2.0;
+            else if (y == 1) wY = -2.0; else if (y == 2) wY = -1.0;
+            if (wY != 0.0) {
+                float smoothX = 0.0;
+                if (abs(x) == 2) smoothX = 1.0; else if (abs(x) == 1) smoothX = 4.0; else if (x == 0) smoothX = 6.0;
+                Gy += val * wY * smoothX;
+            }
+        }
+    }
+    return vec3(Gx, Gy, sqrt(Gx*Gx + Gy*Gy));
+}
+
+void main()
+{
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 texSize = textureSize(inputMask, 0);
+
+    if (pos.x < 2 || pos.y < 2 || pos.x >= texSize.x - 2 || pos.y >= texSize.y - 2) return;
+
+    float c = getRawVal(pos);
+    float l = getRawVal(pos + ivec2(-1, 0));
+    float r = getRawVal(pos + ivec2( 1, 0));
+    float u = getRawVal(pos + ivec2( 0,-1));
+    float d = getRawVal(pos + ivec2( 0, 1));
+    float sum = c + l + r + u + d;
+    if(sum == 0.0 || sum == 5.0) return;
+
+    vec3 gradB = getFusedGradient(pos);
+    float gB = gradB.z;
+    if (gB < 10.0) return;
+
+    ivec2 dir;
+    if (abs(gradB.x) > abs(gradB.y)) {
+        dir = ivec2(sign(gradB.x), 0);
+    } else {
+        dir = ivec2(0, sign(gradB.y));
+    }
+
+    float gA = getFusedGradient(pos - dir).z;
+    float gC = getFusedGradient(pos + dir).z;
+
+    if (gB < gA || gB <= gC) return;
+
+    float denom = gA + gC - 2.0 * gB;
+    float eta = 0.0;
+    if (abs(denom) > 0.0001) {
+        eta = (gA - gC) / (2.0 * denom);
+    }
+    eta = clamp(eta, -0.5, 0.5);
+
+    // 🚀 获取高精度的亚像素边缘坐标
+    vec2 finalPos = vec2(pos) + vec2(dir) * eta;
+
+    // --- 剔除砂轮背部的无效轮廓 (寻找1u棒料) ---
+    uint valPlus = texelFetch(inputMask, pos + dir, 0).r;
+    ivec2 outStep = (valPlus != 3u) ? dir : -dir;
+
+    bool found1u = false;
+    bool found2u = false;
+
+    for (int d = 1; d <= 3; d++) {
+        uint val = texelFetch(inputMask, pos + outStep * d, 0).r;
+        if (val == 1u) { found1u = true; break; }
+        if (val == 2u) { found2u = true; break; }
+    }
+
+    if (found2u || !found1u) return;
+
+    // ==========================================
+    // 🚀 到这里，说明这个点是100%纯正的有效切削边缘！
+    // ==========================================
+
+    // 将物理像素坐标映射为纹理UV坐标 (因为SDF纹理和屏幕分辨率是1:1严格对齐的)
+    vec2 uv = finalPos / vec2(texSize);
+
+    // 采样物理SDF距离
+    float dist = texture(sdfTexture, uv).r;
+
+    // 溢出保护：如果因为某些原因采样到了远处的9999点，截断它，防止uint爆炸
+    dist = min(dist, 3.0); 
+
+    // 计算MSE误差，放大十万倍累计
+    uint uError = uint(dist * dist * 100000.0);
+
+    atomicAdd(lossBuffer.values[push.index], uError);
+}

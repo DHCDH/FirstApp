@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <memory>
 #include <filesystem>
+#include <QCheckBox>
 
 #include "entities\Blank.h"
 #include "entities\GrindingWheel.h"
@@ -12,7 +13,6 @@
 #include "optimize/OptimizeResourceContext.h"
 #include "optimize/OptimizeMaskRenderSystem.h"
 #include "optimize/OptimizePoseRenderSystem.h"
-#include "slice/wear/GrindingWheelWearCalculator.h"
 
 class QTimer;
 class QLineEdit;
@@ -59,13 +59,14 @@ private:
     QLineEdit* m_editSliceNum;
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
+    QCheckBox* m_checkParametricWheelRequested;
 
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
     std::vector<ToolPath> m_toolpaths;  // 刀轨
 
-    std::unique_ptr<wear::GrindingWheelWearCalculator> m_wearCalculator;
+    std::string m_targetFlutePath;
 
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);

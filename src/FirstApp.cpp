@@ -673,8 +673,6 @@ void FirstApp::UpdateCameraFromOrbit()
     glm::vec3 camPos = m_orbit.target + m_orbit.offset;
 
     // 【注意】无死角旋转必须实时更新相机的 Up 向量
-    // 请确保你的 LveCamera::SetViewTarget 支持第三个参数（相机的上方向），
-    // 默认的 Vulkan 教程一般是支持这个签名的。
     m_lveCamera->SetViewTarget(camPos, m_orbit.target, m_orbit.up);
 }
 

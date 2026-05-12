@@ -1,6 +1,5 @@
 ﻿#include "Simulation2DDialog.h"
 
-#include <QCheckBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -56,8 +55,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
-    QCheckBox* checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
-    checkParametricWheelRequested->setChecked(false);
+    m_checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
+    m_checkParametricWheelRequested->setChecked(false);
 
     controlLayout->addWidget(m_labelRes);
     controlLayout->addWidget(btnToolPath);
@@ -73,7 +72,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
-    controlLayout->addWidget(checkParametricWheelRequested);
+    controlLayout->addWidget(m_checkParametricWheelRequested);
     controlLayout->addStretch();
 
     /*初始化防抖定时器*/
@@ -92,13 +91,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     void* hinstance = GetModuleHandle(nullptr);
 
     InitSliceView(device, hwnd, hinstance);
-
-#if 0
-    m_wearCalculator = std::make_unique<wear::GrindingWheelWearCalculator>(
-        wear::CutterParameters{.R{5.f}, .helixAngle{30.f}, .lead{54.414}},
-        wear::WearParameters{.position{-25.703600, -44.267521, -16.997980},
-                             .normal{-0.786256, 0.275217, 0.553224}});
-#endif
 
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         std::cout << "[Real Widget Size] W: " << m_renderWidget->width()
@@ -127,6 +119,21 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         this->setProperty("isFullAnalysis", true);
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
         m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
+
+        if (m_checkParametricWheelRequested->isChecked()) {
+            const QString qPath = QFileDialog::getOpenFileName(
+                this,
+                tr("选择 toolpath 文件"),
+                QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear"),
+                tr("Toolpath Files (*.txt);;All Files (*.*)"));
+            if (qPath.isEmpty())
+                QMessageBox::critical(this, tr("警告"), tr("输入正确容屑槽点集文件"));
+
+            std::filesystem::path path =
+                std::filesystem::u8path(qPath.toUtf8().constData());
+            m_targetFlutePath = path.string();
+        }
+
         BuildContactMask();
     });
 
@@ -168,7 +175,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         UpdateGrindingWheelInstances();
     });
 
-    connect(checkParametricWheelRequested,
+    connect(m_checkParametricWheelRequested,
             &QCheckBox::stateChanged,
             this,
             [this](int state) {
@@ -205,7 +212,6 @@ void Simulation2DDialog::UpdateEntitiesData(
 
 void Simulation2DDialog::BuildContactMask()
 {
-    RENDERDOC_START;
 
     bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE);
 
@@ -258,9 +264,7 @@ void Simulation2DDialog::BuildContactMask()
     }
 
     /*执行GPU计算*/
-    m_sliceView->BuildContactMask(frameData);
-
-    RENDERDOC_END;
+    m_sliceView->BuildContactMask(frameData, m_checkParametricWheelRequested, m_targetFlutePath);
 
     // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
     if (wasAnalysisRequested) {
