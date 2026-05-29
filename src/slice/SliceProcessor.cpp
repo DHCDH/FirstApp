@@ -1,5 +1,7 @@
 ﻿#include "SliceProcessor.h"
 
+#include <fstream>
+
 #include "Logger.h"
 #include "RenderDocHelper.h"
 
@@ -211,11 +213,65 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                   (fitViewConfig.zMax - fitViewConfig.zMin) /
                                       static_cast<float>(m_context->GetHeight()),
                                   static_cast<uint32_t>(points.size())};
-    m_rasterizer->GetRenderSystem().ComputeSdfGenerate(cmd,
-                                                       m_context->GetSdfGenerateDescriptorSet(),
-                                                       push,
-                                                       m_context->GetWidth(),
-                                                       m_context->GetHeight());
+    m_rasterizer->GetRenderSystem().ComputeSdfGenerate(
+        cmd,
+        m_context->GetSdfGenerateDescriptorSet(),
+        push,
+        m_context->GetWidth(),
+        m_context->GetHeight());
+
+    // --- 出图：将SDF数据回读到CPU并保存 ---
+    // 1. 插入图像内存屏障：等待 Compute Shader 写入完成
+    VkImageMemoryBarrier computeToTransferBarrier{};
+    computeToTransferBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    computeToTransferBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    computeToTransferBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    computeToTransferBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    computeToTransferBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    computeToTransferBarrier.image = m_context->GetSdfImage();
+    computeToTransferBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &computeToTransferBarrier);
+
+    // 2. 创建一个临时的 Host-Visible Buffer 用于接收图像数据
+    uint32_t width = m_context->GetWidth();
+    uint32_t height = m_context->GetHeight();
+    VkDeviceSize imageSize = width * height * sizeof(float);  // UDF 是 R32F 格式
+    lve::LveBuffer readbackBuffer(
+        m_lveDevice,
+        sizeof(float),
+        width * height,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    // 3. 录制拷贝命令：Image -> Buffer
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;  // 0 表示紧凑排列
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {width, height, 1};
+
+    vkCmdCopyImageToBuffer(cmd,
+                           m_context->GetSdfImage(),
+                           VK_IMAGE_LAYOUT_GENERAL,
+                           readbackBuffer.GetBuffer(),
+                           1,
+                           &region);
+
+    // --- 回读保存结束 ---
 
     m_rasterizer->TransitionImageLayout(cmd,
                                         m_context->GetSdfImage(),
@@ -223,6 +279,28 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     m_lveDevice.endSingleTimeCommands(cmd);
+
+    // --- 保存UDF数据 ---
+    readbackBuffer.Map();
+    float* mappedData = static_cast<float*>(readbackBuffer.GetMappedMemory());
+
+    // 强烈推荐保存为 .bin 二进制文件。
+    // 原因：R32F 包含几百万个浮点数，转成 .csv
+    // 文本不仅体积暴增(几十MB)，还容易丢失浮点精度。
+    std::string outPath =
+        "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/udf_output.bin";
+    std::ofstream outFile(outPath, std::ios::out | std::ios::binary);
+    if (outFile.is_open()) {
+        outFile.write(reinterpret_cast<const char*>(mappedData), imageSize);
+        outFile.close();
+        INFO("Successfully exported UDF data to %s (Size: %u bytes)",
+             outPath.c_str(),
+             imageSize);
+    } else {
+        ERROR("Failed to open file for UDF export!");
+    }
+    readbackBuffer.Unmap();
+    // --- 保存UDF完成 ---
 
     RENDERDOC_END;
 
