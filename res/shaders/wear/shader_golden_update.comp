@@ -28,32 +28,27 @@ void main() {
         return;
     }
 
-    if (searchState.iteration == 0u) {
-        // Initialize x1, x2 from bracket
+    float fLoss1 = float(lossBuffer.values[0]);
+    float fLoss2 = float(lossBuffer.values[1]);
+
+    if (fLoss1 < fLoss2) {
+        searchState.b  = searchState.x2;
+        searchState.x2 = searchState.x1;
         searchState.x1 = searchState.a + searchState.ratio * (searchState.b - searchState.a);
-        searchState.x2 = searchState.b - searchState.ratio * (searchState.b - searchState.a);
-        searchState.iteration = 1u;
     } else {
-        float fLoss1 = float(lossBuffer.values[0]);
-        float fLoss2 = float(lossBuffer.values[1]);
+        searchState.a  = searchState.x1;
+        searchState.x1 = searchState.x2;
+        searchState.x2 = searchState.b - searchState.ratio * (searchState.b - searchState.a);
+    }
 
-        if (fLoss1 < fLoss2) {
-            searchState.b  = searchState.x2;
-            searchState.x2 = searchState.x1;
-            searchState.x1 = searchState.a + searchState.ratio * (searchState.b - searchState.a);
-        } else {
-            searchState.a  = searchState.x1;
-            searchState.x1 = searchState.x2;
-            searchState.x2 = searchState.b - searchState.ratio * (searchState.b - searchState.a);
-        }
+    searchState.iteration++;
 
-        if ((searchState.b - searchState.a) < searchState.tol) {
-            searchState.converged = 1u;
-            searchState.bestR = (searchState.a + searchState.b) * 0.5;
-        } else if (searchState.iteration >= searchState.maxIters) {
-            searchState.converged = 1u;
-            searchState.bestR = (searchState.a + searchState.b) * 0.5;
-        }
+    if ((searchState.b - searchState.a) < searchState.tol) {
+        searchState.converged = 1u;
+        searchState.bestR = (searchState.a + searchState.b) * 0.5;
+    } else if (searchState.iteration >= searchState.maxIters) {
+        searchState.converged = 1u;
+        searchState.bestR = (searchState.a + searchState.b) * 0.5;
     }
 
     // Reset loss buffer for next iteration

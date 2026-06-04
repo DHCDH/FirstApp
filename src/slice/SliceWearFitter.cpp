@@ -1,5 +1,8 @@
 ﻿#include "SliceWearFitter.h"
 
+#include <cmath>
+#include <limits>
+
 #include "Logger.h"
 #include "RenderDocHelper.h"
 #include "vulkan/vulkan_core.h"
@@ -147,8 +150,8 @@ void SliceWearFitter::InitializeSearchState(const FitConfig& config)
     state.converged = 0;
     state.flags = 1;  // bit 0 = 1: vertex shader reads x1/x2 from SSBO
     state.bestR = 0.f;
-    state.x1 = 0.f;
-    state.x2 = 0.f;
+    state.x1 = config.grMin + 0.382f * (config.grMax - config.grMin);
+    state.x2 = config.grMax - 0.382f * (config.grMax - config.grMin);
 
     m_context.GetSearchStateBuffer().WriteToBuffer(&state, sizeof(GpuSearchState));
     m_context.GetSearchStateBuffer().Flush();
@@ -164,83 +167,127 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
     InitializeSearchState(config);
 
     VkDescriptorSet searchStateSet = m_context.GetSearchStateDescriptorSet();
-    VkDescriptorSet sdfLossSet = m_context.m_sdfLossDescriptorSet;
+    lve::LveBuffer& searchStateBuf = m_context.GetSearchStateBuffer();
+    lve::LveBuffer& lossBuf = *m_context.m_lossBuffer;
 
-    // 2. Record all iterations into a single command buffer
-    VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+    GpuSearchState* state =
+        reinterpret_cast<GpuSearchState*>(searchStateBuf.GetMappedMemory());
 
-    for (uint32_t iter = 0; iter < config.maxIterations; iter++) {
-        // a. Golden update: init x1/x2 on iter 0, or update bracket on iter > 0
-        m_renderSystem.DispatchGoldenUpdate(cmd, searchStateSet, sdfLossSet);
+    // Map loss buffer for CPU readback (HOST_COHERENT — no flush needed)
+    if (!lossBuf.GetMappedMemory()) {
+        lossBuf.Map();
+    }
+    uint32_t* lossValues = reinterpret_cast<uint32_t*>(lossBuf.GetMappedMemory());
 
-        // Barrier: ensure searchState visible to vertex shader
-        VkBufferMemoryBarrier searchStateBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        searchStateBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        searchStateBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        searchStateBarrier.buffer = m_context.GetSearchStateBuffer().GetBuffer();
-        searchStateBarrier.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(cmd,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             1,
-                             &searchStateBarrier,
-                             0,
-                             nullptr);
-
-        // b. Evaluate candidate 0
+    // Helper: evaluate loss at a single point via GPU
+    auto evalPoint = [&](float point) -> float {
+        lossValues[0] = 0;
+        state->x1 = point;
+        VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
         parametricData.candidateIndex = 0;
-        m_rasterizer.ProcessAllPlanes(cmd,
-                                      m_context,
-                                      rasterizerData,
-                                      frameData,
-                                      viewConfig,
-                                      true,
-                                      searchStateSet,
-                                      parametricData);
+        m_rasterizer.ProcessAllPlanes(cmd, m_context, rasterizerData, frameData,
+                                      viewConfig, true, searchStateSet, parametricData);
+        m_lveDevice.endSingleTimeCommands(cmd);
+        return static_cast<float>(lossValues[0]);
+    };
 
-        // c. Evaluate candidate 1
-        parametricData.candidateIndex = 1;
-        m_rasterizer.ProcessAllPlanes(cmd,
-                                      m_context,
-                                      rasterizerData,
-                                      frameData,
-                                      viewConfig,
-                                      true,
-                                      searchStateSet,
-                                      parametricData);
+    // 2. Brent's method: combines parabolic interpolation with golden-section fallback.
+    //    Typically converges in 5-8 iterations for smooth unimodal functions.
 
-        // Barrier: ensure loss[0], loss[1] visible to golden update compute shader
-        VkBufferMemoryBarrier lossBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        lossBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        lossBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        lossBarrier.buffer = m_context.m_lossBuffer->GetBuffer();
-        lossBarrier.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(cmd,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             0,
-                             0,
-                             nullptr,
-                             1,
-                             &lossBarrier,
-                             0,
-                             nullptr);
+    const float cgold = 0.381966011f;
+    const float eps = std::numeric_limits<float>::epsilon();
+    const float tol = config.tolerance;
+
+    float a = config.grMin;                         // bracket left
+    float b = config.grMax;                         // bracket right
+    float x = a + cgold * (b - a);                  // best point (golden section initial)
+    float fx = evalPoint(x);
+    float w = x, v = x;                             // second- and third-best points
+    float fw = fx, fv = fx;
+    float d = 0.f;                                  // step to take
+    float ePrev = 0.f;                              // previous step size
+
+    for (uint32_t iter = 1; iter < config.maxIterations; iter++) {
+        float xm = (a + b) * 0.5f;
+        float tol1 = eps * std::abs(x) + tol / 3.f;
+        float tol2 = 2.f * tol1;
+
+        // Convergence: interval small enough
+        if (std::abs(x - xm) <= tol2 - (b - a) * 0.5f) {
+            state->bestR = x;
+            state->converged = 1;
+            DEBUG("Brent converged at iteration %d, bestR = %f", iter, x);
+            break;
+        }
+
+        bool useGolden = true;
+        float p = 0.f, q = 0.f, r = 0.f;
+
+        // Try inverse parabolic interpolation
+        if (std::abs(ePrev) > tol1) {
+            r = (x - w) * (fx - fv);
+            q = (x - v) * (fx - fw);
+            p = (x - v) * q - (x - w) * r;
+            q = 2.f * (q - r);
+            if (q > 0.f) p = -p;
+            else         q = -q;
+            r = ePrev;
+            ePrev = d;
+
+            // Accept parabolic step only if it lies within the bracket and is shrinking
+            if (std::abs(p) < std::abs(0.5f * q * r) &&
+                p > q * (a - x) &&
+                p < q * (b - x)) {
+                d = p / q;
+                float u = x + d;
+                if (u - a < tol2 || b - u < tol2)
+                    d = (xm < x) ? -tol1 : tol1;
+                useGolden = false;
+            }
+        }
+
+        // Golden-section fallback
+        if (useGolden) {
+            ePrev = (x < xm) ? b - x : a - x;
+            d = cgold * ePrev;
+        }
+
+        // Take the step (clamp to at least tol1)
+        float u;
+        if (std::abs(d) >= tol1)
+            u = x + d;
+        else
+            u = x + (d > 0.f ? tol1 : -tol1);
+
+        float fu = evalPoint(u);
+
+        // Update a, b, x, w, v
+        if (fu <= fx) {
+            if (u < x) b = x;
+            else       a = x;
+            v = w;  fv = fw;
+            w = x;  fw = fx;
+            x = u;  fx = fu;
+        } else {
+            if (u < x) a = u;
+            else       b = u;
+            if (fu <= fw || w == x) {
+                v = w;  fv = fw;
+                w = u;  fw = fu;
+            } else if (fu <= fv || v == x || v == w) {
+                v = u;  fv = fu;
+            }
+        }
     }
 
-    // 3. Submit once and wait
-    m_lveDevice.endSingleTimeCommands(cmd);
+    // Fallback: if not converged within maxIterations
+    if (state->converged == 0) {
+        state->bestR = x;
+        state->converged = 1;
+    }
 
-    // 4. Read back final bestR from GPU (buffer already mapped in CreateSearchStateResources)
-    GpuSearchState* state =
-        reinterpret_cast<GpuSearchState*>(m_context.GetSearchStateBuffer().GetMappedMemory());
-    float bestR = state->bestR;
-
-    INFO("GPU golden section search completed: bestR = %f", bestR);
-    return bestR;
+    INFO("GPU golden section search completed: bestR = %f", state->bestR);
+    return state->bestR;
 }
 
 void SliceWearFitter::CleanupThreads()
