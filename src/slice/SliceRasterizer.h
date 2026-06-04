@@ -28,6 +28,13 @@ public:
                           const SliceViewConfig& viewConfig, bool isAnalysisRequested,
                           const ParametricInstancedData& parametricData);
 
+    void ProcessAllPlanes(VkCommandBuffer commandBuffer, SliceResourceContext& context,
+                          const RasterizerData& rasterizerData,
+                          const SliceFrameData& frameData,
+                          const SliceViewConfig& viewConfig, bool isAnalysisRequested,
+                          VkDescriptorSet searchStateDescriptorSet,
+                          const ParametricInstancedData& parametricData);
+
     // 执行计算
     void DispatchCompute(VkCommandBuffer commandBuffer, SliceResourceContext& context,
                          const SliceFrameData& frameData,

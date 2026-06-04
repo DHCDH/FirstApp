@@ -34,13 +34,13 @@ struct SliceComputePushConstants {
 };
 
 struct WearPushConstants {
-    alignas(16) glm::vec3 normal;  // 切片法向
-    alignas(16) glm::vec4 grVec;   // 砂轮圆角
-    alignas(16) glm::vec3 point;   // 截面点
-    alignas(16) glm::vec4 gaVec;   // 砂轮斜角（rad）
-    alignas(16) float gR;          // 砂轮半径
-    alignas(16) float width;       // 砂轮宽度
-    alignas(16) uint32_t index;    // 候选砂轮圆角半径索引
+    alignas(16) glm::vec3 normal;          // 切片法向
+    alignas(16) glm::vec4 grVec;           // 砂轮圆角
+    alignas(16) glm::vec3 point;           // 截面点
+    alignas(16) glm::vec4 gaVec;           // 砂轮斜角（rad）
+    alignas(16) float gR;                  // 砂轮半径
+    alignas(16) float width;               // 砂轮宽度
+    alignas(16) uint32_t candidateIndex;   // 候选砂轮圆角半径索引
 };
 
 SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass renderPass,
@@ -48,7 +48,8 @@ SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass ren
                                              VkDescriptorSetLayout computeSetLayouts,
                                              VkDescriptorSetLayout bboxSetLayout,
                                              VkDescriptorSetLayout sdfLossSetLayout,
-                                             VkDescriptorSetLayout sdfGenerateSetLayout)
+                                             VkDescriptorSetLayout sdfGenerateSetLayout,
+                                             VkDescriptorSetLayout searchStateSetLayout)
     : m_lveDevice(device)
 {
     CreatePipelineLayout(graphicsSetLayouts);  // 定义渲染管线的layout
@@ -59,13 +60,16 @@ SliceMaskRenderSystem::SliceMaskRenderSystem(LveDevice& device, VkRenderPass ren
 
     CreateBBoxPipeline(bboxSetLayout);
 
-    CreateWearPipelineLayout(graphicsSetLayouts);
+    CreateWearPipelineLayout(graphicsSetLayouts, searchStateSetLayout);
     CreateWearPipelines(renderPass);
 
-    CreateWearResolvePipelineLayout(computeSetLayouts, sdfLossSetLayout);
+    CreateWearResolvePipelineLayout(computeSetLayouts, sdfLossSetLayout, searchStateSetLayout);
     CreateWearResolvePipeline();
 
     CreateSdfGeneratePipeline(sdfGenerateSetLayout);
+
+    CreateGoldenUpdatePipelineLayout(searchStateSetLayout, sdfLossSetLayout);
+    CreateGoldenUpdatePipeline();
 }
 
 SliceMaskRenderSystem::~SliceMaskRenderSystem()
@@ -1100,6 +1104,7 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                 RenderParametricInstances(commandBuffer,
                                           data,
                                           renderPassData.globalDescriptorSet,
+                                          renderPassData.searchStateDescriptorSet,
                                           i);
 
                 vkCmdBindDescriptorSets(commandBuffer,
@@ -1258,7 +1263,8 @@ void SliceMaskRenderSystem::ComputeBBox(VkCommandBuffer commandBuffer,
     vkCmdDispatch(commandBuffer, groupX, groupY, 1);
 }
 
-void SliceMaskRenderSystem::CreateWearPipelineLayout(VkDescriptorSetLayout setLayout)
+void SliceMaskRenderSystem::CreateWearPipelineLayout(
+    VkDescriptorSetLayout setLayout, VkDescriptorSetLayout searchStateSetLayout)
 {
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags =
@@ -1266,10 +1272,12 @@ void SliceMaskRenderSystem::CreateWearPipelineLayout(VkDescriptorSetLayout setLa
     pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(WearPushConstants);
 
+    std::array<VkDescriptorSetLayout, 2> setLayouts = {setLayout, searchStateSetLayout};
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &setLayout;
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    pipelineLayoutInfo.pSetLayouts = setLayouts.data();
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -1340,14 +1348,16 @@ void SliceMaskRenderSystem::CreateWearPipelines(VkRenderPass renderPass)
 }
 
 void SliceMaskRenderSystem::CreateWearResolvePipelineLayout(
-    VkDescriptorSetLayout computeLayout, VkDescriptorSetLayout sdfLossLayout)
+    VkDescriptorSetLayout computeLayout, VkDescriptorSetLayout sdfLossLayout,
+    VkDescriptorSetLayout searchStateSetLayout)
 {
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
     pushConstantRange.size = 128;
 
-    std::array<VkDescriptorSetLayout, 2> layouts = {computeLayout, sdfLossLayout};
+    std::array<VkDescriptorSetLayout, 3> layouts = {computeLayout, sdfLossLayout,
+                                                     searchStateSetLayout};
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1380,8 +1390,17 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
                                                       VkDescriptorSet globalDescriptorSet,
                                                       uint32_t firstInstance)
 {
+    // Deprecated: use the 2-set overload instead. Pipeline layout requires set=1.
+    ERROR("RenderParametricInstances called without searchStateDescriptorSet!");
+}
+
+void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuffer,
+                                                      const ParametricInstancedData& data,
+                                                      VkDescriptorSet globalDescriptorSet,
+                                                      VkDescriptorSet searchStateDescriptorSet,
+                                                      uint32_t firstInstance)
+{
     WearPushConstants push{};
-    //push.gR = 49.926795;
     push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
         50.f,
         data.candidatesRadius,
@@ -1391,13 +1410,16 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
     push.width = 10.f;
     push.normal = glm::vec3(1.f, 0.f, 0.f);
     push.point = glm::vec3(0.f, 0.f, 0.f);
+    push.candidateIndex = data.candidateIndex;
 
+    std::array<VkDescriptorSet, 2> sets = {globalDescriptorSet,
+                                           searchStateDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_wearPipelineLayout,
                             0,
-                            1,
-                            &globalDescriptorSet,
+                            static_cast<uint32_t>(sets.size()),
+                            sets.data(),
                             0,
                             nullptr);
 
@@ -1446,7 +1468,9 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
 
 void SliceMaskRenderSystem::RecordGrindingWheelCornerRadiusCandiates(
     VkCommandBuffer commandBuffer, VkDescriptorSet globalDescriptorSet,
-    VkDescriptorSet sdfLossDescriptorSet, const ParametricInstancedData& pData,
+    VkDescriptorSet sdfLossDescriptorSet,
+    VkDescriptorSet searchStateDescriptorSet,
+    const ParametricInstancedData& pData,
     const std::vector<float>& candidates, uint32_t start, uint32_t end)
 {
     WearPushConstants push{};
@@ -1457,20 +1481,25 @@ void SliceMaskRenderSystem::RecordGrindingWheelCornerRadiusCandiates(
     push.normal = glm::vec3(1.f, 0.f, 0.f);
     push.point = glm::vec3(0.f, 0.f, 0.f);
 
-    // 准备 Resolve 管线的描述符集 (Set 0 和 Set 1)
-    std::array<VkDescriptorSet, 2> resolveSets = {globalDescriptorSet,
-                                                  sdfLossDescriptorSet};
+    // 准备 Wear 管线的描述符集 (Set 0: Global, Set 1: SearchState)
+    std::array<VkDescriptorSet, 2> wearSets = {globalDescriptorSet,
+                                                searchStateDescriptorSet};
+
+    // 准备 Resolve 管线的描述符集 (Set 0: Global, Set 1: SDF+Loss, Set 2: SearchState)
+    std::array<VkDescriptorSet, 3> resolveSets = {globalDescriptorSet,
+                                                   sdfLossDescriptorSet,
+                                                   searchStateDescriptorSet};
 
     for (uint32_t i = start; i < end; i++) {
         push.grVec = glm::vec4(candidates[i], candidates[i], 0.f, 0.f);
-        push.index = i;
+        push.candidateIndex = i;
 
         vkCmdBindDescriptorSets(commandBuffer,
                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_wearPipelineLayout,
                                 0,
-                                1,
-                                &globalDescriptorSet,
+                                static_cast<uint32_t>(wearSets.size()),
+                                wearSets.data(),
                                 0,
                                 nullptr);
 
@@ -1494,8 +1523,7 @@ void SliceMaskRenderSystem::RecordGrindingWheelCornerRadiusCandiates(
         vkCmdDrawIndexed(commandBuffer, pData.indexCount, pData.instanceCount, 0, 0, 0);
 
         // --- Stencil Resolve (采样 SDF 纹理并计算 Loss) ---
-        // 注意：Resolve 管线使用原有的 m_pipelineLayout
-        // Set 0: Global UBO, Set 1: SDF + Loss SSBO
+        // Set 0: Global UBO, Set 1: SDF + Loss SSBO, Set 2: SearchState
         vkCmdBindDescriptorSets(commandBuffer,
                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 m_wearResolvePipelineLayout,
@@ -1511,7 +1539,7 @@ void SliceMaskRenderSystem::RecordGrindingWheelCornerRadiusCandiates(
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            96,
                            sizeof(uint32_t),
-                           &i);  // 将“i”推到push constant中的第96字节处
+                           &i);  // 将”i”推到push constant中的第96字节处
 
         m_wearResolvePipeline->Bind(commandBuffer);
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
@@ -1535,28 +1563,63 @@ void SliceMaskRenderSystem::ComputeSdfLoss(VkCommandBuffer commandBuffer,
                                            const ParametricInstancedData& pData,
                                            float width, float height)
 {
-    // 1. 准备 Resolve 描述符集 (Set 0: 全局 UBO, Set 1: SDF 纹理 + Loss 缓冲区)
-    std::array<VkDescriptorSet, 2> sets = {contourDescriptorSet, sdfLossDescriptorSet};
+    // Deprecated: pipeline layout now requires 3 sets. Use the 3-set overload.
+    // This stub delegates to the 3-set version with VK_NULL_HANDLE as searchState.
+    // This will trigger a validation error if called — update your code to use the
+    // 3-set overload that accepts searchStateDescriptorSet.
+    ComputeSdfLoss(commandBuffer, contourDescriptorSet, sdfLossDescriptorSet,
+                   VK_NULL_HANDLE, pData, width, height);
+}
+
+void SliceMaskRenderSystem::ComputeSdfLoss(VkCommandBuffer commandBuffer,
+                                           VkDescriptorSet contourDescriptorSet,
+                                           VkDescriptorSet sdfLossDescriptorSet,
+                                           VkDescriptorSet searchStateDescriptorSet,
+                                           const ParametricInstancedData& pData,
+                                           float width, float height)
+{
+    std::array<VkDescriptorSet, 3> sets = {contourDescriptorSet, sdfLossDescriptorSet,
+                                            searchStateDescriptorSet};
 
     m_wearResolvePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_COMPUTE,
                             m_wearResolvePipelineLayout,
                             0,
-                            2,
+                            static_cast<uint32_t>(sets.size()),
                             sets.data(),
                             0,
                             nullptr);
 
-    uint32_t grIndex = pData.grIndex;
+    uint32_t candidateIdx = pData.candidateIndex;
     vkCmdPushConstants(commandBuffer,
                        m_wearResolvePipelineLayout,
                        VK_SHADER_STAGE_COMPUTE_BIT,
                        96,
                        sizeof(uint32_t),
-                       &grIndex);
+                       &candidateIdx);
 
     vkCmdDispatch(commandBuffer, (width + 15) / 16, (height + 15) / 16, 1);
+}
+
+void SliceMaskRenderSystem::DispatchGoldenUpdate(
+    VkCommandBuffer commandBuffer,
+    VkDescriptorSet searchStateDescriptorSet,
+    VkDescriptorSet sdfLossDescriptorSet)
+{
+    m_goldenUpdatePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::array<VkDescriptorSet, 2> sets = {searchStateDescriptorSet, sdfLossDescriptorSet};
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_goldenUpdatePipelineLayout,
+                            0,
+                            static_cast<uint32_t>(sets.size()),
+                            sets.data(),
+                            0,
+                            nullptr);
+
+    vkCmdDispatch(commandBuffer, 1, 1, 1);
 }
 
 void SliceMaskRenderSystem::CreateSdfGeneratePipeline(VkDescriptorSetLayout setLayout)
@@ -1581,6 +1644,36 @@ void SliceMaskRenderSystem::CreateSdfGeneratePipeline(VkDescriptorSetLayout setL
     m_sdfGeneratePipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/wear/shader_sdf_generate.comp.spv",
+        config);
+}
+
+void SliceMaskRenderSystem::CreateGoldenUpdatePipelineLayout(
+    VkDescriptorSetLayout searchStateSetLayout, VkDescriptorSetLayout sdfLossSetLayout)
+{
+    std::array<VkDescriptorSetLayout, 2> layouts = {searchStateSetLayout, sdfLossSetLayout};
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(layouts.size());
+    pipelineLayoutInfo.pSetLayouts = layouts.data();
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+    if (vkCreatePipelineLayout(m_lveDevice.device(),
+                               &pipelineLayoutInfo,
+                               nullptr,
+                               &m_goldenUpdatePipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create golden update pipeline layout!");
+    }
+}
+
+void SliceMaskRenderSystem::CreateGoldenUpdatePipeline()
+{
+    PipelineConfigInfo config{};
+    config.pipelineLayout = m_goldenUpdatePipelineLayout;
+    m_goldenUpdatePipeline = std::make_unique<LvePipeline>(
+        m_lveDevice,
+        "../../../res/shaders/spv/wear/shader_golden_update.comp.spv",
         config);
 }
 

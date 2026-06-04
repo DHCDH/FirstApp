@@ -4,6 +4,7 @@
 
 #include "../Global.h"
 #include "Logger.h"
+#include "SliceWearFitter.h"
 #include "LveFrameInfo.h"
 #include "SliceGlobal.h"
 
@@ -29,6 +30,7 @@ SliceResourceContext::SliceResourceContext(LveDevice& lveDevice, uint32_t width,
     CreateUnitGridBuffer();
     CreateSdfResources();
     CreateSdfGenerateResources();
+    CreateSearchStateResources();
 }
 
 void SliceResourceContext::CreateSampler()
@@ -444,10 +446,10 @@ void SliceResourceContext::CreateComputeResources()
     // 更新描述符池
     m_computeDescriptorPool =
         LveDescriptorPool::Builder(m_lveDevice)
-            .SetMaxSets(5)  // Contour + BBox + SDF + SDFLoss + 1
+            .SetMaxSets(7)  // Contour + BBox + SDF + SDFLoss + SearchState + 2 spare
             .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4)
             .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                         10)  // contour(7) + bbox(1) + loss(1)
+                         12)  // contour(7) + bbox(1) + loss(1) + searchState(1)
             .Build();
 
     // 绑定资源并构建 Descriptor Set
@@ -896,6 +898,30 @@ void SliceResourceContext::CreateSdfGenerateResources()
         .WriteBuffer(0, &bufferInfo)
         .WriteImage(1, &imageInfo)
         .Build(m_sdfGenerateDescriptorSet);
+}
+
+void SliceResourceContext::CreateSearchStateResources()
+{
+    m_searchStateBuffer = std::make_unique<LveBuffer>(
+        m_lveDevice,
+        sizeof(GpuSearchState),
+        1,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    m_searchStateBuffer->Map();
+
+    m_searchStateSetLayout =
+        LveDescriptorSetLayout::Builder(m_lveDevice)
+            .AddBinding(0,
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
+                            VK_SHADER_STAGE_FRAGMENT_BIT)
+            .Build();
+
+    auto searchStateBufferInfo = m_searchStateBuffer->DescriptorInfo();
+    LveDescriptorWriter(*m_searchStateSetLayout, *m_computeDescriptorPool)
+        .WriteBuffer(0, &searchStateBufferInfo)
+        .Build(m_searchStateDescriptorSet);
 }
 
 }  // namespace slice

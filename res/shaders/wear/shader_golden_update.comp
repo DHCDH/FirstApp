@@ -1,0 +1,62 @@
+#version 450
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+// Set 0: SearchState SSBO (read/write)
+layout(set = 0, binding = 0, std140) buffer SearchState {
+    float a;
+    float b;
+    float ratio;
+    float tol;
+    float x1;
+    float x2;
+    uint iteration;
+    uint maxIters;
+    uint converged;
+    uint flags;
+    float bestR;
+    float _pad;
+} searchState;
+
+// Set 1: Loss buffer (read/write) — reuses m_sdfLossDescriptorSet binding 1
+layout(set = 1, binding = 1, std430) buffer LossBuffer {
+    uint values[];
+} lossBuffer;
+
+void main() {
+    if (searchState.converged != 0u) {
+        return;
+    }
+
+    if (searchState.iteration == 0u) {
+        // Initialize x1, x2 from bracket
+        searchState.x1 = searchState.a + searchState.ratio * (searchState.b - searchState.a);
+        searchState.x2 = searchState.b - searchState.ratio * (searchState.b - searchState.a);
+        searchState.iteration = 1u;
+    } else {
+        float fLoss1 = float(lossBuffer.values[0]);
+        float fLoss2 = float(lossBuffer.values[1]);
+
+        if (fLoss1 < fLoss2) {
+            searchState.b  = searchState.x2;
+            searchState.x2 = searchState.x1;
+            searchState.x1 = searchState.a + searchState.ratio * (searchState.b - searchState.a);
+        } else {
+            searchState.a  = searchState.x1;
+            searchState.x1 = searchState.x2;
+            searchState.x2 = searchState.b - searchState.ratio * (searchState.b - searchState.a);
+        }
+
+        if ((searchState.b - searchState.a) < searchState.tol) {
+            searchState.converged = 1u;
+            searchState.bestR = (searchState.a + searchState.b) * 0.5;
+        } else if (searchState.iteration >= searchState.maxIters) {
+            searchState.converged = 1u;
+            searchState.bestR = (searchState.a + searchState.b) * 0.5;
+        }
+    }
+
+    // Reset loss buffer for next iteration
+    lossBuffer.values[0] = 0u;
+    lossBuffer.values[1] = 0u;
+}

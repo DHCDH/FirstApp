@@ -120,6 +120,7 @@ void SliceWearFitter::RecordCandidateBatch(const std::vector<float>& candidates,
             m_renderSystem.RecordGrindingWheelCornerRadiusCandiates(cmd,
                                                                     globalDescriptorSet,
                                                                     sdfLossDescriptorSet,
+                                                                    m_context.GetSearchStateDescriptorSet(),
                                                                     pData,
                                                                     candidates,
                                                                     start,
@@ -134,115 +135,130 @@ void SliceWearFitter::RecordCandidateBatch(const std::vector<float>& candidates,
     }
 }
 
+void SliceWearFitter::InitializeSearchState(const FitConfig& config)
+{
+    GpuSearchState state{};
+    state.a = config.grMin;
+    state.b = config.grMax;
+    state.ratio = 0.382f;
+    state.tol = config.tolerance;
+    state.maxIters = config.maxIterations;
+    state.iteration = 0;
+    state.converged = 0;
+    state.flags = 1;  // bit 0 = 1: vertex shader reads x1/x2 from SSBO
+    state.bestR = 0.f;
+    state.x1 = 0.f;
+    state.x2 = 0.f;
+
+    m_context.GetSearchStateBuffer().WriteToBuffer(&state, sizeof(GpuSearchState));
+    m_context.GetSearchStateBuffer().Flush();
+}
+
 float SliceWearFitter::FitGrindingWheelCornerRadius(
     VkCommandBuffer mainCmd, const FitConfig& config,
     ParametricInstancedData& parametricData, VkDescriptorSet globalDescriptorSet,
     const RasterizerData& rasterizerData, const SliceFrameData& frameData,
     const SliceViewConfig& viewConfig)
 {
-    float a = config.grMin;
-    float b = config.grMax;
-    const float ratio = 0.382f;
+    // 1. Initialize search state on GPU buffer
+    InitializeSearchState(config);
 
-    float x1 = a + ratio * (b - a);
-    float x2 = b - ratio * (b - a);
-
-    // 假设 sdfLossDescriptorSet 已经在 Context 中准备好并由外界或 Context 传进来
-    // 暂且从 Context 获取（你需要后续在 Context 中添加对应的 Get 接口）
+    VkDescriptorSet searchStateSet = m_context.GetSearchStateDescriptorSet();
     VkDescriptorSet sdfLossSet = m_context.m_sdfLossDescriptorSet;
 
+    // 2. Record all iterations into a single command buffer
+    VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+
     for (uint32_t iter = 0; iter < config.maxIterations; iter++) {
-        if ((b - a) < config.tolerance) break;
+        // a. Golden update: init x1/x2 on iter 0, or update bracket on iter > 0
+        m_renderSystem.DispatchGoldenUpdate(cmd, searchStateSet, sdfLossSet);
 
-        if (iter == 0) {
-            RENDERDOC_START;
-            INFO("RenderDoc Capture Started for Iteration 0");
-        }
-
-        VkCommandBuffer iterCmd = m_lveDevice.beginSingleTimeCommands();
-
-        // 1. 重置 GPU 上的 Loss 存储缓冲区 (SSBO) 为 0
-        vkCmdFillBuffer(iterCmd,
-                        m_context.m_lossBuffer->GetBuffer(),
-                        0,
-                        VK_WHOLE_SIZE,
-                        0);
-
-        // 插入屏障，确保后续渲染前清零完成
-        VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.buffer = m_context.m_lossBuffer->GetBuffer();
-        barrier.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(iterCmd,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        // Barrier: ensure searchState visible to vertex shader
+        VkBufferMemoryBarrier searchStateBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        searchStateBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        searchStateBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        searchStateBarrier.buffer = m_context.GetSearchStateBuffer().GetBuffer();
+        searchStateBarrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0,
                              0,
                              nullptr,
                              1,
-                             &barrier,
+                             &searchStateBarrier,
                              0,
                              nullptr);
 
-        // --- 评估第一个候选点 ---
-        parametricData.candidatesRadius = x1;
-        parametricData.grIndex = 0;
-        m_rasterizer.ProcessAllPlanes(iterCmd,
+        // b. Evaluate candidate 0
+        parametricData.candidateIndex = 0;
+        m_rasterizer.ProcessAllPlanes(cmd,
                                       m_context,
                                       rasterizerData,
                                       frameData,
                                       viewConfig,
                                       true,
+                                      searchStateSet,
                                       parametricData);
 
-        // --- 评估第二个候选点 ---
-        parametricData.candidatesRadius = x2;
-        parametricData.grIndex = 1;
-        m_rasterizer.ProcessAllPlanes(iterCmd,
+        // c. Evaluate candidate 1
+        parametricData.candidateIndex = 1;
+        m_rasterizer.ProcessAllPlanes(cmd,
                                       m_context,
                                       rasterizerData,
                                       frameData,
                                       viewConfig,
                                       true,
+                                      searchStateSet,
                                       parametricData);
 
-        m_lveDevice.endSingleTimeCommands(iterCmd);
-
-        if (iter == 0) {
-            RENDERDOC_END;
-            INFO("RenderDoc Capture Ended for Iteration 0");
-        }
-
-        m_context.m_lossBuffer->Map();
-        uint32_t* lossData = (uint32_t*)m_context.m_lossBuffer->GetMappedMemory();
-        float fLoss1 = static_cast<float>(lossData[0]);
-        float fLoss2 = static_cast<float>(lossData[1]);
-        m_context.m_lossBuffer->Unmap();
-
-        DEBUG("[Iter %d] x1: %f, x2: %f, Loss1: %f, Loss2: %f",
-              iter,
-              x1,
-              x2,
-              fLoss1,
-              fLoss2);
-
-        if (fLoss1 < fLoss2) {
-            b = x2;
-            x2 = x1;
-            x1 = a + ratio * (b - a);
-        } else {
-            a = x1;
-            x1 = x2;
-            x2 = b - ratio * (b - a);
-        }
+        // Barrier: ensure loss[0], loss[1] visible to golden update compute shader
+        VkBufferMemoryBarrier lossBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        lossBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        lossBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        lossBarrier.buffer = m_context.m_lossBuffer->GetBuffer();
+        lossBarrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(cmd,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             1,
+                             &lossBarrier,
+                             0,
+                             nullptr);
     }
 
-    return (a + b) * 0.5f;
+    // 3. Submit once and wait
+    m_lveDevice.endSingleTimeCommands(cmd);
+
+    // 4. Read back final bestR from GPU (buffer already mapped in CreateSearchStateResources)
+    GpuSearchState* state =
+        reinterpret_cast<GpuSearchState*>(m_context.GetSearchStateBuffer().GetMappedMemory());
+    float bestR = state->bestR;
+
+    INFO("GPU golden section search completed: bestR = %f", bestR);
+    return bestR;
+}
+
+void SliceWearFitter::CleanupThreads()
+{
+    for (auto& res : m_threadResources) {
+        if (res.secondaryBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(m_lveDevice.device(), res.pool, 1, &res.secondaryBuffer);
+        }
+        if (res.pool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(m_lveDevice.device(), res.pool, nullptr);
+        }
+    }
+    m_threadResources.clear();
 }
 
 SliceWearFitter::~SliceWearFitter()
 {
+    CleanupThreads();
 }
 
 }  // namespace slice

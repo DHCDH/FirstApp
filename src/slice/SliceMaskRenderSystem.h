@@ -20,6 +20,7 @@ struct SliceMaskRenderPassData {
     VkFramebuffer frameBuffer;
 
     VkDescriptorSet globalDescriptorSet;
+    VkDescriptorSet searchStateDescriptorSet = VK_NULL_HANDLE;
     lve::LveBuffer* grndWheelInstancesBuffer;
     uint32_t grndWheelInstancesCount;
 };
@@ -35,6 +36,7 @@ struct ParametricInstancedData {
     uint32_t instanceCount;
 
     float candidatesRadius;
+    uint32_t candidateIndex{0};  // 0 or 1 for golden section, or batch index
     uint32_t grIndex;
 };
 
@@ -55,7 +57,8 @@ public:
                           VkDescriptorSetLayout computeSetLayouts,
                           VkDescriptorSetLayout bboxSetLayout,
                           VkDescriptorSetLayout sdfLossSetLayout,
-                          VkDescriptorSetLayout sdfGenerateSetLayout);
+                          VkDescriptorSetLayout sdfGenerateSetLayout,
+                          VkDescriptorSetLayout searchStateSetLayout);
     ~SliceMaskRenderSystem();
 
     SliceMaskRenderSystem(const SliceMaskRenderSystem&) = delete;
@@ -100,17 +103,36 @@ public:
                                    const ParametricInstancedData& data,
                                    VkDescriptorSet globalDescriptorSet,
                                    uint32_t firstInstance);
+
+    void RenderParametricInstances(VkCommandBuffer commandBuffer,
+                                   const ParametricInstancedData& data,
+                                   VkDescriptorSet globalDescriptorSet,
+                                   VkDescriptorSet searchStateDescriptorSet,
+                                   uint32_t firstInstance);
+
     void RecordGrindingWheelCornerRadiusCandiates(VkCommandBuffer commandBuffer,
                                                   VkDescriptorSet globalDescriptorSet,
                                                   VkDescriptorSet sdfLossDescriptorSet,
+                                                  VkDescriptorSet searchStateDescriptorSet,
                                                   const ParametricInstancedData& pData,
                                                   const std::vector<float>& candidates,
                                                   uint32_t start, uint32_t end);
 
+    // Deprecated: use the 3-set overload
     void ComputeSdfLoss(VkCommandBuffer commandBuffer,
                         VkDescriptorSet contourDescriptorSet,
                         VkDescriptorSet sdfLossDescriptorSet,
                         const ParametricInstancedData& pData, float width, float height);
+
+    void ComputeSdfLoss(VkCommandBuffer commandBuffer,
+                        VkDescriptorSet contourDescriptorSet,
+                        VkDescriptorSet sdfLossDescriptorSet,
+                        VkDescriptorSet searchStateDescriptorSet,
+                        const ParametricInstancedData& pData, float width, float height);
+
+    void DispatchGoldenUpdate(VkCommandBuffer commandBuffer,
+                              VkDescriptorSet searchStateDescriptorSet,
+                              VkDescriptorSet sdfLossDescriptorSet);
 
     void ComputeSdfGenerate(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
                             const SdfGeneratePushConstants& push, float width,
@@ -168,14 +190,20 @@ private:
 
     void CreateBBoxPipeline(VkDescriptorSetLayout descriptorSetLayout);
 
-    void CreateWearPipelineLayout(VkDescriptorSetLayout graphicsSetLayout);
+    void CreateWearPipelineLayout(VkDescriptorSetLayout graphicsSetLayout,
+                                   VkDescriptorSetLayout searchStateSetLayout);
     void CreateWearPipelines(VkRenderPass renderPass);
 
-    void CreateWearResolvePipelineLayout(VkDescriptorSetLayout globalLayout,
-                                         VkDescriptorSetLayout sdfLossLayout);
+    void CreateWearResolvePipelineLayout(VkDescriptorSetLayout computeLayout,
+                                         VkDescriptorSetLayout sdfLossLayout,
+                                         VkDescriptorSetLayout searchStateSetLayout);
     void CreateWearResolvePipeline();
 
     void CreateSdfGeneratePipeline(VkDescriptorSetLayout setLayout);
+
+    void CreateGoldenUpdatePipelineLayout(VkDescriptorSetLayout searchStateSetLayout,
+                                          VkDescriptorSetLayout sdfLossSetLayout);
+    void CreateGoldenUpdatePipeline();
 
 private:
     // --- 计算资源 ---
@@ -203,6 +231,10 @@ private:
 
     std::unique_ptr<lve::LvePipeline> m_sdfGeneratePipeline;
     VkPipelineLayout m_sdfGeneratePipelineLayout;
+
+    // Golden section update pipeline
+    VkPipelineLayout m_goldenUpdatePipelineLayout = VK_NULL_HANDLE;
+    std::unique_ptr<lve::LvePipeline> m_goldenUpdatePipeline;
 };
 
 }  // namespace slice

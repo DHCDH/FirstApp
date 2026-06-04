@@ -14,6 +14,23 @@
 
 namespace slice
 {
+// GPU-side golden section search state (std140 layout)
+struct alignas(16) GpuSearchState {
+    float a;            // offset  0: lower bracket bound
+    float b;            // offset  4: upper bracket bound
+    float ratio;        // offset  8: golden ratio inverse (0.382)
+    float tol;          // offset 12: convergence tolerance
+    float x1;           // offset 16: candidate 0
+    float x2;           // offset 20: candidate 1
+    uint32_t iteration; // offset 24: current iteration
+    uint32_t maxIters;  // offset 28: max iterations
+    uint32_t converged; // offset 32: 0=running, 1=done
+    uint32_t flags;     // offset 36: bit0=use SSBO in vertex shader
+    float bestR;        // offset 40: final result
+    float _pad;         // offset 44: pad to 48 bytes
+};
+static_assert(sizeof(GpuSearchState) == 48, "GpuSearchState must be 48 bytes for std140");
+
 class SliceWearFitter
 {
 public:
@@ -48,6 +65,9 @@ private:
     // 初始化/销毁线程资源
     void InitThreads(uint32_t threadCount);
     void CleanupThreads();
+
+    // 初始化GPU搜索状态
+    void InitializeSearchState(const FitConfig& config);
 
     // --- 录制一批候选者的计算指令 ---
     void RecordCandidateBatch(const std::vector<float>& candidates,

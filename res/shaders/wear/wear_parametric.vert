@@ -15,23 +15,55 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 view;
 } ubo;
 
+// SearchState SSBO: golden section search state managed on GPU
+layout(set = 1, binding = 0, std140) buffer SearchState {
+    float a;
+    float b;
+    float ratio;
+    float tol;
+    float x1;
+    float x2;
+    uint iteration;
+    uint maxIters;
+    uint converged;
+    uint flags;
+    float bestR;
+    float _pad;
+} searchState;
+
 layout(push_constant, std140) uniform Push {
-    layout(offset = 0)  vec3 normal; 
-    layout(offset = 16) vec4 grVec;  
-    layout(offset = 32) vec3 point;  
-    layout(offset = 48) vec4 gaVec;  
-    layout(offset = 64) float gR;    
+    layout(offset = 0)  vec3 normal;
+    layout(offset = 16) vec4 grVec;
+    layout(offset = 32) vec3 point;
+    layout(offset = 48) vec4 gaVec;
+    layout(offset = 64) float gR;
     layout(offset = 80) float width;
+    layout(offset = 96) uint candidateIndex;
 } push;
 
 float calculate1V1GrindingWheelRadius(float u0)
 {
     // 1V1砂轮只有两个圆角，一个斜角
-    float gr1 = push.grVec.x;
+    float gr1;
+    if ((searchState.flags & 1u) != 0u) {
+        // GPU-driven golden section: read candidate radius from SSBO
+        gr1 = (push.candidateIndex == 0u) ? searchState.x1 : searchState.x2;
+    } else {
+        // Batch evaluation: read from push constant
+        gr1 = push.grVec.x;
+    }
     float gr2 = push.grVec.y;
-    float gR = push.gR;    // 此处砂轮半径是磨圆角后的砂轮半径
     float ga = push.gaVec.x;
     float gb = push.width;
+
+    float gR;
+    if ((searchState.flags & 1u) != 0u) {
+        // Recompute wheel max radius with actual corner radius from SSBO
+        // gR = R + gr * (1 - 1/tan(ga/2))
+        gR = push.gR + gr1 * (1.0 - 1.0 / tan(ga / 2.0));
+    } else {
+        gR = push.gR;    // 此处砂轮半径是磨圆角后的砂轮半径
+    }
 
     if(u0 < gr1 + gr1 * cos(ga)) {
         return gR - gr1 + sqrt(max(0.0, gr1 * gr1 - (gr1 - u0) * (gr1 - u0)));

@@ -23,7 +23,8 @@ SliceRasterizer::SliceRasterizer(LveDevice& lveDevice, SliceResourceContext& con
         context.m_contourComputeSetLayout->GetDescriptorSetLayout(),
         context.m_bboxComputeSetLayout->GetDescriptorSetLayout(),
         context.m_sdfLossSetLayout->GetDescriptorSetLayout(),
-        context.m_sdfGenerateSetLayout->GetDescriptorSetLayout());
+        context.m_sdfGenerateSetLayout->GetDescriptorSetLayout(),
+        context.m_searchStateSetLayout->GetDescriptorSetLayout());
 }
 
 void SliceRasterizer::UpdateInstances(const std::vector<glm::mat4>& instanceData)
@@ -84,6 +85,20 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        bool isAnalysisRequested,
                                        const ParametricInstancedData& parametricData)
 {
+    ProcessAllPlanes(commandBuffer, context, rasterizerData, frameData, viewConfig,
+                     isAnalysisRequested, context.GetSearchStateDescriptorSet(),
+                     parametricData);
+}
+
+void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
+                                       SliceResourceContext& context,
+                                       const RasterizerData& rasterizerData,
+                                       const SliceFrameData& frameData,
+                                       const SliceViewConfig& viewConfig,
+                                       bool isAnalysisRequested,
+                                       VkDescriptorSet searchStateDescriptorSet,
+                                       const ParametricInstancedData& parametricData)
+{
     uint32_t numPlanes = static_cast<uint32_t>(frameData.planes.size());
     if (numPlanes == 0) {
         throw std::runtime_error("No plane to process");
@@ -94,6 +109,7 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                            context.m_height,
                                            context.m_blankMaskFramebuffer,
                                            context.m_globalDescriptorSet,
+                                           searchStateDescriptorSet,
                                            m_grndWheelInstancesBuffer.get(),
                                            m_grndWheelInstancesCount};
 
@@ -175,6 +191,7 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
         m_renderSystem->ComputeSdfLoss(commandBuffer,
                                        context.m_contourDescriptorSet,
                                        context.m_sdfLossDescriptorSet,
+                                       searchStateDescriptorSet,
                                        parametricData,
                                        context.m_width,
                                        context.m_height);

@@ -142,6 +142,20 @@ public:
         return m_sdfGenerateDescriptorSet;
     }
 
+    // --- Golden Section Search State ---
+    VkDescriptorSetLayout GetSearchStateDescriptorSetLayout() const
+    {
+        return m_searchStateSetLayout->GetDescriptorSetLayout();
+    }
+    VkDescriptorSet GetSearchStateDescriptorSet() const
+    {
+        return m_searchStateDescriptorSet;
+    }
+    lve::LveBuffer& GetSearchStateBuffer() const
+    {
+        return *m_searchStateBuffer;
+    }
+
 private:
     void CreateSampler();          // 创建采样器
     void CreateGlobalResources();  // UBO
@@ -162,6 +176,7 @@ private:
     void CleanupSdfResources();
 
     void CreateSdfGenerateResources();
+    void CreateSearchStateResources();
 
 private:
     lve::LveDevice& m_lveDevice;
@@ -246,6 +261,11 @@ private:
     std::unique_ptr<lve::LveBuffer> m_sdfPointBuffer;
     VkDescriptorSet m_sdfGenerateDescriptorSet = VK_NULL_HANDLE;
     std::unique_ptr<lve::LveDescriptorSetLayout> m_sdfGenerateSetLayout;
+
+    // --- Golden Section Search State ---
+    std::unique_ptr<lve::LveBuffer> m_searchStateBuffer;
+    std::unique_ptr<lve::LveDescriptorSetLayout> m_searchStateSetLayout;
+    VkDescriptorSet m_searchStateDescriptorSet = VK_NULL_HANDLE;
 };
 
 }  // namespace slice

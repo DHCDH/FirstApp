@@ -5,12 +5,13 @@ layout(location = 0) in vec3 vWorldPos;
 layout(location = 0) out uint outMask;
 
 layout(push_constant) uniform Push {
-    layout(offset = 0)  vec3 normal; 
-    layout(offset = 16) vec4 grVec;  
-    layout(offset = 32) vec3 point;  
-    layout(offset = 48) vec4 gaVec;  
-    layout(offset = 64) float gR;    
+    layout(offset = 0)  vec3 normal;
+    layout(offset = 16) vec4 grVec;
+    layout(offset = 32) vec3 point;
+    layout(offset = 48) vec4 gaVec;
+    layout(offset = 64) float gR;
     layout(offset = 80) float width;
+    layout(offset = 96) uint candidateIndex;
 } push;
 
 void main() {

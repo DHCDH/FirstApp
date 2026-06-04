@@ -219,7 +219,7 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
         push,
         m_context->GetWidth(),
         m_context->GetHeight());
-
+#
     // --- 出图：将SDF数据回读到CPU并保存 ---
     // 1. 插入图像内存屏障：等待 Compute Shader 写入完成
     VkImageMemoryBarrier computeToTransferBarrier{};

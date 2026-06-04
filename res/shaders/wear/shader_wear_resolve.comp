@@ -13,7 +13,7 @@ layout(set = 1, binding = 1) buffer LossBuffer {
 
 // 接收来自 C++ 的 push constant
 layout(push_constant) uniform Push {
-    layout(offset = 96) uint index;
+    layout(offset = 96) uint candidateIndex;
 } push;
 
 // 读取点p在掩码图中的值 (3u代表交集容屑槽)
@@ -124,5 +124,5 @@ void main()
     // 计算MSE误差，放大十万倍累计
     uint uError = uint(dist * dist * 100000.0);
 
-    atomicAdd(lossBuffer.values[push.index], uError);
+    atomicAdd(lossBuffer.values[push.candidateIndex], uError);
 }
