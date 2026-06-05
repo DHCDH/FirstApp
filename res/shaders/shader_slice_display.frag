@@ -45,19 +45,20 @@ void main()
         }
     }
 
-    if(isContour) {
-        // 高亮外轮廓
-        outColor = vec4(0., 1., 0., 1.);
-    } else if(push.showMode == 0) {
+    // if(isContour) {
+    //     // 高亮外轮廓
+    //     outColor = vec4(0.4471, 0.7686, 0.7255, 1.);
+    // } else 
+    if(push.showMode == 0) {
         /* ========= 实心模式 (Solid) ========= */
         if (c_Inter) {
-            outColor = vec4(1.0, 0.6, 0.0, 1.0);       // 交集
+            outColor = vec4(0.4471, 0.7686, 0.7255, 1.0);       // 交集
         } else if (c_Blank) {
-            outColor = vec4(0.10, 0.40, 0.70, 1.0);       // 棒料
+            outColor = vec4(0.7961, 0.7961, 0.7490, 1.0);       // 棒料
         } else if (c_Wheel) {
-            outColor = vec4(0.90, 0.20, 0.15, 1.0);       // 砂轮
+            outColor = vec4(0.5608, 0.6667, 0.7922, 1.0);       // 砂轮
         } else {
-            outColor = vec4(0.05, 0.05, 0.08, 1.0); // 背景
+            outColor = vec4(1, 1, 1, 1.0); // 背景
         }
     }
     // } else {

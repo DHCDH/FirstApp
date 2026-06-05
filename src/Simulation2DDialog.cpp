@@ -308,7 +308,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 2048u;
+    const uint32_t FIXED_RES = 4096;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 
@@ -533,7 +533,7 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
     flushSeg();
 
 // 插值
-#if 1
+#if 0
     for (int i = 0; i < m_toolpaths.size(); i++) {
         m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
     }

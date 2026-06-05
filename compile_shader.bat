@@ -87,5 +87,6 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\shader_wear_resolve.frag -o res\shaders\spv\wear\shader_wear_resolve.frag.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\shader_wear_resolve.comp -o res\shaders\spv\wear\shader_wear_resolve.comp.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\shader_sdf_generate.comp -o res\shaders\spv\wear\shader_sdf_generate.comp.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe --target-env=vulkan1.2 res\shaders\wear\shader_golden_update.comp -o res\shaders\spv\wear\shader_golden_update.comp.spv
 
 pause
