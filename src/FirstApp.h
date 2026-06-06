@@ -94,6 +94,10 @@ public:
     {
         return m_grndWheelInstances;
     }
+    const std::vector<ToolPath>& GetToolPaths() const
+    {
+        return m_toolpaths;
+    }
     glm::vec3 GetCameraPosition() const
     {
         return m_orbit.target + m_orbit.offset;

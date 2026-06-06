@@ -17,6 +17,8 @@
 
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
+#include "comparison/CalculateFlute.h"
+#include "comparison/CpuWearInversion.h"
 #include "slice/SliceView.h"
 #include "lve/LveWindow.h"
 
@@ -77,6 +79,7 @@ void MainWindow::InitUI()
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
     QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
+    QPushButton* btnCpuWear = new QPushButton("CPU Wear Inversion", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
     QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
     QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
@@ -93,6 +96,7 @@ void MainWindow::InitUI()
     buttonLayout->addWidget(btnPause);
     buttonLayout->addWidget(btnReset);
     buttonLayout->addWidget(btnInstanced);
+    buttonLayout->addWidget(btnCpuWear);
     buttonLayout->addWidget(labelPos);
     buttonLayout->addWidget(m_camPos);
     buttonLayout->addWidget(labelTarget);
@@ -136,6 +140,7 @@ void MainWindow::InitUI()
         m_vulkanApp->SetInstancesShown(!m_instancedShown);
         m_instancedShown = !m_instancedShown;
     });
+    connect(btnCpuWear, &QPushButton::clicked, this, &MainWindow::OnCpuWearInversion);
     connect(btnUpdateCam, &QPushButton::clicked, this, [this]() {
         auto parseVec3 = [](const QString& str) -> glm::vec3 {
             // 支持逗号或空格分隔
@@ -155,6 +160,63 @@ void MainWindow::InitUI()
             m_vulkanApp->SetCameraPose(pos, target, up);
         }
     });
+}
+
+void MainWindow::OnCpuWearInversion()
+{
+    const auto& toolpaths = m_vulkanApp->GetToolPaths();
+    if (toolpaths.empty()) {
+        QMessageBox::warning(this, tr("警告"), tr("请先加载刀轨文件"));
+        return;
+    }
+
+    // 1. 用参考半径生成目标容屑槽点集并导出为文件
+    const float targetGr = 0.3f;
+    cpu::WheelParams refGp;
+    refGp.gr1 = targetGr;
+    refGp.gr2 = targetGr;
+    refGp.ga = glm::radians(60.f);
+    refGp.gR = 50.f;
+    refGp.width = 10.f;
+
+    cpu::CalculateFlute refCalc(refGp, toolpaths);
+    std::vector<glm::vec3> targetPoints = refCalc.CreateFlute();
+    // CreateFlute 内部已调用 ExportFlutePoints，目标文件已生成
+
+    // 2. 创建反演器，加载目标SDF
+    cpu::CpuWearInversion inversion;
+    inversion.SetViewResolution(512, 512);
+
+    const std::string sdfFilePath =
+        "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison/flute_cpu.txt";
+    if (!inversion.PrepareSdf(sdfFilePath)) {
+        QMessageBox::critical(this, tr("错误"), tr("SDF 生成失败"));
+        return;
+    }
+
+    // 3. 运行优化
+    float bestR = inversion.RunOptimization([&](float r) -> std::vector<glm::vec3> {
+        cpu::WheelParams gp;
+        gp.gr1 = r;
+        gp.gr2 = r;
+        gp.ga = glm::radians(60.f);
+        gp.gR = 50.f;
+        gp.width = 10.f;
+        cpu::CalculateFlute calc(gp, toolpaths);
+        return calc.CreateFlute();
+    });
+
+    // 4. 显示结果
+    QString resultText = QString("最优圆角半径: %1 mm\n"
+                                 "Loss: %2\n"
+                                 "迭代次数: %3\n"
+                                 "参考值: %4 mm")
+                             .arg(bestR, 0, 'f', 6)
+                             .arg(inversion.GetBestLoss(), 0, 'f', 6)
+                             .arg(inversion.GetIterationCount())
+                             .arg(targetGr, 0, 'f', 4);
+
+    QMessageBox::information(this, tr("CPU 磨损反演结果"), resultText);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)

@@ -24,6 +24,7 @@ public:
 private:
     void InitRenderWidget();
     void InitUI();
+    void OnCpuWearInversion();
 
 private:
     QWidget* m_renderWidget;

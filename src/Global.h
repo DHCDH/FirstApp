@@ -48,6 +48,7 @@ struct SliceInstancedInfo {
     VkDescriptorSet globalDescriptorSet;
     glm::vec3 normal{1.f, 0.f, 0.f};
     glm::vec3 point{0.f, 0.f, 0.f};
+    uint32_t overlayStride = 1;  // 线框叠加显示间隔，1=全部显示
 };
 
 // 用于平面全屏大三角绘制

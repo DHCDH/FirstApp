@@ -176,7 +176,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
                                 m_processor->GetGrndWheelInstancesCount(),
                                 m_processor->GetGlobalDescriptorSet(),
                                 frameData.displayPlane.normal,
-                                frameData.displayPlane.point};
+                                frameData.displayPlane.point,
+                                3};  // 每隔5个实例显示1个线框
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 

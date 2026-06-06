@@ -140,7 +140,7 @@ void SliceOverlayRenderSystem::RenderSliceContour(const SliceInstancedInfo& info
                        &push);
 
     // 设置线宽
-    vkCmdSetLineWidth(info.commandBuffer, 0.1f);
+    vkCmdSetLineWidth(info.commandBuffer, 2.5f);
 
     // 绑定顶点和实例
     info.model.Bind(info.commandBuffer);
@@ -148,7 +148,10 @@ void SliceOverlayRenderSystem::RenderSliceContour(const SliceInstancedInfo& info
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(info.commandBuffer, 1, 1, instanceBuffers, offsets);
 
-    info.model.DrawInstanced(info.commandBuffer, info.instanceCount);
+    uint32_t stride = info.overlayStride > 0 ? info.overlayStride : 1;
+    for (uint32_t i = 0; i < info.instanceCount; i += stride) {
+        info.model.DrawInstanced(info.commandBuffer, 1, i);
+    }
 }
 
 }  // namespace lve
