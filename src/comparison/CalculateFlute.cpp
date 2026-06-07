@@ -46,6 +46,7 @@ void CalculateFlute::InitGrindingWheelEquation()
         CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(m_gp.gR,
                                                                             m_gp.gr1,
                                                                             m_gp.ga);
+    /*float gR = m_gp.gR;*/
     float gr1 = m_gp.gr1;
     float gr2 = m_gp.gr2;
     float gb = m_gp.width;
@@ -117,8 +118,8 @@ glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
     glm::vec3 norm_tmp = m_toolpaths[0].normals[0];
     glm::vec3 norm{norm_tmp.y, norm_tmp.z, norm_tmp.x};
 
-    point = glm::vec3(41.6311, 32.6075, -0.9441);
-    norm = glm::vec3(0.4319, -0.6301, 0.6453);
+    //point = glm::vec3(41.6311, 32.6075, -0.9441);
+    //norm = glm::vec3(0.4319, -0.6301, 0.6453);
 
     INFO("p(%f, %f, %f), n(%f, %f, %f)",
          point.x,
@@ -186,7 +187,7 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
     std::vector<M1FgPair> m1fgPairs;
     for (int j = 0; j < m_gEquations.size(); j++) {
         float M1 = m_gRanges[j].second;
-        float deltaM1 = 0.01f;  // mark
+        float deltaM1 = 0.1f;  // mark
         for (float m1 = m_gRanges[j].first; m1 < M1 + deltaM1; m1 += deltaM1) {
             if (m1 > M1) m1 = M1;
             m1fgPairs.push_back({m1, m_gEquations[j](m1)});
@@ -218,7 +219,7 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
     std::counting_semaphore<16> tSemaphore(16);
     std::vector<std::thread> threadsT;
     // Standard_Integer nT = std::abs(T / 0.01);
-    int nT = std::abs(T / 0.001);  // mark
+    int nT = std::abs(T / 0.005);  // mark
     // if (m_rBlade > 10) {
     //    nT = std::abs(T / 0.002);
     //}

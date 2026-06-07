@@ -21,6 +21,7 @@
 #include "comparison/CpuWearInversion.h"
 #include "slice/SliceView.h"
 #include "lve/LveWindow.h"
+#include "Logger.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
@@ -191,22 +192,32 @@ void MainWindow::OnCpuWearInversion()
         return;
     }
 
+    INFO("UDF file path: %s", sdfFilePath.c_str());
+
+    #if 0
     // --- 临时测试：用第一个候选半径生成容屑槽轮廓并输出 ---
     {
         cpu::WheelParams testParams;
-        testParams.gr1 = 0.1f;
-        testParams.gr2 = 0.1f;
+        testParams.gr1 = 0.3f;
+        testParams.gr2 = 0.3f;
         testParams.ga = glm::radians(60.f);
         testParams.gR = 50.f;
         testParams.width = 10.f;
         cpu::CalculateFlute calc(testParams, toolpaths);
         auto points = calc.CreateFlute();
         cpu::CalculateFlute::ExportFlutePoints(points);
-        QMessageBox::information(this, tr("测试"),
-            tr("容屑槽轮廓已输出到文件，程序将退出"));
+
+        float loss = inversion.EvaluatePoints(points);
+        INFO("Test Loss: %f", loss);
+
+        QString msg = QString("容屑槽点集已输出\nLoss: %1\n点数量: %2")
+                          .arg(loss, 0, 'f', 6)
+                          .arg(static_cast<int>(points.size()));
+        QMessageBox::information(this, tr("测试"), msg);
         return;
     }
     // --- 测试结束 ---
+    #endif
 
     // 3. 运行优化
     cpu::WheelParams baseParams;

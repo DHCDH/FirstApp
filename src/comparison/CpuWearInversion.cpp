@@ -48,7 +48,11 @@ float CpuWearInversion::EvaluatePoints(const std::vector<glm::vec3>& points) con
     std::vector<glm::vec2> points2D;
     points2D.reserve(points.size());
     for (const auto& p : points) {
-        points2D.emplace_back(p.y, p.z);
+        // SDF 由原始 flute_1V1_r0.1.txt 生成，其格式为: 列1=-p.y, 列2=-p.x
+        // ParseFlutePointSet 读入后: point.z=列1, point.y=列2
+        // SDF水平轴(physZ)对point.z=刀具Y, SDF垂直轴(physY)对point.y=刀具X
+        // 因此 2D 点应映射为: x→physY→刀具X, y→physZ→刀具Y
+        points2D.emplace_back(-p.x, -p.y);
     }
     return m_lossCalculator.ComputeLoss(points2D, m_sdfGenerator.GetSdf());
 }

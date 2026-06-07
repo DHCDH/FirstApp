@@ -62,14 +62,15 @@ bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
         // 使用 strtof 替代 stringstream，避免每次分配
         const char* p = line.c_str();
         char* end = nullptr;
-        float y = std::strtof(p, &end);
-        if (end == p) continue;  // 解析失败
+        // 文件第1列 = -p.x, 第2列 = -p.y
+        // point.z 对应 SDF 水平轴 (X轴), point.y 对应 SDF 垂直轴 (Y轴)
+        float z = std::strtof(p, &end);
+        if (end == p) continue;
 
-        // 跳过逗号或空格
         p = end;
         while (*p == ',' || *p == ' ') ++p;
 
-        float z = std::strtof(p, &end);
+        float y = std::strtof(p, &end);
 
         m_flutePoints.emplace_back(0.f, y, z, 1.f);
     }
