@@ -177,27 +177,37 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
     float T = 0.5 * M_PI;
     std::mutex mtx_t;
 
-    auto calculate_points_t = [&, this](std::vector<glm::vec3>& coordVec,
-                                        const float z,
-                                        const int k,
-                                        const float& deltaT) {
+    // 预计算全部 (m1, fg) 对，避免内层循环中反复调用 std::function
+    struct M1FgPair
+    {
+        float m1;
+        float fg;
+    };
+    std::vector<M1FgPair> m1fgPairs;
+    for (int j = 0; j < m_gEquations.size(); j++) {
+        float M1 = m_gRanges[j].second;
+        float deltaM1 = 0.01f;  // mark
+        for (float m1 = m_gRanges[j].first; m1 < M1 + deltaM1; m1 += deltaM1) {
+            if (m1 > M1) m1 = M1;
+            m1fgPairs.push_back({m1, m_gEquations[j](m1)});
+        }
+    }
+
+    auto calculate_points_t = [&](std::vector<glm::vec3>& coordVec,
+                                   const float z,
+                                   const int k,
+                                   const float& deltaT) {
         float t = k * deltaT;
         std::vector<glm::vec3> coordVecTmp;
-        for (int j = 0; j < m_gEquations.size(); j++) {
-            float M1 = m_gRanges[j].second;
-            // float deltaM1 = 0.05;
-            float deltaM1 = 0.01;  // mark
-            for (float m1 = m_gRanges[j].first; m1 < M1 + deltaM1; m1 += deltaM1) {
-                if (m1 > M1) m1 = M1;
-                float result[3] = {0.};
-                glm::vec3 coord = SolveNewton2D(m1, t, z, m_gEquations[j](m1), M);
-                if (coord.z == 0) {
-                    // std::lock_guard<std::mutex> lock(mtx_t);
-                    // coordVec.emplace_back(coord);
-                    coordVecTmp.emplace_back(coord);
-                }
+        coordVecTmp.reserve(m1fgPairs.size() / 4);  // 预估 ~1/4 的 m1 会命中
+
+        for (const auto& pair : m1fgPairs) {
+            glm::vec3 coord = SolveNewton2D(pair.m1, t, z, pair.fg, M);
+            if (coord.z == 0) {
+                coordVecTmp.emplace_back(coord);
             }
         }
+
         std::lock_guard<std::mutex> lock(mtx_t);
         coordVec.insert(coordVec.end(), coordVecTmp.begin(), coordVecTmp.end());
     };
@@ -245,70 +255,58 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
     const float A10 = mat[0][1], A11 = mat[1][1], A12 = mat[2][1], A13 = mat[3][1];
     const float A20 = mat[0][2], A21 = mat[1][2], A22 = mat[2][2], A23 = mat[3][2];
 
-    double lambda = 0.0;
+    const double lambda = 0.0;
+    const double cosTL = std::cos(t - lambda);
+    const double sinTL = std::sin(t - lambda);
 
-    auto mxQt = [&](double m2) -> double {
-        return std::cos(t - lambda) *
-                   (A03 + A02 * m1 + A00 * fg * std::cos(m2) + A01 * fg * std::sin(m2)) -
-               std::sin(t - lambda) *
-                   (A13 + A12 * m1 + A10 * fg * std::cos(m2) + A11 * fg * std::sin(m2));
-    };
+    // 预计算不依赖 m2 的部分
+    const double row0_base = A03 + A02 * m1;
+    const double row1_base = A13 + A12 * m1;
+    const double F_const = A23 + A22 * m1 +
+                           (lead * (t - lambda)) / (2.0 * M_PI) - z;
 
-    auto myQt = [&](double m2) -> double {
-        return std::cos(t - lambda) *
-                   (A13 + A12 * m1 + A10 * fg * std::cos(m2) + A11 * fg * std::sin(m2)) +
-               std::sin(t - lambda) *
-                   (A03 + A02 * m1 + A00 * fg * std::cos(m2) + A01 * fg * std::sin(m2));
-    };
+    // 解析求解 F(m2)=0:  A20*fg*cos(m2) + A21*fg*sin(m2) + F_const = 0
+    const double ampA = static_cast<double>(A20) * fg;
+    const double ampB = static_cast<double>(A21) * fg;
+    const double R_amp = std::sqrt(ampA * ampA + ampB * ampB);
 
-    auto F = [&](double m2) -> double {
-        return A23 + A22 * m1 + A20 * fg * std::cos(m2) + A21 * fg * std::sin(m2) +
-               (lead * (t - lambda)) / (2.0 * M_PI) - z;
-    };
+    if (R_amp < 1e-12) return {-1.f, -1.f, -1.f};
 
-    auto dF_dm2 = [F](double m2) -> double {
-        double h = 1e-4;
-        return (F(m2 + h) - F(m2 - h)) / (2 * h);
-    };
+    const double C_prime = -F_const;
+    const double ratio = C_prime / R_amp;
+    if (std::abs(ratio) > 1.0) return {-1.f, -1.f, -1.f};  // 无解
 
-    const double epsilon = 1e-7;
-    const float M2 = 2 * M_PI;
-    const float deltaM2 = M2 / 10;
-    std::array<float, 6> m2Array = {1., 2., 3., 4., 5., 6.};
+    const double phi = std::atan2(ampB, ampA);
+    const double acosVal = std::acos(ratio);
 
-    for (int i = 0; i < m2Array.size(); i++) {
-        for (double m2_ = m2Array[i]; m2_ <= M2; m2_ += deltaM2) {
-            double m2 = m2_;
-            // 牛顿法迭代求解
-            int iterationCount = 0;
-            while (iterationCount < 100) {
-                double fVal = F(m2);
-                double df = dF_dm2(m2);
+    // 两个候选解
+    const double candidates[2] = {phi + acosVal, phi - acosVal};
 
-                if (std::abs(df) < 1e-10) {
-                    break;
-                }
+    const double fx00 = static_cast<double>(A00) * fg;
+    const double fx01 = static_cast<double>(A01) * fg;
+    const double fx10 = static_cast<double>(A10) * fg;
+    const double fx11 = static_cast<double>(A11) * fg;
 
-                if (std::abs(fVal) < epsilon) {
-                    // 已经接近解，返回结果
-                    double x = mxQt(m2);
-                    double y = myQt(m2);
+    for (int i = 0; i < 2; ++i) {
+        double m2 = candidates[i];
+        // 归一化到 [0, 2π)
+        m2 = std::fmod(m2, 2.0 * M_PI);
+        if (m2 < 0.0) m2 += 2.0 * M_PI;
 
-                    if (x * x + y * y <= R * R) {
-                        return {x, y, z};
-                    }
+        const double c = std::cos(m2);
+        const double s = std::sin(m2);
 
-                    break;
-                }
+        const double x = cosTL * (row0_base + fx00 * c + fx01 * s) -
+                         sinTL * (row1_base + fx10 * c + fx11 * s);
+        const double y = cosTL * (row1_base + fx10 * c + fx11 * s) +
+                         sinTL * (row0_base + fx00 * c + fx01 * s);
 
-                // 更新 m2 的值
-                m2 -= fVal / df;
-                iterationCount++;
-            }
+        if (x * x + y * y <= static_cast<double>(R * R)) {
+            return {static_cast<float>(x), static_cast<float>(y), z};
         }
     }
-    //没有找到合适的解
-    return {-1., -1., -1.};
+
+    return {-1.f, -1.f, -1.f};
 }
 
 std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pSet)
