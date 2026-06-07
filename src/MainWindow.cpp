@@ -225,6 +225,12 @@ void MainWindow::OnCpuWearInversion()
     baseParams.gR = 50.f;
     baseParams.width = 10.f;
     baseParams.gr1 = 0.1f;
+    {
+        cpu::FitConfig fitCfg;
+        fitCfg.grMin = baseParams.gr1;
+        fitCfg.grMax = baseParams.width / 2.f;
+        inversion.SetFitConfig(fitCfg);
+    }
     float bestR = inversion.RunOptimization(baseParams, toolpaths);
 
     // 4. 显示结果
