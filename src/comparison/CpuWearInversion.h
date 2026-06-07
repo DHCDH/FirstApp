@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 
-#include <functional>
-#include <memory>
 #include <string>
+#include <vector>
 
+#include "../Global.h"
 #include "CpuLossCalculator.h"
 #include "CpuSdfGenerator.h"
 #include "CpuWearFitter.h"
@@ -27,9 +27,8 @@ public:
     // 加载目标容屑槽点文件并生成SDF距离场
     bool PrepareSdf(const std::string& fluteFilePath);
 
-    // 基于解析轮廓点集的Loss优化
-    // pointProvider: candidateRadius → 该半径下的容屑槽轮廓3D点集
-    float RunOptimization(std::function<std::vector<glm::vec3>(float)> pointProvider);
+    float RunOptimization(const WheelParams& baseParams,
+                          const std::vector<ToolPath>& toolpaths);
 
     // 直接评估一组点的Loss
     float EvaluatePoints(const std::vector<glm::vec3>& points) const;
@@ -47,9 +46,15 @@ private:
     CpuWearFitter m_fitter;
 
     FitConfig m_fitConfig;
-    uint32_t m_sdfWidth = 512;
-    uint32_t m_sdfHeight = 512;
+    uint32_t m_sdfWidth = 1024;
+    uint32_t m_sdfHeight = 1024;
     ViewConfig m_viewConfig;
+
+    float EvaluateRadius(float r);
+    static float EvalLossStatic(float r, void* ctx);
+
+    WheelParams m_wheelParams;
+    std::vector<ToolPath> m_toolpaths;
 
     float m_bestRadius = 0.f;
     float m_bestLoss = 0.f;

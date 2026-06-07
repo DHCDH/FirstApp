@@ -170,51 +170,59 @@ void MainWindow::OnCpuWearInversion()
         return;
     }
 
-    // 1. 用参考半径生成目标容屑槽点集并导出为文件
-    const float targetGr = 0.3f;
-    cpu::WheelParams refGp;
-    refGp.gr1 = targetGr;
-    refGp.gr2 = targetGr;
-    refGp.ga = glm::radians(60.f);
-    refGp.gR = 50.f;
-    refGp.width = 10.f;
-
-    cpu::CalculateFlute refCalc(refGp, toolpaths);
-    std::vector<glm::vec3> targetPoints = refCalc.CreateFlute();
-    // CreateFlute 内部已调用 ExportFlutePoints，目标文件已生成
+    // 1. 弹出文件选择窗口，选择目标容屑槽点集文件（SDF数据源）
+    const QString qPath = QFileDialog::getOpenFileName(
+        this,
+        tr("选择目标容屑槽点集文件"),
+        QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear/"),
+        tr("Text Files (*.txt);;All Files (*.*)"));
+    if (qPath.isEmpty()) {
+        return;
+    }
+    std::filesystem::path path = std::filesystem::u8path(qPath.toUtf8().constData());
+    std::string sdfFilePath = path.string();
 
     // 2. 创建反演器，加载目标SDF
     cpu::CpuWearInversion inversion;
-    inversion.SetViewResolution(512, 512);
+    inversion.SetViewResolution(1024, 1024);
 
-    const std::string sdfFilePath =
-        "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison/flute_cpu.txt";
     if (!inversion.PrepareSdf(sdfFilePath)) {
-        QMessageBox::critical(this, tr("错误"), tr("SDF 生成失败"));
+        QMessageBox::critical(this, tr("错误"), tr("SDF 解析失败"));
         return;
     }
 
+    // --- 临时测试：用第一个候选半径生成容屑槽轮廓并输出 ---
+    {
+        cpu::WheelParams testParams;
+        testParams.gr1 = 0.1f;
+        testParams.gr2 = 0.1f;
+        testParams.ga = glm::radians(60.f);
+        testParams.gR = 50.f;
+        testParams.width = 10.f;
+        cpu::CalculateFlute calc(testParams, toolpaths);
+        auto points = calc.CreateFlute();
+        cpu::CalculateFlute::ExportFlutePoints(points);
+        QMessageBox::information(this, tr("测试"),
+            tr("容屑槽轮廓已输出到文件，程序将退出"));
+        return;
+    }
+    // --- 测试结束 ---
+
     // 3. 运行优化
-    float bestR = inversion.RunOptimization([&](float r) -> std::vector<glm::vec3> {
-        cpu::WheelParams gp;
-        gp.gr1 = r;
-        gp.gr2 = r;
-        gp.ga = glm::radians(60.f);
-        gp.gR = 50.f;
-        gp.width = 10.f;
-        cpu::CalculateFlute calc(gp, toolpaths);
-        return calc.CreateFlute();
-    });
+    cpu::WheelParams baseParams;
+    baseParams.ga = glm::radians(60.f);
+    baseParams.gR = 50.f;
+    baseParams.width = 10.f;
+    baseParams.gr1 = 0.1f;
+    float bestR = inversion.RunOptimization(baseParams, toolpaths);
 
     // 4. 显示结果
     QString resultText = QString("最优圆角半径: %1 mm\n"
                                  "Loss: %2\n"
-                                 "迭代次数: %3\n"
-                                 "参考值: %4 mm")
+                                 "迭代次数: %3")
                              .arg(bestR, 0, 'f', 6)
                              .arg(inversion.GetBestLoss(), 0, 'f', 6)
-                             .arg(inversion.GetIterationCount())
-                             .arg(targetGr, 0, 'f', 4);
+                             .arg(inversion.GetIterationCount());
 
     QMessageBox::information(this, tr("CPU 磨损反演结果"), resultText);
 }

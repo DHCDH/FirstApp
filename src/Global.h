@@ -7,6 +7,7 @@
 #include "lve/LveFrameInfo.h"
 #include "lve/LveTextureManager.h"
 #include "lve/lveSwapChain.h"
+#include "Logger.h"
 
 struct RenderContext {
     lve::LveDevice& device;
@@ -162,8 +163,7 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto durationUs =
             std::chrono::duration_cast<std::chrono::microseconds>(end - m_start).count();
-        std::cout << " [Profiler] " << m_name << " takes: " << durationUs / 1000.0
-                  << " ms\n";
+        INFO("[Profiler] %s takes: %f ms", m_name.c_str(), durationUs / 1000.0);
     }
 
 private:

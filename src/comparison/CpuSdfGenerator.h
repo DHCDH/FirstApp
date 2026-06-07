@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "CpuTypes.h"
 
 namespace cpu
@@ -38,6 +40,10 @@ public:
     {
         return m_flutePoints;
     }
+
+    // 导出SDF距离场数据到文件（JSON元数据 + 二进制数据）
+    // 输出: dirPath/sdf_meta.json 和 dirPath/sdf_data.bin
+    bool ExportSdf(const std::string& dirPath) const;
 
 private:
     std::vector<glm::vec4> m_flutePoints;  // (x=0, y, z, w=1) 世界坐标

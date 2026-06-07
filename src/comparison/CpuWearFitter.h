@@ -31,7 +31,8 @@ public:
     // --- Brent 方法 ---
     // 结合逆抛物线插值与黄金分割回退
     // 在光滑单峰函数上收敛更快
-    float FitBrent(const FitConfig& config, LossEvalFn evalLoss);
+    using BrentLossFn = float (*)(float, void*);
+    float FitBrent(const FitConfig& config, BrentLossFn evalLoss, void* context);
 
     // --- 用于批量评估两个候选点（多切片平面聚合）---
     // 返回两个候选半径的聚合Loss

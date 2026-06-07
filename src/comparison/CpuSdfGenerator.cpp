@@ -2,9 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <limits>
-#include <sstream>
+#include <thread>
+
+#include "../Global.h"
+#include "Logger.h"
 
 namespace cpu
 {
@@ -35,6 +40,7 @@ float SdfImage::Sample(float u, float v) const
 
 bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
 {
+    PROFILE_SCOPE("CpuSdfGenerator::ParseFlutePointSet");
     m_flutePoints.clear();
 
     std::ifstream file(filePath);
@@ -42,27 +48,30 @@ bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
         return false;
     }
 
+    m_flutePoints.reserve(4096);
+
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty()) continue;
 
-        // 跳过注释行、new seg、Plane 等无效行
         if (line.front() == '#' || line.find("new seg") != std::string::npos ||
             line.find("Plane") != std::string::npos) {
             continue;
         }
 
-        // 将逗号替换为空格，方便流读取
-        for (char& ch : line) {
-            if (ch == ',') ch = ' ';
-        }
+        // 使用 strtof 替代 stringstream，避免每次分配
+        const char* p = line.c_str();
+        char* end = nullptr;
+        float y = std::strtof(p, &end);
+        if (end == p) continue;  // 解析失败
 
-        // 提取 y, z 浮点数（文件格式为每行 y, z）
-        std::stringstream ss(line);
-        float y, z;
-        if (ss >> y >> z) {
-            m_flutePoints.emplace_back(0.f, y, z, 1.f);
-        }
+        // 跳过逗号或空格
+        p = end;
+        while (*p == ',' || *p == ' ') ++p;
+
+        float z = std::strtof(p, &end);
+
+        m_flutePoints.emplace_back(0.f, y, z, 1.f);
     }
 
     file.close();
@@ -71,6 +80,7 @@ bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
 
 glm::vec4 CpuSdfGenerator::CalculateSdfMapInfo(uint32_t width, uint32_t height) const
 {
+    PROFILE_SCOPE("CpuSdfGenerator::CalculateSdfMapInfo");
     if (m_flutePoints.empty()) {
         return glm::vec4(0.f);
     }
@@ -102,6 +112,7 @@ glm::vec4 CpuSdfGenerator::CalculateSdfMapInfo(uint32_t width, uint32_t height) 
 void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
                                 const SdfGenConfig& config)
 {
+    PROFILE_SCOPE("CpuSdfGenerator::Generate");
     m_sdf.width = width;
     m_sdf.height = height;
     m_sdf.data.resize(static_cast<size_t>(width) * height);
@@ -112,30 +123,109 @@ void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
     m_sdf.dy = config.dy;
 
     const size_t pointCount = m_flutePoints.size();
+    if (pointCount == 0) return;
 
-    for (uint32_t row = 0; row < height; ++row) {
-        // physY = targetPoint.y + zMax - (row + 0.5) * dy
-        float physY = config.targetPoint.y +
-                      config.zMax - (static_cast<float>(row) + 0.5f) * config.dy;
+    // 将点坐标从 AoS (vec4) 提取为 SoA (两个独立 float 数组)，提升缓存效率
+    std::vector<float> pointZ(pointCount);
+    std::vector<float> pointY(pointCount);
+    for (size_t i = 0; i < pointCount; ++i) {
+        pointZ[i] = m_flutePoints[i].z;
+        pointY[i] = m_flutePoints[i].y;
+    }
 
-        for (uint32_t col = 0; col < width; ++col) {
-            // physZ = targetPoint.z + xMin + (col + 0.5) * dx
-            float physZ = config.targetPoint.z +
-                          config.xMin + (static_cast<float>(col) + 0.5f) * config.dx;
+    // 预计算每列的 physZ（所有行共用）
+    std::vector<float> colPhysZ(width);
+    for (uint32_t col = 0; col < width; ++col) {
+        colPhysZ[col] = config.targetPoint.z +
+                        config.xMin + (static_cast<float>(col) + 0.5f) * config.dx;
+    }
 
-            float minDistSq = 1e10f;
-            for (size_t i = 0; i < pointCount; ++i) {
-                float dZ = physZ - m_flutePoints[i].z;
-                float dY = physY - m_flutePoints[i].y;
-                float d2 = dZ * dZ + dY * dY;
-                if (d2 < minDistSq) {
-                    minDistSq = d2;
+    // 多线程并行：将行分块，每个线程处理一段连续行
+    const unsigned int numThreads =
+        std::max(1u, std::min(16u, std::thread::hardware_concurrency()));
+    const uint32_t rowsPerThread = (height + numThreads - 1) / numThreads;
+
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+
+    for (unsigned int t = 0; t < numThreads; ++t) {
+        uint32_t startRow = t * rowsPerThread;
+        uint32_t endRow = std::min(startRow + rowsPerThread, height);
+        if (startRow >= endRow) break;
+
+        threads.emplace_back([this, width, startRow, endRow, pointCount,
+                              &pointZ, &pointY, &colPhysZ, &config]() {
+            for (uint32_t row = startRow; row < endRow; ++row) {
+                const float physY = config.targetPoint.y +
+                                    config.zMax -
+                                    (static_cast<float>(row) + 0.5f) * config.dy;
+
+                for (uint32_t col = 0; col < width; ++col) {
+                    const float physZ = colPhysZ[col];
+
+                    float minDistSq = 1e10f;
+                    for (size_t i = 0; i < pointCount; ++i) {
+                        const float dZ = physZ - pointZ[i];
+                        const float dY = physY - pointY[i];
+                        const float d2 = dZ * dZ + dY * dY;
+                        if (d2 < minDistSq) {
+                            minDistSq = d2;
+                        }
+                    }
+
+                    m_sdf(row, col) = std::sqrt(minDistSq);
                 }
             }
-
-            m_sdf(row, col) = std::sqrt(minDistSq);
-        }
+        });
     }
+
+    for (auto& th : threads) {
+        th.join();
+    }
+}
+
+bool CpuSdfGenerator::ExportSdf(const std::string& dirPath) const
+{
+    PROFILE_SCOPE("CpuSdfGenerator::ExportSdf");
+    if (m_sdf.data.empty()) {
+        ERROR("ExportSdf: no SDF data to export");
+        return false;
+    }
+
+    std::filesystem::create_directories(dirPath);
+
+    // JSON元数据
+    std::string metaPath = dirPath + "/sdf_meta.json";
+    std::ofstream meta(metaPath);
+    if (!meta.is_open()) {
+        ERROR("ExportSdf: failed to open %s", metaPath.c_str());
+        return false;
+    }
+    meta << "{\n";
+    meta << "  \"width\": " << m_sdf.width << ",\n";
+    meta << "  \"height\": " << m_sdf.height << ",\n";
+    meta << "  \"targetPoint\": [" << m_sdf.targetPoint.x << ", "
+         << m_sdf.targetPoint.y << ", " << m_sdf.targetPoint.z << "],\n";
+    meta << "  \"xMin\": " << m_sdf.xMin << ",\n";
+    meta << "  \"zMax\": " << m_sdf.zMax << ",\n";
+    meta << "  \"dx\": " << m_sdf.dx << ",\n";
+    meta << "  \"dy\": " << m_sdf.dy << "\n";
+    meta << "}\n";
+    meta.close();
+
+    // 二进制距离场数据 (float32, row-major)
+    std::string dataPath = dirPath + "/sdf_data.bin";
+    std::ofstream data(dataPath, std::ios::binary);
+    if (!data.is_open()) {
+        ERROR("ExportSdf: failed to open %s", dataPath.c_str());
+        return false;
+    }
+    data.write(reinterpret_cast<const char*>(m_sdf.data.data()),
+               m_sdf.data.size() * sizeof(float));
+    data.close();
+
+    INFO("Exported SDF (%dx%d) to %s", m_sdf.width, m_sdf.height, dirPath.c_str());
+    return true;
 }
 
 }  // namespace cpu

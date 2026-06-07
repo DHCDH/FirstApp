@@ -75,7 +75,7 @@ struct ViewConfig {
 struct FitConfig {
     float grMin = 0.01f;
     float grMax = 1.5f;
-    float tolerance = 0.0001f;
+    float tolerance = 0.001f;
     uint32_t maxIterations = 25;
 };
 

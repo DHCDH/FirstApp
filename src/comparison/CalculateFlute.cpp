@@ -9,6 +9,9 @@
 #include <thread>
 #include <vector>
 
+#include "CalculateGrindingWheelMaxRadius.h"
+#include "Logger.h"
+
 static const float M_PI = glm::pi<float>();
 static const float M_PI_2 = glm::pi<float>() / 2.f;
 
@@ -22,6 +25,7 @@ namespace cpu
 {
 std::vector<glm::vec3> CalculateFlute::CreateFlute()
 {
+    PROFILE_SCOPE("CalculateFlute::CreateFlute");
     InitGrindingWheelEquation();
 
     // 获取砂轮位姿矩阵
@@ -37,11 +41,17 @@ std::vector<glm::vec3> CalculateFlute::CreateFlute()
 
 void CalculateFlute::InitGrindingWheelEquation()
 {
-    float gR = m_gp.gR;
+    PROFILE_SCOPE("CalculateFlute::InitGrindingWheelEquation");
+    float gR =
+        CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(m_gp.gR,
+                                                                            m_gp.gr1,
+                                                                            m_gp.ga);
     float gr1 = m_gp.gr1;
     float gr2 = m_gp.gr2;
     float gb = m_gp.width;
     float ga = m_gp.ga;
+
+    INFO("gR: %f, gr1: %f, gb: %f, ga: %f", gR, gr1, gb, ga);
 
     switch (m_grndWheelType) {
         case GrindingWheelType::PERIPHERY: {
@@ -98,6 +108,7 @@ void CalculateFlute::InitGrindingWheelEquation()
 
 glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
 {
+    PROFILE_SCOPE("CalculateFlute::CalculateGrindingWheelPose");
     glm::mat4 matrix;
 
     glm::vec3 p_tmp = m_toolpaths[0].points[0];
@@ -106,6 +117,17 @@ glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
     glm::vec3 norm_tmp = m_toolpaths[0].normals[0];
     glm::vec3 norm{norm_tmp.y, norm_tmp.z, norm_tmp.x};
 
+    point = glm::vec3(41.6311, 32.6075, -0.9441);
+    norm = glm::vec3(0.4319, -0.6301, 0.6453);
+
+    INFO("p(%f, %f, %f), n(%f, %f, %f)",
+         point.x,
+         point.y,
+         point.z,
+         norm.x,
+         norm.y,
+         norm.z);
+
     matrix = CalculateMatrix(norm, point);
 
     return matrix;
@@ -113,12 +135,15 @@ glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
 
 glm::mat4 CalculateFlute::CalculateMatrix(const glm::vec3& normal, const glm::vec3& point)
 {
+    PROFILE_SCOPE("CalculateFlute::CalculateMatrix");
     glm::vec3 DY{0.f, 0.f, 1.f};
     glm::vec3 axis{};
     axis = glm::cross(DY, normal);
 
     float lambda = std::acos(glm::dot(DY, normal));
+    //DEBUG("lambda = %f rad (%f deg)", lambda, glm::degrees(lambda));
     axis = glm::normalize(axis);
+    //DEBUG("axis = (%f, %f, %f)", axis.x, axis.y, axis.z);
 
     const glm::mat4 K{
         glm::vec4(0.0f, axis.z, -axis.y, 0.0f),  // column 0
@@ -126,6 +151,10 @@ glm::mat4 CalculateFlute::CalculateMatrix(const glm::vec3& normal, const glm::ve
         glm::vec4(axis.y, -axis.x, 0.0f, 0.0f),  // column 2
         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)        // column 3 (homogeneous)
     };
+    // Print rows (matching original row-major display)
+    //for (int row = 0; row < 4; ++row) {
+    //    DEBUG("K | % f % f % f % f |", K[0][row], K[1][row], K[2][row], K[3][row]);
+    //}
 
     const glm::mat4 I(1.0f);
     const float s = std::sin(lambda);
@@ -135,11 +164,16 @@ glm::mat4 CalculateFlute::CalculateMatrix(const glm::vec3& normal, const glm::ve
 
     R[3] = glm::vec4(point[0], point[1], point[2], 1.0f);
 
+    //for (int row = 0; row < 4; ++row) {
+    //    DEBUG("R | % f % f % f % f |", R[0][row], R[1][row], R[2][row], R[3][row]);
+    //}
+
     return R;
 }
 
 std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M)
 {
+    PROFILE_SCOPE("CalculateFlute::CalculateFlutePointSet");
     float T = 0.5 * M_PI;
     std::mutex mtx_t;
 
@@ -211,33 +245,33 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
     const float A10 = mat[0][1], A11 = mat[1][1], A12 = mat[2][1], A13 = mat[3][1];
     const float A20 = mat[0][2], A21 = mat[1][2], A22 = mat[2][2], A23 = mat[3][2];
 
-    float lambda = 0.0f;
+    double lambda = 0.0;
 
-    auto mxQt = [&](float m2) -> float {
+    auto mxQt = [&](double m2) -> double {
         return std::cos(t - lambda) *
                    (A03 + A02 * m1 + A00 * fg * std::cos(m2) + A01 * fg * std::sin(m2)) -
                std::sin(t - lambda) *
                    (A13 + A12 * m1 + A10 * fg * std::cos(m2) + A11 * fg * std::sin(m2));
     };
 
-    auto myQt = [&](float m2) -> float {
+    auto myQt = [&](double m2) -> double {
         return std::cos(t - lambda) *
                    (A13 + A12 * m1 + A10 * fg * std::cos(m2) + A11 * fg * std::sin(m2)) +
                std::sin(t - lambda) *
                    (A03 + A02 * m1 + A00 * fg * std::cos(m2) + A01 * fg * std::sin(m2));
     };
 
-    auto F = [&](float m2) -> float {
+    auto F = [&](double m2) -> double {
         return A23 + A22 * m1 + A20 * fg * std::cos(m2) + A21 * fg * std::sin(m2) +
-               (lead * (t - lambda)) / (2.0f * glm::pi<float>()) - z;
+               (lead * (t - lambda)) / (2.0 * M_PI) - z;
     };
 
-    auto dF_dm2 = [F](const float& m2) {
-        float h = 1e-4;
+    auto dF_dm2 = [F](double m2) -> double {
+        double h = 1e-4;
         return (F(m2 + h) - F(m2 - h)) / (2 * h);
     };
 
-    const float epsilon = 1e-7;
+    const double epsilon = 1e-7;
     const float M2 = 2 * M_PI;
     const float deltaM2 = M2 / 10;
     std::array<float, 6> m2Array = {1., 2., 3., 4., 5., 6.};
@@ -252,8 +286,7 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
                 double df = dF_dm2(m2);
 
                 if (std::abs(df) < 1e-10) {
-                    // 防止除以零，跳过此迭代
-                    continue;
+                    break;
                 }
 
                 if (std::abs(fVal) < epsilon) {
@@ -280,6 +313,7 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
 
 std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pSet)
 {
+    PROFILE_SCOPE("CalculateFlute::ProcessPointSet");
     if (pSet.size() <= 2) return pSet;
 
     glm::vec3 pO{0.f, 0.f, 0.f};
@@ -361,6 +395,7 @@ std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pS
 
 void CalculateFlute::ExportFlutePoints(const std::vector<glm::vec3>& points)
 {
+    PROFILE_SCOPE("CalculateFlute::ExportFlutePoints");
     const std::string dirPath = "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison";
     const std::string filePath = dirPath + "/flute_cpu.txt";
 
@@ -368,16 +403,16 @@ void CalculateFlute::ExportFlutePoints(const std::vector<glm::vec3>& points)
 
     std::ofstream file(filePath);
     if (!file.is_open()) {
-        std::cerr << "Failed to open output file: " << filePath << std::endl;
+        ERROR("Failed to open output file: %s", filePath.c_str());
         return;
     }
 
     for (const auto& p : points) {
-        file << p.y << ", " << p.z << '\n';
+        file << p.x << ", " << p.y << '\n';
     }
 
     file.close();
-    std::cout << "Exported " << points.size() << " flute points to " << filePath << std::endl;
+    INFO("Exported %d flute points to %s", points.size(), filePath.c_str());
 }
 
 }  // namespace cpu

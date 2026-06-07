@@ -10,7 +10,7 @@ public:
      * @brief 计算1V1砂轮倒圆角后的最大半径
      * @param R 砂轮半径（倒圆角前）
      * @param gr 圆角半径
-     * @param ga 砂轮角度（deg）
+     * @param ga 砂轮角度（Rad）
      * @return 砂轮倒圆角后的最大半径
      */
     static float Calculate1V1GrindingWheelMaxRadius(float R, float gr, float ga)

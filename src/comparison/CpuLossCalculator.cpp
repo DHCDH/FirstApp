@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../Global.h"
+
 namespace cpu
 {
 
 float CpuLossCalculator::ComputeLoss(const std::vector<glm::vec2>& points,
                                       const SdfImage& sdf) const
 {
+    PROFILE_SCOPE("CpuLossCalculator::ComputeLoss");
     if (points.empty() || !sdf.IsValid()) {
         return 0.f;
     }

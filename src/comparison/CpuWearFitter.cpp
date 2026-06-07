@@ -5,11 +5,14 @@
 #include <iostream>
 #include <limits>
 
+#include "../Global.h"
+
 namespace cpu
 {
 
 float CpuWearFitter::FitGoldenSection(const FitConfig& config, LossEvalFn evalLoss)
 {
+    PROFILE_SCOPE("CpuWearFitter::FitGoldenSection");
     float a = config.grMin;
     float b = config.grMax;
     constexpr float ratio = 0.382f;  // 1 - phi, phi = (sqrt(5)-1)/2 ≈ 0.618
@@ -42,8 +45,9 @@ float CpuWearFitter::FitGoldenSection(const FitConfig& config, LossEvalFn evalLo
     return (a + b) * 0.5f;
 }
 
-float CpuWearFitter::FitBrent(const FitConfig& config, LossEvalFn evalLoss)
+float CpuWearFitter::FitBrent(const FitConfig& config, BrentLossFn evalLoss, void* context)
 {
+    PROFILE_SCOPE("CpuWearFitter::FitBrent");
     constexpr float cgold = 0.381966011f;  // 1 - phi
     const float eps = std::numeric_limits<float>::epsilon();
     const float tol = config.tolerance;
@@ -53,7 +57,7 @@ float CpuWearFitter::FitBrent(const FitConfig& config, LossEvalFn evalLoss)
 
     // x = 当前最佳点, w = 第二佳点, v = 第三佳点
     float x = a + cgold * (b - a);
-    float fx = evalLoss(x);
+    float fx = evalLoss(x, context);
     float w = x, v = x;
     float fw = fx, fv = fx;
 
@@ -114,7 +118,7 @@ float CpuWearFitter::FitBrent(const FitConfig& config, LossEvalFn evalLoss)
             u = x + (d > 0.f ? tol1 : -tol1);
         }
 
-        float fu = evalLoss(u);
+        float fu = evalLoss(u, context);
 
         // 更新 a, b, x, w, v
         if (fu <= fx) {
