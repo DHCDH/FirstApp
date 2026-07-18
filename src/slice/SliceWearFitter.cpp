@@ -261,6 +261,8 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
 
         float fu = evalPoint(u);
 
+        INFO("Iteration %d: radius = %.6f, loss = %.0f (%.6f mm^2)", iter, u, fu, fu / 100000.0f);
+
         // Update a, b, x, w, v
         if (fu <= fx) {
             if (u < x) b = x;

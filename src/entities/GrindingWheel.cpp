@@ -154,7 +154,7 @@ void GrindingWheel::CalculateGrindingWheelInstances(
 
             instances.emplace_back(instance);
 
-            if (i > 400) break;
+            //if (i > 400) break;
         }
         count++;
     }

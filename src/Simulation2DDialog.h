@@ -64,7 +64,12 @@ private:
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
-    std::vector<ToolPath> m_toolpaths;  // 刀轨
+    std::vector<ToolPath> m_rawToolpaths;  // 原始刀轨（插值前，保留用于重新插值）
+    std::vector<ToolPath> m_toolpaths;     // 当前使用的刀轨（原始或插值后）
+
+    // --- 刀轨插值控制 ---
+    QLabel* m_labelToolPathStats;    // 显示刀轨统计信息
+    QLineEdit* m_editInterpStep;     // 插值步长输入
 
     std::string m_targetFlutePath;
 
@@ -78,6 +83,7 @@ private:
 
     int ReadToolPath(std::filesystem::path path);
     void UpdateToolPath(std::filesystem::path path);
+    void ApplyInterpolation();
     void UpdateGrindingWheelInstances();
 
 protected:

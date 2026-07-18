@@ -73,6 +73,18 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
     controlLayout->addWidget(m_checkParametricWheelRequested);
+
+    // --- 刀轨插值控制 ---
+    controlLayout->addWidget(new QLabel("--- Toolpath ---", this));
+    m_labelToolPathStats = new QLabel("No toolpath loaded", this);
+    m_labelToolPathStats->setWordWrap(true);
+    controlLayout->addWidget(m_labelToolPathStats);
+    controlLayout->addWidget(new QLabel("Interp Step (mm)", this));
+    m_editInterpStep = new QLineEdit("0.5", this);
+    controlLayout->addWidget(m_editInterpStep);
+    QPushButton* btnInterpolate = new QPushButton("Interpolate", this);
+    controlLayout->addWidget(btnInterpolate);
+
     controlLayout->addStretch();
 
     /*初始化防抖定时器*/
@@ -185,6 +197,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
                     m_sliceView->SetParametricWheelRequested(false);
                 }
             });
+
+    connect(btnInterpolate, &QPushButton::clicked, this, [this]() {
+        ApplyInterpolation();
+    });
 }
 
 void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
@@ -308,7 +324,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 4096;
+    const uint32_t FIXED_RES = 1024;
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 
@@ -532,12 +548,26 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
 
     flushSeg();
 
-// 插值
-#if 0
-    for (int i = 0; i < m_toolpaths.size(); i++) {
-        m_toolpaths[i] = DualNURBSCurveInterpolator::Interpolate(m_toolpaths[i], 0.1);
+    // 保存原始刀轨（插值前）
+    m_rawToolpaths = m_toolpaths;
+
+    // 计算并显示统计信息
+    int totalPts = 0;
+    double totalChord = 0.0;
+    for (const auto& tp : m_rawToolpaths) {
+        totalPts += tp.size;
+        for (size_t j = 1; j < tp.size; j++) {
+            totalChord += glm::distance(tp.points[j], tp.points[j - 1]);
+        }
     }
-#endif
+    int numSegs = totalPts > 0 ? totalPts - (int)m_rawToolpaths.size() : 0;
+    double avgStep = numSegs > 0 ? totalChord / numSegs : 0.0;
+
+    m_labelToolPathStats->setText(
+        QString("Segments: %1 | Points: %2\nAvg step: %3 mm")
+            .arg(m_rawToolpaths.size())
+            .arg(totalPts)
+            .arg(avgStep, 0, 'f', 3));
 
     DEBUG("Parse tool path succeed: ", path.string());
 
@@ -547,7 +577,45 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
 void Simulation2DDialog::UpdateToolPath(std::filesystem::path path)
 {
     m_toolpaths.clear();
+    m_rawToolpaths.clear();
     ReadToolPath(path);
+}
+
+void Simulation2DDialog::ApplyInterpolation()
+{
+    if (m_rawToolpaths.empty()) {
+        DEBUG("No toolpath loaded, skip interpolation");
+        return;
+    }
+
+    bool ok = false;
+    float stepLength = m_editInterpStep->text().toFloat(&ok);
+    if (!ok || stepLength <= 0.f) {
+        DEBUG("Invalid interpolation step length: ", m_editInterpStep->text().toStdString());
+        return;
+    }
+
+    m_toolpaths.clear();
+    for (const auto& raw : m_rawToolpaths) {
+        m_toolpaths.push_back(DualNURBSCurveInterpolator::Interpolate(raw, stepLength));
+    }
+
+    // 更新统计显示
+    int totalPts = 0;
+    for (const auto& tp : m_toolpaths) {
+        totalPts += tp.size;
+    }
+    m_labelToolPathStats->setText(
+        QString("Segments: %1 | Interpolated: %2 pts\nStep: %3 mm")
+            .arg(m_toolpaths.size())
+            .arg(totalPts)
+            .arg(stepLength, 0, 'f', 3));
+
+    UpdateGrindingWheelInstances();
+
+    if (m_grndWheel && m_blank) {
+        BuildContactMask();
+    }
 }
 
 void Simulation2DDialog::UpdateGrindingWheelInstances()
