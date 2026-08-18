@@ -12,18 +12,14 @@ ToolPath DualNURBSCurveInterpolator::Interpolate(const ToolPath& input, float st
     const double L = 1.;
 
     std::vector<glm::dvec3> tipPoints, axisPoints;
-    double totalDist = 0.;
+    double xSpan = 0.;
     for (size_t i = 0; i < input.size; i++) {
         glm::dvec3 p(input.points[i]);
         glm::dvec3 n(input.normals[i]);
         tipPoints.push_back(p);
         axisPoints.push_back(p + n * L);
-
-        // 提前计算总弦长
-        if (i > 0) {
-            totalDist += glm::distance(input.points[i], input.points[i - 1]);
-        }
     }
+    xSpan = std::abs(input.points.back().x - input.points.front().x);
 
     std::vector<double> params = CalculateSharedParams(input);
     std::vector<double> knots = GenerateKnots(params, degree);
@@ -39,7 +35,7 @@ ToolPath DualNURBSCurveInterpolator::Interpolate(const ToolPath& input, float st
     ToolPath result;
 
     // 放弃使用导数的动态补偿，直接计算出精确的插值点数量
-    int numPoints = std::max(2, static_cast<int>(std::ceil(totalDist / stepLength)));
+    int numPoints = std::max(2, static_cast<int>(std::ceil(xSpan / stepLength)) + 1);
     double du = 1.0 / static_cast<double>(numPoints - 1);
 
     for (int i = 0; i < numPoints; i++) {

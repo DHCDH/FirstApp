@@ -12,7 +12,6 @@ namespace cpu
 
 float CpuWearFitter::FitGoldenSection(const FitConfig& config, LossEvalFn evalLoss)
 {
-    PROFILE_SCOPE("CpuWearFitter::FitGoldenSection");
     float a = config.grMin;
     float b = config.grMax;
     constexpr float ratio = 0.382f;  // 1 - phi, phi = (sqrt(5)-1)/2 ≈ 0.618
@@ -47,7 +46,6 @@ float CpuWearFitter::FitGoldenSection(const FitConfig& config, LossEvalFn evalLo
 
 float CpuWearFitter::FitBrent(const FitConfig& config, BrentLossFn evalLoss, void* context)
 {
-    PROFILE_SCOPE("CpuWearFitter::FitBrent");
     constexpr float cgold = 0.381966011f;  // 1 - phi
     const float eps = std::numeric_limits<float>::epsilon();
     const float tol = config.tolerance;

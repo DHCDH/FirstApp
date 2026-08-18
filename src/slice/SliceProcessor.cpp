@@ -197,7 +197,7 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
     auto points = m_wearCalculator->GetFlutePointSet();
     m_context->SetSdfBuffer(points);
 
-    RENDERDOC_START;
+    // RENDERDOC_START;
 
     VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
 
@@ -219,9 +219,9 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
         push,
         m_context->GetWidth(),
         m_context->GetHeight());
-#
+
+#if 0
     // --- 出图：将SDF数据回读到CPU并保存 ---
-    // 1. 插入图像内存屏障：等待 Compute Shader 写入完成
     VkImageMemoryBarrier computeToTransferBarrier{};
     computeToTransferBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     computeToTransferBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -241,10 +241,9 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                          1,
                          &computeToTransferBarrier);
 
-    // 2. 创建一个临时的 Host-Visible Buffer 用于接收图像数据
     uint32_t width = m_context->GetWidth();
     uint32_t height = m_context->GetHeight();
-    VkDeviceSize imageSize = width * height * sizeof(float);  // UDF 是 R32F 格式
+    VkDeviceSize imageSize = width * height * sizeof(float);
     lve::LveBuffer readbackBuffer(
         m_lveDevice,
         sizeof(float),
@@ -252,10 +251,9 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    // 3. 录制拷贝命令：Image -> Buffer
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
-    region.bufferRowLength = 0;  // 0 表示紧凑排列
+    region.bufferRowLength = 0;
     region.bufferImageHeight = 0;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
@@ -271,8 +269,6 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                            1,
                            &region);
 
-    // --- 回读保存结束 ---
-
     m_rasterizer->TransitionImageLayout(cmd,
                                         m_context->GetSdfImage(),
                                         VK_IMAGE_LAYOUT_GENERAL,
@@ -280,15 +276,11 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
 
     m_lveDevice.endSingleTimeCommands(cmd);
 
-    // --- 保存UDF数据 ---
     readbackBuffer.Map();
     float* mappedData = static_cast<float*>(readbackBuffer.GetMappedMemory());
 
-    // 强烈推荐保存为 .bin 二进制文件。
-    // 原因：R32F 包含几百万个浮点数，转成 .csv
-    // 文本不仅体积暴增(几十MB)，还容易丢失浮点精度。
     std::string outPath =
-        "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/udf_output.bin";
+        "D:/Data/Study/vulkan/articles/text/images/chapter5/udf/udf_output.bin";
     std::ofstream outFile(outPath, std::ios::out | std::ios::binary);
     if (outFile.is_open()) {
         outFile.write(reinterpret_cast<const char*>(mappedData), imageSize);
@@ -300,9 +292,17 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
         ERROR("Failed to open file for UDF export!");
     }
     readbackBuffer.Unmap();
+#endif
     // --- 保存UDF完成 ---
 
-    RENDERDOC_END;
+    m_rasterizer->TransitionImageLayout(cmd,
+                                        m_context->GetSdfImage(),
+                                        VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    m_lveDevice.endSingleTimeCommands(cmd);
+
+    // RENDERDOC_END;
 
     SliceWearFitter::FitConfig config{};
     config.grMin = 0.01f;
@@ -329,6 +329,78 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                                    fitViewConfig);
 
     INFO("Best corner radius: %f", bestCornerRadius);
+
+#if 0
+    // --- GPU轮廓提取：用最优圆角半径渲染并提取容屑槽点集 ---
+    {
+        auto& searchBuf = m_context->GetSearchStateBuffer();
+        if (!searchBuf.GetMappedMemory()) {
+            searchBuf.Map();
+        }
+        GpuSearchState* searchState =
+            reinterpret_cast<GpuSearchState*>(searchBuf.GetMappedMemory());
+        uint32_t savedFlags = searchState->flags;
+        searchState->flags = 0;
+
+        m_parametricInstancedData.candidatesRadius = bestCornerRadius;
+        m_parametricInstancedData.extractContour = true;
+
+        VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+        m_rasterizer->ProcessAllPlanes(cmd, *m_context, rasterizerData, frameData,
+                                       fitViewConfig, true, m_parametricInstancedData);
+        m_lveDevice.endSingleTimeCommands(cmd);
+
+        searchState->flags = savedFlags;
+        m_parametricInstancedData.extractContour = false;
+
+        lve::LveBuffer* readbackBuf = m_context->GetReadbackBuffer();
+        readbackBuf->Map();
+        auto* dataPtr = static_cast<char*>(readbackBuf->GetMappedMemory());
+
+        size_t countOffset = sizeof(ResultData) * MAX_PLANES;
+        uint32_t pointCount = *reinterpret_cast<uint32_t*>(dataPtr + countOffset);
+
+        size_t pointsOffset =
+            sizeof(ResultData) * MAX_PLANES + sizeof(uint32_t) * MAX_PLANES;
+        auto* points = reinterpret_cast<glm::vec2*>(dataPtr + pointsOffset);
+
+        if (pointCount > 0 && pointCount <= MAX_POINTS) {
+            std::string outPath =
+                "D:/Data/Study/vulkan/articles/text/images/chapter5/udf/"
+                "flute_contour_bestR_" +
+                std::to_string(bestCornerRadius) + ".txt";
+            std::ofstream outFile(outPath);
+            if (outFile.is_open()) {
+                for (uint32_t i = 0; i < pointCount; i++) {
+                    outFile << points[i].x << ", " << points[i].y << "\n";
+                }
+                outFile.close();
+                INFO("Exported %u GPU contour points (bestR=%.4f) to %s",
+                     pointCount, bestCornerRadius, outPath.c_str());
+
+                std::string metaPath =
+                    "D:/Data/Study/vulkan/articles/text/images/chapter5/udf/"
+                    "flute_contour_meta.txt";
+                std::ofstream metaFile(metaPath);
+                if (metaFile.is_open()) {
+                    metaFile << "phys_size_mm=" << physSize << "\n";
+                    metaFile << "best_r=" << bestCornerRadius << "\n";
+                    metaFile << "width=" << m_context->GetWidth() << "\n";
+                    metaFile << "height=" << m_context->GetHeight() << "\n";
+                    metaFile.close();
+                    INFO("Exported metadata (physSize=%.4f) to %s",
+                         physSize, metaPath.c_str());
+                }
+            } else {
+                ERROR("Failed to open contour export: %s", outPath.c_str());
+            }
+        } else {
+            ERROR("Invalid GPU contour point count: %u", pointCount);
+        }
+
+        readbackBuf->Unmap();
+    }
+#endif
 
     // 暂时忽略Analyzer的工作
 

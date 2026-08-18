@@ -79,11 +79,25 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_labelToolPathStats = new QLabel("No toolpath loaded", this);
     m_labelToolPathStats->setWordWrap(true);
     controlLayout->addWidget(m_labelToolPathStats);
-    controlLayout->addWidget(new QLabel("Interp Step (mm)", this));
+    controlLayout->addWidget(new QLabel("Interp X Step (mm)", this));
     m_editInterpStep = new QLineEdit("0.5", this);
     controlLayout->addWidget(m_editInterpStep);
     QPushButton* btnInterpolate = new QPushButton("Interpolate", this);
     controlLayout->addWidget(btnInterpolate);
+
+    // --- 螺旋线刀轨生成控制 ---
+    controlLayout->addWidget(new QLabel("--- Helix ---", this));
+    controlLayout->addWidget(new QLabel("Helix Angle (deg)", this));
+    m_editHelixAngle = new QLineEdit("30.0", this);
+    controlLayout->addWidget(m_editHelixAngle);
+    controlLayout->addWidget(new QLabel("Length (mm)", this));
+    m_editHelixLength = new QLineEdit("10.0", this);
+    controlLayout->addWidget(m_editHelixLength);
+    controlLayout->addWidget(new QLabel("X Step (mm)", this));
+    m_editHelixXStep = new QLineEdit("0.5", this);
+    controlLayout->addWidget(m_editHelixXStep);
+    QPushButton* btnGenerateHelix = new QPushButton("Generate Helix", this);
+    controlLayout->addWidget(btnGenerateHelix);
 
     controlLayout->addStretch();
 
@@ -200,6 +214,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     connect(btnInterpolate, &QPushButton::clicked, this, [this]() {
         ApplyInterpolation();
+    });
+
+    connect(btnGenerateHelix, &QPushButton::clicked, this, [this]() {
+        GenerateHelix();
     });
 }
 
@@ -325,6 +343,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 #else
     // 固定分辨率
     const uint32_t FIXED_RES = 1024;
+
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
 
@@ -412,7 +431,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
              .gr1{0.1},
              .gr2{0.1},
              .width{10.},
-             .radius{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
+             .radius{[r1 = 50., gr1 = 0.1, width = 8., gr2 = 0.1](double u0) {
                  // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
                  //         << "\n";
                  if (u0 < gr1) {
@@ -424,7 +443,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                  }
                  return r1;
              }},
-             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
+             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 8., gr2 = 0.1](double u0) {
                  if (u0 < gr1) {
                      return (gr1 - u0) / std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
                  } else if (u0 > (width - gr1) && u0 <= width) {
@@ -436,12 +455,12 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
              }}});
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
-             .helixAngle{[](double u1) { return 30.; }},
-             .radius{[](double u1) { return 5.; }},
+             .helixAngle{[](double u1) { return 30.; }},    // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
+             .radius{[](double u1) { return 6; }},
              .radiusDeriv{[](double u1) { return 0.; }},
              .coreRadius{[](double u1) { return 3.; }},
-             .slotAngle{[](double u1) { return 65.; }},
-             .radialRakeAngle{[](double u1) { return 10.; }}});
+             .slotAngle{[](double u1) { return 90.; }},
+             .radialRakeAngle{[](double u1) { return 12.; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
@@ -553,21 +572,21 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
 
     // 计算并显示统计信息
     int totalPts = 0;
-    double totalChord = 0.0;
+    double totalXStep = 0.0;
     for (const auto& tp : m_rawToolpaths) {
         totalPts += tp.size;
         for (size_t j = 1; j < tp.size; j++) {
-            totalChord += glm::distance(tp.points[j], tp.points[j - 1]);
+            totalXStep += std::abs(tp.points[j].x - tp.points[j - 1].x);
         }
     }
     int numSegs = totalPts > 0 ? totalPts - (int)m_rawToolpaths.size() : 0;
-    double avgStep = numSegs > 0 ? totalChord / numSegs : 0.0;
+    double avgXStep = numSegs > 0 ? totalXStep / numSegs : 0.0;
 
     m_labelToolPathStats->setText(
-        QString("Segments: %1 | Points: %2\nAvg step: %3 mm")
+        QString("Segments: %1 | Points: %2\nAvg X step: %3 mm")
             .arg(m_rawToolpaths.size())
             .arg(totalPts)
-            .arg(avgStep, 0, 'f', 3));
+            .arg(avgXStep, 0, 'f', 3));
 
     DEBUG("Parse tool path succeed: ", path.string());
 
@@ -595,6 +614,25 @@ void Simulation2DDialog::ApplyInterpolation()
         return;
     }
 
+    // 计算原始刀轨的平均X步长
+    double totalXSpan = 0.0;
+    int totalSegs = 0;
+    for (const auto& tp : m_rawToolpaths) {
+        for (size_t j = 1; j < tp.size; j++) {
+            totalXSpan += std::abs(tp.points[j].x - tp.points[j - 1].x);
+        }
+        totalSegs += static_cast<int>(tp.size) - 1;
+    }
+    double origAvgXStep = totalSegs > 0 ? totalXSpan / totalSegs : 0.0;
+
+    if (stepLength > origAvgXStep) {
+        QMessageBox::warning(this, tr("警告"),
+            QString(tr("插值间距 (%1 mm) 大于原始刀轨平均间距 (%2 mm)，"
+                       "将导致刀位点变稀疏，可能丢失几何特征。"))
+                .arg(stepLength, 0, 'f', 3)
+                .arg(origAvgXStep, 0, 'f', 3));
+    }
+
     m_toolpaths.clear();
     for (const auto& raw : m_rawToolpaths) {
         m_toolpaths.push_back(DualNURBSCurveInterpolator::Interpolate(raw, stepLength));
@@ -606,10 +644,75 @@ void Simulation2DDialog::ApplyInterpolation()
         totalPts += tp.size;
     }
     m_labelToolPathStats->setText(
-        QString("Segments: %1 | Interpolated: %2 pts\nStep: %3 mm")
+        QString("Segments: %1 | Interpolated: %2 pts\nX Step: %3 mm")
             .arg(m_toolpaths.size())
             .arg(totalPts)
             .arg(stepLength, 0, 'f', 3));
+
+    UpdateGrindingWheelInstances();
+
+    if (m_grndWheel && m_blank) {
+        BuildContactMask();
+    }
+}
+
+void Simulation2DDialog::GenerateHelix()
+{
+    if (m_rawToolpaths.empty() || m_rawToolpaths[0].points.empty()) {
+        DEBUG("No toolpath loaded, skip helix generation");
+        return;
+    }
+
+    bool okA = false, okL = false, okDx = false;
+    float angleDeg = m_editHelixAngle->text().toFloat(&okA);
+    float length = m_editHelixLength->text().toFloat(&okL);
+    float dx = m_editHelixXStep->text().toFloat(&okDx);
+
+    if (!okA || !okL || !okDx || dx <= 0.f || length <= 0.f) {
+        DEBUG("Invalid helix parameters");
+        return;
+    }
+
+    glm::vec3 p0 = m_rawToolpaths[0].points[0];
+    glm::vec3 n0 = m_rawToolpaths[0].normals[0];
+    float r = std::sqrt(p0.y * p0.y + p0.z * p0.z);
+    if (r <= 0.f) {
+        DEBUG("Invalid helix radius from first toolpath point");
+        return;
+    }
+
+    float angleRad = glm::radians(angleDeg);
+    float dTheta = dx * std::tan(angleRad) / r;
+    float theta0 = std::atan2(p0.z, p0.y);
+
+    int numPoints = static_cast<int>(std::floor(length / dx)) + 1;
+
+    ToolPath helix;
+    for (int i = 0; i < numPoints; i++) {
+        float rotAngle = i * dTheta;
+        float theta = theta0 + rotAngle;
+        float x = p0.x + i * dx;
+        float y = r * std::cos(theta);
+        float z = r * std::sin(theta);
+
+        glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), rotAngle, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::vec3 n = glm::vec3(rotX * glm::vec4(n0, 0.0f));
+
+        helix.points.push_back({x, y, z});
+        helix.normals.push_back(n);
+    }
+    helix.size = helix.points.size();
+
+    m_toolpaths.clear();
+    m_toolpaths.push_back(helix);
+
+    m_labelToolPathStats->setText(
+        QString("Helix: %1 pts | Radius: %2 mm\nAngle: %3° | Length: %4 mm | Step: %5 mm")
+            .arg(numPoints)
+            .arg(r, 0, 'f', 2)
+            .arg(angleDeg, 0, 'f', 1)
+            .arg(length, 0, 'f', 2)
+            .arg(dx, 0, 'f', 3));
 
     UpdateGrindingWheelInstances();
 

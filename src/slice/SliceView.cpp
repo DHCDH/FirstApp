@@ -135,6 +135,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         requestThisFrame = true;
         m_isWaitingForAnalysis = true;
         m_analysisPlaneCount = static_cast<uint32_t>(frameData.planes.size());
+        m_analysisStartTime = std::chrono::high_resolution_clock::now();
 
         m_runningMode = RunningMode::DISPLAY_ONLY;
     }
@@ -177,7 +178,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
                                 m_processor->GetGlobalDescriptorSet(),
                                 frameData.displayPlane.normal,
                                 frameData.displayPlane.point,
-                                3};  // 每隔5个实例显示1个线框
+                                1};  // 每隔X个实例显示1个线框
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 
@@ -204,6 +205,13 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
 
         std::thread([this, vkDevice, computeFence, planeCount]() {
             vkWaitForFences(vkDevice, 1, &computeFence, VK_TRUE, UINT64_MAX);
+            // --- 统计端到端耗时（从请求触发到GPU计算完成） ---
+            auto end = std::chrono::high_resolution_clock::now();
+            double elapsedMs =
+                std::chrono::duration<double, std::milli>(end - m_analysisStartTime)
+                    .count();
+            std::cout << "[Timing] End-to-end feature extraction: " << elapsedMs
+                      << " ms\n";
             // --- 通过Qt安全队列把任务扔回主线程 ---
             QMetaObject::invokeMethod(
                 qApp,

@@ -55,15 +55,26 @@ void main()
     float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
     outputBuffer.allResults[plnIdx].slotAngle = degrees(slotAngleRad);
 
-    
-    // 点数过少无法拟合
-    if (validCount < 50) return;
+    // 找到芯厚点（距离原点最近的点）
+    uint coreRadiusIdx = 0;
+    float minDistSq = 1e10;
+    for (uint i = 0; i < validCount; i++) {
+        vec2 p = finalPoints[plnIdx * push.maxPoints + i];
+        float d2 = dot(p, p);
+        if (d2 < minDistSq) {
+            minDistSq = d2;
+            coreRadiusIdx = i;
+        }
+    }
+    outputBuffer.allResults[plnIdx].coreRadiusPoint = finalPoints[plnIdx * push.maxPoints + coreRadiusIdx];
+    outputBuffer.allResults[plnIdx].coreRadiusSqBits = floatBitsToUint(minDistSq);
 
-    // 用于拟合曲线的点数
-    uint N = min(100, validCount);
+    // 用于拟合曲线的点数：从起点到芯厚点
+    uint N = min(2500, coreRadiusIdx + 1);
+    if (N < 3) return;
 
     // --- 累积弦长参数化 ---
-    float t[100];
+    float t[2500];
     t[0] = 0.;
     float totalLen = 0.;
     for (uint i = 1; i < N; i++) {

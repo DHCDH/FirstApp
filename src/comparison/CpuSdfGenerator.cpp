@@ -40,7 +40,6 @@ float SdfImage::Sample(float u, float v) const
 
 bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
 {
-    PROFILE_SCOPE("CpuSdfGenerator::ParseFlutePointSet");
     m_flutePoints.clear();
 
     std::ifstream file(filePath);
@@ -81,7 +80,6 @@ bool CpuSdfGenerator::ParseFlutePointSet(const std::string& filePath)
 
 glm::vec4 CpuSdfGenerator::CalculateSdfMapInfo(uint32_t width, uint32_t height) const
 {
-    PROFILE_SCOPE("CpuSdfGenerator::CalculateSdfMapInfo");
     if (m_flutePoints.empty()) {
         return glm::vec4(0.f);
     }
@@ -113,7 +111,6 @@ glm::vec4 CpuSdfGenerator::CalculateSdfMapInfo(uint32_t width, uint32_t height) 
 void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
                                 const SdfGenConfig& config)
 {
-    PROFILE_SCOPE("CpuSdfGenerator::Generate");
     m_sdf.width = width;
     m_sdf.height = height;
     m_sdf.data.resize(static_cast<size_t>(width) * height);
@@ -126,22 +123,36 @@ void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
     const size_t pointCount = m_flutePoints.size();
     if (pointCount == 0) return;
 
-    // 将点坐标从 AoS (vec4) 提取为 SoA (两个独立 float 数组)，提升缓存效率
-    std::vector<float> pointZ(pointCount);
-    std::vector<float> pointY(pointCount);
+    const float physWidth = config.dx * static_cast<float>(width);
+    const float physHeight = config.dy * static_cast<float>(height);
+    const float z0 = config.targetPoint.z + config.xMin;
+    const float y0 = config.targetPoint.y + config.zMax - physHeight;
+
+    // --- 构建空间网格索引 ---
+    constexpr int GRID_SIZE = 32;
+    std::vector<std::vector<size_t>> grid(GRID_SIZE * GRID_SIZE);
+    const float invCellW = static_cast<float>(GRID_SIZE) / physWidth;
+    const float invCellH = static_cast<float>(GRID_SIZE) / physHeight;
+
     for (size_t i = 0; i < pointCount; ++i) {
-        pointZ[i] = m_flutePoints[i].z;
-        pointY[i] = m_flutePoints[i].y;
+        int gx = static_cast<int>((m_flutePoints[i].z - z0) * invCellW);
+        int gy = static_cast<int>((m_flutePoints[i].y - y0) * invCellH);
+        gx = std::clamp(gx, 0, GRID_SIZE - 1);
+        gy = std::clamp(gy, 0, GRID_SIZE - 1);
+        grid[static_cast<size_t>(gy) * GRID_SIZE + static_cast<size_t>(gx)].push_back(i);
     }
 
-    // 预计算每列的 physZ（所有行共用）
+    // 预计算每列的 physZ 和 gridX
     std::vector<float> colPhysZ(width);
+    std::vector<int> colGridX(width);
     for (uint32_t col = 0; col < width; ++col) {
         colPhysZ[col] = config.targetPoint.z +
                         config.xMin + (static_cast<float>(col) + 0.5f) * config.dx;
+        colGridX[col] = std::clamp(
+            static_cast<int>((colPhysZ[col] - z0) * invCellW), 0, GRID_SIZE - 1);
     }
 
-    // 多线程并行：将行分块，每个线程处理一段连续行
+    // 多线程并行
     const unsigned int numThreads =
         std::max(1u, std::min(16u, std::thread::hardware_concurrency()));
     const uint32_t rowsPerThread = (height + numThreads - 1) / numThreads;
@@ -154,23 +165,42 @@ void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
         uint32_t endRow = std::min(startRow + rowsPerThread, height);
         if (startRow >= endRow) break;
 
-        threads.emplace_back([this, width, startRow, endRow, pointCount,
-                              &pointZ, &pointY, &colPhysZ, &config]() {
+        threads.emplace_back([this, width, startRow, endRow, &config,
+                              &grid, &colPhysZ, &colGridX, z0, y0,
+                              invCellW, invCellH]() {
             for (uint32_t row = startRow; row < endRow; ++row) {
                 const float physY = config.targetPoint.y +
                                     config.zMax -
                                     (static_cast<float>(row) + 0.5f) * config.dy;
+                const int gridY = std::clamp(
+                    static_cast<int>((physY - y0) * invCellH), 0, GRID_SIZE - 1);
 
                 for (uint32_t col = 0; col < width; ++col) {
                     const float physZ = colPhysZ[col];
+                    const int gridX = colGridX[col];
 
                     float minDistSq = 1e10f;
-                    for (size_t i = 0; i < pointCount; ++i) {
-                        const float dZ = physZ - pointZ[i];
-                        const float dY = physY - pointY[i];
-                        const float d2 = dZ * dZ + dY * dY;
-                        if (d2 < minDistSq) {
-                            minDistSq = d2;
+
+                    // 搜索 5x5 邻域网格单元
+                    const int gyMin = std::max(0, gridY - 2);
+                    const int gyMax = std::min(GRID_SIZE - 1, gridY + 2);
+                    const int gxMin = std::max(0, gridX - 2);
+                    const int gxMax = std::min(GRID_SIZE - 1, gridX + 2);
+
+                    for (int gy = gyMin; gy <= gyMax; ++gy) {
+                        for (int gx = gxMin; gx <= gxMax; ++gx) {
+                            for (size_t i :
+                                 grid[static_cast<size_t>(gy) * GRID_SIZE +
+                                      static_cast<size_t>(gx)]) {
+                                const float dZ =
+                                    physZ - m_flutePoints[i].z;
+                                const float dY =
+                                    physY - m_flutePoints[i].y;
+                                const float d2 = dZ * dZ + dY * dY;
+                                if (d2 < minDistSq) {
+                                    minDistSq = d2;
+                                }
+                            }
                         }
                     }
 
@@ -187,7 +217,6 @@ void CpuSdfGenerator::Generate(uint32_t width, uint32_t height,
 
 bool CpuSdfGenerator::ExportSdf(const std::string& dirPath) const
 {
-    PROFILE_SCOPE("CpuSdfGenerator::ExportSdf");
     if (m_sdf.data.empty()) {
         ERROR("ExportSdf: no SDF data to export");
         return false;
@@ -225,7 +254,6 @@ bool CpuSdfGenerator::ExportSdf(const std::string& dirPath) const
                m_sdf.data.size() * sizeof(float));
     data.close();
 
-    INFO("Exported SDF (%dx%d) to %s", m_sdf.width, m_sdf.height, dirPath.c_str());
     return true;
 }
 

@@ -196,6 +196,57 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                        context.m_width,
                                        context.m_height);
 
+        if (parametricData.extractContour) {
+            // --- 轮廓提取：复用已渲染的参数化砂轮Mask ---
+            vkCmdFillBuffer(commandBuffer,
+                            context.m_counterBuffer->GetBuffer(),
+                            0, VK_WHOLE_SIZE, 0);
+            vkCmdFillBuffer(commandBuffer,
+                            context.m_tipInfoBuffer->GetBuffer(),
+                            0, sizeof(uint32_t) * 2, 0);
+
+            ResultData initResult{};
+            initResult.coreRadiusSqBits = 0xFFFFFFFF;
+            vkCmdUpdateBuffer(commandBuffer,
+                              context.m_resultBuffer->GetBuffer(),
+                              0, sizeof(ResultData), &initResult);
+
+            std::array<VkBufferMemoryBarrier, 3> bufClearBarriers{};
+            bufClearBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            bufClearBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            bufClearBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            bufClearBarriers[0].buffer = context.m_counterBuffer->GetBuffer();
+            bufClearBarriers[0].size = VK_WHOLE_SIZE;
+            bufClearBarriers[1] = bufClearBarriers[0];
+            bufClearBarriers[1].buffer = context.m_tipInfoBuffer->GetBuffer();
+            bufClearBarriers[2] = bufClearBarriers[0];
+            bufClearBarriers[2].buffer = context.m_resultBuffer->GetBuffer();
+
+            vkCmdPipelineBarrier(commandBuffer,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 0,
+                                 0, nullptr,
+                                 static_cast<uint32_t>(bufClearBarriers.size()),
+                                 bufClearBarriers.data(),
+                                 0, nullptr);
+
+            float dx = (viewConfig.xMax - viewConfig.xMin) / static_cast<float>(viewConfig.nX);
+            float dz = (viewConfig.zMin - viewConfig.zMax) / static_cast<float>(viewConfig.nZ);
+            glm::vec4 mapInfo(viewConfig.xMin, viewConfig.zMax, dx, dz);
+
+            SliceComputeInfo computeInfo{context.m_contourDescriptorSet,
+                                         viewConfig.nX, viewConfig.nZ,
+                                         MAX_POINTS, 0,
+                                         frameData.displayPlane.normal,
+                                         frameData.displayPlane.point,
+                                         mapInfo};
+            m_renderSystem->ComputeFlute(commandBuffer, computeInfo,
+                                         context.m_tipInfoBuffer.get());
+
+            ReadbackFromGPU(commandBuffer, context, 1);
+        }
+
         return;
     }
 

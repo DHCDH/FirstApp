@@ -3,6 +3,8 @@
 #include "CalculateFlute.h"
 #include "CalculateGrindingWheelMaxRadius.h"
 
+#include <chrono>
+#include <iostream>
 #include <limits>
 
 namespace cpu
@@ -10,7 +12,8 @@ namespace cpu
 
 bool CpuWearInversion::PrepareSdf(const std::string& fluteFilePath)
 {
-    PROFILE_SCOPE("CpuWearInversion::PrepareSdf");
+    auto t0 = std::chrono::high_resolution_clock::now();
+
     if (!m_sdfGenerator.ParseFlutePointSet(fluteFilePath)) {
         return false;
     }
@@ -39,12 +42,14 @@ bool CpuWearInversion::PrepareSdf(const std::string& fluteFilePath)
     m_sdfGenerator.ExportSdf(
         "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison");
 
+    auto t1 = std::chrono::high_resolution_clock::now();
+    m_sdfTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
     return true;
 }
 
 float CpuWearInversion::EvaluatePoints(const std::vector<glm::vec3>& points) const
 {
-    PROFILE_SCOPE("CpuWearInversion::EvaluatePoints");
     std::vector<glm::vec2> points2D;
     points2D.reserve(points.size());
     for (const auto& p : points) {
@@ -59,7 +64,6 @@ float CpuWearInversion::EvaluatePoints(const std::vector<glm::vec3>& points) con
 
 float CpuWearInversion::EvaluateRadius(float r)
 {
-    PROFILE_SCOPE("CpuWearInversion::EvaluateRadius");
     ++m_iterationCount;
     WheelParams gp = m_wheelParams;
     gp.gr1 = r;
@@ -68,6 +72,8 @@ float CpuWearInversion::EvaluateRadius(float r)
     std::vector<glm::vec3> points = calc.CreateFlute();
 
     float loss = EvaluatePoints(points);
+    std::cout << "  [iter " << m_iterationCount << "] r = " << r
+              << " mm, loss = " << loss << std::endl;
     if (loss < m_bestLoss) {
         m_bestLoss = loss;
         m_bestRadius = r;
@@ -84,14 +90,29 @@ float CpuWearInversion::RunOptimization(
     const WheelParams& baseParams,
     const std::vector<ToolPath>& toolpaths)
 {
-    PROFILE_SCOPE("CpuWearInversion::RunOptimization");
     m_wheelParams = baseParams;
     m_toolpaths = toolpaths;
 
     m_bestLoss = std::numeric_limits<float>::max();
     m_iterationCount = 0;
 
+    auto t0 = std::chrono::high_resolution_clock::now();
     m_fitter.FitBrent(m_fitConfig, EvalLossStatic, this);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto optMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    double totalMs = m_sdfTimeMs + optMs;
+
+    std::cout << "\n========== CPU Wear Inversion Result ==========\n";
+    std::cout << "  Best corner radius: " << m_bestRadius << " mm\n";
+    std::cout << "  Best loss:          " << m_bestLoss << "\n";
+    std::cout << "  Iterations:         " << m_iterationCount << "\n";
+    std::cout << "  ----------------------------------------------\n";
+    std::cout << "  SDF generation:     " << m_sdfTimeMs << " ms\n";
+    std::cout << "  Optimization:       " << optMs << " ms  (" << (m_iterationCount > 0 ? optMs / m_iterationCount : 0.0) << " ms/iter)\n";
+    std::cout << "  Total CPU time:     " << totalMs << " ms\n";
+    std::cout << "================================================\n"
+              << std::endl;
 
     return m_bestRadius;
 }

@@ -15,6 +15,8 @@
 #include <QLabel>
 #include <QStringList>
 
+#include <chrono>
+
 #include "FirstApp.h"
 #include "Simulation2DDialog.h"
 #include "comparison/CalculateFlute.h"
@@ -183,7 +185,7 @@ void MainWindow::OnCpuWearInversion()
     std::filesystem::path path = std::filesystem::u8path(qPath.toUtf8().constData());
     std::string sdfFilePath = path.string();
 
-    // 2. 创建反演器，加载目标SDF
+    // 2. 创建反演器，加载目标SDF + 运行优化
     cpu::CpuWearInversion inversion;
     inversion.SetViewResolution(1024, 1024);
 
@@ -191,8 +193,6 @@ void MainWindow::OnCpuWearInversion()
         QMessageBox::critical(this, tr("错误"), tr("SDF 解析失败"));
         return;
     }
-
-    INFO("UDF file path: %s", sdfFilePath.c_str());
 
     #if 0
     // --- 临时测试：用第一个候选半径生成容屑槽轮廓并输出 ---
@@ -228,18 +228,29 @@ void MainWindow::OnCpuWearInversion()
     {
         cpu::FitConfig fitCfg;
         fitCfg.grMin = baseParams.gr1;
-        fitCfg.grMax = baseParams.width / 2.f;
+        fitCfg.grMax = baseParams.width / 10.f;
         inversion.SetFitConfig(fitCfg);
     }
+
     float bestR = inversion.RunOptimization(baseParams, toolpaths);
 
-    // 4. 显示结果
+    // 4. 用最优半径导出最终容屑槽点集
+    cpu::WheelParams bestParams = baseParams;
+    bestParams.gr1 = bestR;
+    bestParams.gr2 = bestR;
+    cpu::CalculateFlute bestCalc(bestParams, toolpaths);
+    auto bestPoints = bestCalc.CreateFlute();
+    cpu::CalculateFlute::ExportFlutePoints(bestPoints);
+
+    // 5. 显示结果
     QString resultText = QString("最优圆角半径: %1 mm\n"
                                  "Loss: %2\n"
-                                 "迭代次数: %3")
+                                 "迭代次数: %3\n"
+                                 "输出点数: %4")
                              .arg(bestR, 0, 'f', 6)
                              .arg(inversion.GetBestLoss(), 0, 'f', 6)
-                             .arg(inversion.GetIterationCount());
+                             .arg(inversion.GetIterationCount())
+                             .arg(static_cast<int>(bestPoints.size()));
 
     QMessageBox::information(this, tr("CPU 磨损反演结果"), resultText);
 }

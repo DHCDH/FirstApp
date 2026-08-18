@@ -38,6 +38,7 @@ struct ParametricInstancedData {
     float candidatesRadius;
     uint32_t candidateIndex{0};  // 0 or 1 for golden section, or batch index
     uint32_t grIndex;
+    bool extractContour{false};  // 参数化砂轮反演结束后提取轮廓点集
 };
 
 struct SdfGeneratePushConstants {

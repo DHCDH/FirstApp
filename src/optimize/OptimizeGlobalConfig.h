@@ -6,10 +6,10 @@
 namespace optimize
 {
 struct GrindingWheelParameters {
-    double gR{50.};  // 大端圆半径
+    double gR{60.};  // 大端圆半径
     double gr1{0.1};  // 大端面圆角
-    double gr2{0.2};  // 小端面圆角
-    double width{10.};
+    double gr2{0.1};  // 小端面圆角
+    double width{50.};
     
     std::function<double(double)> radius{[this](double) { return 50.; }};
     std::function<double(double)> radiusDeriv{[this](double) { return 0.; }};

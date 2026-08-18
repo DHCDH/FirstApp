@@ -71,6 +71,11 @@ private:
     QLabel* m_labelToolPathStats;    // 显示刀轨统计信息
     QLineEdit* m_editInterpStep;     // 插值步长输入
 
+    // --- 螺旋线刀轨生成控制 ---
+    QLineEdit* m_editHelixAngle;
+    QLineEdit* m_editHelixLength;
+    QLineEdit* m_editHelixXStep;
+
     std::string m_targetFlutePath;
 
 private:
@@ -84,6 +89,7 @@ private:
     int ReadToolPath(std::filesystem::path path);
     void UpdateToolPath(std::filesystem::path path);
     void ApplyInterpolation();
+    void GenerateHelix();
     void UpdateGrindingWheelInstances();
 
 protected:

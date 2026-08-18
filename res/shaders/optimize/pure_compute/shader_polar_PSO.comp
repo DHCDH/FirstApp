@@ -149,7 +149,7 @@ void main()
 
     // 边界约束
     pos.x = clamp(pos.x, 0.0, push.gr1);        // u0c 限制在圆角范围内
-    pos.y = clamp(pos.y, 0.0, 1.0472);       // lambda 限制与螺旋角有关，后续应传入u1对应的螺旋角
+    pos.y = clamp(pos.y, 0.0, 1.0472);       // lambda 限制与螺旋角有关(pi/2 - beta)，后续应传入u1对应的螺旋角
 
     // float safeMargin = 0.005; // 与 C++ 保持一致的安全距离
     

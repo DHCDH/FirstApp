@@ -50,6 +50,7 @@ class SliceResourceContext
     friend class SliceRasterizer;
     friend class SliceAnalyzer;
     friend class SliceWearFitter;
+    friend class SliceProcessor;
 
 public:
     SliceResourceContext(lve::LveDevice& lveDevice, uint32_t width, uint32_t height);
@@ -96,6 +97,11 @@ public:
     VkDescriptorSet GetBBoxDescriptorSet() const
     {
         return m_bboxDescriptorSet;
+    }
+
+    lve::LveBuffer* GetReadbackBuffer() const
+    {
+        return m_readbackBuffer.get();
     }
 
     lve::LveBuffer* GetUnitGridBuffer() const

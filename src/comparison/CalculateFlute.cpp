@@ -25,42 +25,30 @@ namespace cpu
 {
 std::vector<glm::vec3> CalculateFlute::CreateFlute()
 {
-    PROFILE_SCOPE("CalculateFlute::CreateFlute");
     InitGrindingWheelEquation();
 
-    // 获取砂轮位姿矩阵
     glm::mat4 M = CalculateGrindingWheelPose();
 
     std::vector<glm::vec3> pSet = CalculateFlutePointSet(M);
     pSet = ProcessPointSet(pSet);
-
-    ExportFlutePoints(pSet);
 
     return pSet;
 }
 
 void CalculateFlute::InitGrindingWheelEquation()
 {
-    PROFILE_SCOPE("CalculateFlute::InitGrindingWheelEquation");
     float gR =
         CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(m_gp.gR,
                                                                             m_gp.gr1,
                                                                             m_gp.ga);
-    /*float gR = m_gp.gR;*/
     float gr1 = m_gp.gr1;
     float gr2 = m_gp.gr2;
     float gb = m_gp.width;
     float ga = m_gp.ga;
 
-    INFO("gR: %f, gr1: %f, gb: %f, ga: %f", gR, gr1, gb, ga);
-
     switch (m_grndWheelType) {
         case GrindingWheelType::PERIPHERY: {
-            /*平砂轮*/
-            std::cout << "---=PERIPHERY=--" << std::endl;
             if (ga == M_PI_2) {
-                /*1A1*/
-                std::cout << "---=1A1=--" << std::endl;
                 m_gRanges = {range_(0, gr1), range_(gr1, gb - gr1), range_(gb - gr1, gb)};
                 auto fg12_expr = [=](const float& m1) {
                     return gR - gr1 + sqrt(gr1 * gr1 - (gr1 - m1) * (gr1 - m1));
@@ -76,8 +64,6 @@ void CalculateFlute::InitGrindingWheelEquation()
                 m_gEquations.push_back(fg34_expr);
 
             } else if (ga > 0 && M_PI_2 - ga > 1e-2) {
-                /*1V1*/
-                std::cout << "---=1V1=--" << std::endl;
                 m_gRanges = {range_(0, gr1 + gr1 * cos(ga)),
                              range_(gr1 + gr1 * cos(ga), gb - (gr2 - gr2 * cos(ga))),
                              range_(gb - (gr2 - gr2 * cos(ga)), gb)};
@@ -109,7 +95,6 @@ void CalculateFlute::InitGrindingWheelEquation()
 
 glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
 {
-    PROFILE_SCOPE("CalculateFlute::CalculateGrindingWheelPose");
     glm::mat4 matrix;
 
     glm::vec3 p_tmp = m_toolpaths[0].points[0];
@@ -118,17 +103,6 @@ glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
     glm::vec3 norm_tmp = m_toolpaths[0].normals[0];
     glm::vec3 norm{norm_tmp.y, norm_tmp.z, norm_tmp.x};
 
-    //point = glm::vec3(41.6311, 32.6075, -0.9441);
-    //norm = glm::vec3(0.4319, -0.6301, 0.6453);
-
-    INFO("p(%f, %f, %f), n(%f, %f, %f)",
-         point.x,
-         point.y,
-         point.z,
-         norm.x,
-         norm.y,
-         norm.z);
-
     matrix = CalculateMatrix(norm, point);
 
     return matrix;
@@ -136,7 +110,6 @@ glm::mat4 CalculateFlute::CalculateGrindingWheelPose()
 
 glm::mat4 CalculateFlute::CalculateMatrix(const glm::vec3& normal, const glm::vec3& point)
 {
-    PROFILE_SCOPE("CalculateFlute::CalculateMatrix");
     glm::vec3 DY{0.f, 0.f, 1.f};
     glm::vec3 axis{};
     axis = glm::cross(DY, normal);
@@ -174,8 +147,6 @@ glm::mat4 CalculateFlute::CalculateMatrix(const glm::vec3& normal, const glm::ve
 
 std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M)
 {
-    PROFILE_SCOPE("CalculateFlute::CalculateFlutePointSet");
-    float T = 0.5 * M_PI;
     std::mutex mtx_t;
 
     // 预计算全部 (m1, fg) 对，避免内层循环中反复调用 std::function
@@ -218,14 +189,17 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
 
     std::counting_semaphore<16> tSemaphore(16);
     std::vector<std::thread> threadsT;
-    // Standard_Integer nT = std::abs(T / 0.01);
+    #if 0
+    float T = 0.5 * M_PI;
     int nT = std::abs(T / 0.005);  // mark
-    // if (m_rBlade > 10) {
-    //    nT = std::abs(T / 0.002);
-    //}
     float deltaT = T / nT;
+    #else
+    float T = 0.589;
+    int nT = 26;  // nT = R x T/(dz x tan(B))  dz为插值间隔
+    float deltaT = T / nT;
+    #endif
 
-    for (int k = -nT; k <= nT; k++) {
+    for (int k = 0; k <= nT; k++) {
         if (tSemaphore.try_acquire_for(std::chrono::seconds(5))) {
             threadsT.push_back(std::thread([&, z, k, deltaT]() {
                 try {
@@ -312,11 +286,10 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
 
 std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pSet)
 {
-    PROFILE_SCOPE("CalculateFlute::ProcessPointSet");
     if (pSet.size() <= 2) return pSet;
 
     glm::vec3 pO{0.f, 0.f, 0.f};
-    int number = R * 30;  //圆环数量
+    int number = R * 50;  //圆环数量
     float delta_mR = R / number;
     std::vector<std::vector<glm::vec3>> ring(number + 1);
 
@@ -394,7 +367,6 @@ std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pS
 
 void CalculateFlute::ExportFlutePoints(const std::vector<glm::vec3>& points)
 {
-    PROFILE_SCOPE("CalculateFlute::ExportFlutePoints");
     const std::string dirPath = "D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison";
     const std::string filePath = dirPath + "/flute_cpu.txt";
 
@@ -411,7 +383,6 @@ void CalculateFlute::ExportFlutePoints(const std::vector<glm::vec3>& points)
     }
 
     file.close();
-    INFO("Exported %d flute points to %s", points.size(), filePath.c_str());
 }
 
 }  // namespace cpu

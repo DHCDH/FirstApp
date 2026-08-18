@@ -100,6 +100,8 @@ private:
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;
 
+    std::chrono::high_resolution_clock::time_point m_analysisStartTime;
+
     std::unique_ptr<wear::GrindingWheelWearCalculatorNew> m_wearCalculator;
 };
 

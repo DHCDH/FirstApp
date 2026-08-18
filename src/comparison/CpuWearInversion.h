@@ -38,6 +38,7 @@ public:
     float GetBestLoss() const { return m_bestLoss; }
     const SdfImage& GetSdfImage() const { return m_sdfGenerator.GetSdf(); }
     uint32_t GetIterationCount() const { return m_iterationCount; }
+    double GetSdfTimeMs() const { return m_sdfTimeMs; }
     const ViewConfig& GetViewConfig() const { return m_viewConfig; }
 
 private:
@@ -59,6 +60,7 @@ private:
     float m_bestRadius = 0.f;
     float m_bestLoss = 0.f;
     uint32_t m_iterationCount = 0;
+    double m_sdfTimeMs = 0.0;
 };
 
 }  // namespace cpu
