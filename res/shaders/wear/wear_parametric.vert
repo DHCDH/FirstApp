@@ -78,6 +78,33 @@ float calculate1V1GrindingWheelRadius(float u0)
     }
 }
 
+float calculate1A1GrindingWheelRadius(float u0)
+{
+        // 1V1砂轮只有两个圆角，一个斜角
+    float gr1;
+    if ((searchState.flags & 1u) != 0u) {
+        // GPU-driven golden section: read candidate radius from SSBO
+        gr1 = (push.candidateIndex == 0u) ? searchState.x1 : searchState.x2;
+    } else {
+        // Batch evaluation: read from push constant
+        gr1 = push.grVec.x;
+    }
+    float gr2 = push.grVec.y;
+    float ga = push.gaVec.x;
+    float gb = push.width;
+
+    float gR = push.gR;
+
+    if(u0 < gr1) {
+        return gR - gr1 + sqrt(max(0.0, gr1 * gr1 - (gr1 - u0) * (gr1 - u0)));
+    } else if(u0 < gb - gr2) {
+        return gR;
+    // } else if(u0 >= gb - (gr2 - gr2 * cos(ga)) && u0 <= gb) {
+    } else {
+        return gR - gr2 + sqrt(max(0.0, gr2 * gr2 - (u0 - (gb - gr2)) * (u0 - (gb - gr2))));
+    }
+}
+
 void main()
 {
     float uRaw = inUV.x;
@@ -92,12 +119,12 @@ void main()
         // --- 端圆面 ---
         float t = uRaw / epsilon;
         u0 = 0.0;
-        r = mix(0.0, calculate1V1GrindingWheelRadius(0.0), t);
+        r = mix(0.0, calculate1A1GrindingWheelRadius(0.0), t);
     } else if (uRaw > 1.0 - epsilon) {
         // --- 端圆面 ---
         float t = (1.0 - uRaw) / epsilon;
         u0 = push.width;
-        r = mix(0.0, calculate1V1GrindingWheelRadius(push.width), t);
+        r = mix(0.0, calculate1A1GrindingWheelRadius(push.width), t);
     } else {
         // --- 侧面 ---
         float t_linear = (uRaw - epsilon) / (1.0 - 2.0 * epsilon);
@@ -106,7 +133,7 @@ void main()
         t = smoothstep(0.0, 1.0, t);
 
         u0 = t * push.width;
-        r = calculate1V1GrindingWheelRadius(u0);
+        r = calculate1A1GrindingWheelRadius(u0);
     }
 
     // ================== 对齐 .obj 坐标系==================

@@ -31,13 +31,14 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     DEBUG("Construct Simulation2DDialog");
 
     this->setWindowTitle("2D Simulation");
-    this->resize(1920, 1080);
+    this->resize(1100, 900);
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     m_renderWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     mainLayout->addWidget(m_renderWidget, 1);
+    m_renderWidget->setFixedSize(800, 800);
 
     QVBoxLayout* controlLayout = new QVBoxLayout();
     controlLayout->setContentsMargins(5, 5, 5, 5);
@@ -57,6 +58,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
     m_checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
     m_checkParametricWheelRequested->setChecked(false);
+    m_labelViewInfo = new QLabel("Center: (0.00, 0.00) | Zoom: 8.00", this);
+    m_editViewCenter = new QLineEdit("0.0, 0.0", this);
+    m_editViewZoom = new QLineEdit("8.0", this);
+    QPushButton* btnApplyView = new QPushButton("Apply View", this);
 
     controlLayout->addWidget(m_labelRes);
     controlLayout->addWidget(btnToolPath);
@@ -73,6 +78,17 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
     controlLayout->addWidget(m_checkParametricWheelRequested);
+
+    // --- 镜头控制 ---
+    controlLayout->addWidget(new QLabel("--- View ---", this));
+    controlLayout->addWidget(m_labelViewInfo);
+    controlLayout->addWidget(new QLabel("View Center (x, y)", this));
+    controlLayout->addWidget(m_editViewCenter);
+    controlLayout->addWidget(new QLabel("Zoom (half size)", this));
+    controlLayout->addWidget(m_editViewZoom);
+    controlLayout->addWidget(btnApplyView);
+
+    connect(btnApplyView, &QPushButton::clicked, this, [this]() { ApplyViewInput(); });
 
     // --- 刀轨插值控制 ---
     controlLayout->addWidget(new QLabel("--- Toolpath ---", this));
@@ -342,7 +358,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 1024;
+    const uint32_t FIXED_RES = 2048;
 
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;
@@ -369,7 +385,39 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.zMin = m_viewCenter.y - zHalf;
     config.zMax = m_viewCenter.y + zHalf;
 
+    UpdateViewInfoLabel();
+
     return config;
+}
+
+void Simulation2DDialog::UpdateViewInfoLabel()
+{
+    m_labelViewInfo->setText(QString("Center: (%1, %2) | Zoom: %3")
+                                 .arg(m_viewCenter.x, 0, 'f', 2)
+                                 .arg(m_viewCenter.y, 0, 'f', 2)
+                                 .arg(m_viewHalfSize, 0, 'f', 4));
+}
+
+void Simulation2DDialog::ApplyViewInput()
+{
+    static QRegularExpression re(R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?))");
+    QRegularExpressionMatch match = re.match(m_editViewCenter->text());
+    if (match.hasMatch()) {
+        m_viewCenter.x = match.captured(1).toDouble();
+        m_viewCenter.y = match.captured(2).toDouble();
+    }
+
+    bool ok = false;
+    double halfSize = m_editViewZoom->text().toDouble(&ok);
+    if (ok && halfSize > 0.0) {
+        m_viewHalfSize = halfSize;
+        if (m_viewHalfSize < 0.1) m_viewHalfSize = 0.1;
+        if (m_viewHalfSize > 500.0) m_viewHalfSize = 500.0;
+    }
+
+    if (m_grndWheel && m_blank) {
+        BuildContactMask();
+    }
 }
 
 Plane Simulation2DDialog::FetchDisplayPlane()
@@ -456,11 +504,11 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
              .helixAngle{[](double u1) { return 30.; }},    // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
-             .radius{[](double u1) { return 6; }},
+             .radius{[](double u1) { return 5; }},
              .radiusDeriv{[](double u1) { return 0.; }},
-             .coreRadius{[](double u1) { return 3.; }},
-             .slotAngle{[](double u1) { return 90.; }},
-             .radialRakeAngle{[](double u1) { return 12.; }}});
+             .coreRadius{[](double u1) { return 3; }},
+             .slotAngle{[](double u1) { return 60.; }},
+             .radialRakeAngle{[](double u1) { return 10.; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,

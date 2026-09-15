@@ -21,6 +21,7 @@
 #include "Simulation2DDialog.h"
 #include "comparison/CalculateFlute.h"
 #include "comparison/CpuWearInversion.h"
+#include "comparison/FluteMeasure.h"
 #include "slice/SliceView.h"
 #include "lve/LveWindow.h"
 #include "Logger.h"
@@ -83,6 +84,8 @@ void MainWindow::InitUI()
     QPushButton* btnReset = new QPushButton("Reset", m_buttonWidget);
     QPushButton* btnInstanced = new QPushButton("Instanced", m_buttonWidget);
     QPushButton* btnCpuWear = new QPushButton("CPU Wear Inversion", m_buttonWidget);
+    QPushButton* btnCalcFlute = new QPushButton("Calculate Flute", m_buttonWidget);
+    QPushButton* btnFluteMeasure = new QPushButton("Measure Flute", m_buttonWidget);
     QPushButton* btnQuit = new QPushButton("Quit", m_buttonWidget);
     QLabel* labelPos = new QLabel("Camera Position", m_buttonWidget);
     QLabel* labelTarget = new QLabel("Camera Target", m_buttonWidget);
@@ -100,6 +103,8 @@ void MainWindow::InitUI()
     buttonLayout->addWidget(btnReset);
     buttonLayout->addWidget(btnInstanced);
     buttonLayout->addWidget(btnCpuWear);
+    buttonLayout->addWidget(btnCalcFlute);
+    buttonLayout->addWidget(btnFluteMeasure);
     buttonLayout->addWidget(labelPos);
     buttonLayout->addWidget(m_camPos);
     buttonLayout->addWidget(labelTarget);
@@ -144,6 +149,8 @@ void MainWindow::InitUI()
         m_instancedShown = !m_instancedShown;
     });
     connect(btnCpuWear, &QPushButton::clicked, this, &MainWindow::OnCpuWearInversion);
+    connect(btnCalcFlute, &QPushButton::clicked, this, &MainWindow::OnCalculateFlute);
+    connect(btnFluteMeasure, &QPushButton::clicked, this, &MainWindow::OnFluteMeasure);
     connect(btnUpdateCam, &QPushButton::clicked, this, [this]() {
         auto parseVec3 = [](const QString& str) -> glm::vec3 {
             // 支持逗号或空格分隔
@@ -253,6 +260,59 @@ void MainWindow::OnCpuWearInversion()
                              .arg(static_cast<int>(bestPoints.size()));
 
     QMessageBox::information(this, tr("CPU 磨损反演结果"), resultText);
+}
+
+void MainWindow::OnCalculateFlute()
+{
+    const auto& toolpaths = m_vulkanApp->GetToolPaths();
+    if (toolpaths.empty()) {
+        QMessageBox::warning(this, tr("警告"), tr("请先加载刀轨文件"));
+        return;
+    }
+
+    cpu::WheelParams params;
+    params.gr1 = 0.1f;
+    params.gr2 = 0.1f;
+    params.ga = glm::radians(60.f);
+    params.gR = 50.f;
+    params.width = 10.f;
+
+    cpu::CalculateFlute calc(params, toolpaths);
+    auto points = calc.CreateFlute();
+    cpu::CalculateFlute::ExportFlutePoints(points);
+
+    QString msg = QString("容屑槽点集已输出\n点数量: %1")
+                      .arg(static_cast<int>(points.size()));
+    QMessageBox::information(this, tr("容屑槽点集"), msg);
+}
+
+void MainWindow::OnFluteMeasure()
+{
+    const QString qPath = QFileDialog::getOpenFileName(
+        this,
+        tr("选择容屑槽点集文件"),
+        QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear/Cpu_comparison/processed/"),
+        tr("Text Files (*.txt);;All Files (*.*)"));
+    if (qPath.isEmpty()) return;
+
+    std::vector<glm::vec2> points;
+    std::string path = std::filesystem::u8path(qPath.toUtf8().constData()).string();
+    if (!cpu::FluteMeasure::LoadPoints(path, points)) {
+        QMessageBox::critical(this, tr("错误"), tr("点集解析失败"));
+        return;
+    }
+
+    auto result = cpu::FluteMeasure::Measure(points);
+
+    QString msg = QString("芯厚半径: %1 mm\n"
+                          "槽宽角: %2°\n"
+                          "前角: %3°\n"
+                          "点数: %4")
+                      .arg(result.coreRadius, 0, 'f', 4)
+                      .arg(result.slotAngle, 0, 'f', 4)
+                      .arg(result.rakeAngle, 0, 'f', 4)
+                      .arg(static_cast<int>(points.size()));
+    QMessageBox::information(this, tr("容屑槽测量"), msg);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)

@@ -47,8 +47,8 @@ void main()
 
     // if(isContour) {
     //     // 高亮外轮廓
-    //     outColor = vec4(0.4471, 0.7686, 0.7255, 1.);
-    // } else 
+    //     outColor = vec4(0, 0, 1, 1.);
+    // } else {
     if(push.showMode == 0) {
         /* ========= 实心模式 (Solid) ========= */
         if (c_Inter) {

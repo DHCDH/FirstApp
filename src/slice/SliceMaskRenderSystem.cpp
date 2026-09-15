@@ -1401,10 +1401,11 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
                                                       uint32_t firstInstance)
 {
     WearPushConstants push{};
-    push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
+    /*push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
         50.f,
         data.candidatesRadius,
-        glm::radians(60.f));
+        glm::radians(60.f));*/
+    push.gR = 50.f;
     push.grVec = glm::vec4(data.candidatesRadius, data.candidatesRadius, 0.f, 0.f);
     push.gaVec = glm::vec4(glm::radians(60.f), 0.f, 0.f, 0.f);
     push.width = 10.f;

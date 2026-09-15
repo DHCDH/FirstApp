@@ -43,6 +43,9 @@ SliceView::SliceView(lve::LveDevice& device, const SliceViewConfig& config,
         m_device,
         m_renderer->GetSwapChainRenderPass(),
         m_processor->GetGlobalDescriptorSetLayout());
+    m_contourRenderSystem = std::make_unique<SliceContourRenderSystem>(
+        m_device,
+        m_renderer->GetSwapChainRenderPass());
 
     // --- 初始化显示系统 ---
     InitDisplayResources();
@@ -182,6 +185,12 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 
+    if (m_hasContourPoints) {
+        m_contourRenderSystem->Render(
+            commandBuffer,
+            {m_viewConfig.xMin, m_viewConfig.xMax, m_viewConfig.zMin, m_viewConfig.zMax});
+    }
+
     m_renderer->EndSwapChainRenderPass(commandBuffer);
 
     // 获取当前提交给GPU的fence
@@ -260,6 +269,13 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
                 std::cout << "Plane[" << i << "] No valid intersection.\n";
                 std::cout << "-----------------------------------------\n";
             }
+        }
+
+        // 保存读回的有序轮廓点，用于屏上叠加显示
+        const auto& contourPoints = m_processor->GetContourPoints();
+        if (!contourPoints.empty()) {
+            m_contourRenderSystem->UpdatePoints(contourPoints);
+            m_hasContourPoints = true;
         }
 
         // 成功解析完毕

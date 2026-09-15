@@ -28,6 +28,7 @@ private:
     glm::mat4 CalculateMatrix(const glm::vec3& normal, const glm::vec3& point);
     std::vector<glm::vec3> CalculateFlutePointSet(const glm::mat4& M);
     glm::vec3 SolveNewton2D(float m1, float t, float z, float fg, const glm::mat4& M);
+    void RemoveRedundantPointSet(std::vector<std::vector<glm::vec3>>& pSets);
     std::vector<glm::vec3> ProcessPointSet(std::vector<glm::vec3> pSet);
 
 private:

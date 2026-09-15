@@ -33,6 +33,11 @@ public:
 
     void ResetFence();
 
+    const std::vector<glm::vec2>& GetContourPoints() const
+    {
+        return m_contourPoints;
+    }
+
 private:
     lve::LveDevice& m_lveDevice;
 

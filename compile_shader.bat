@@ -15,6 +15,9 @@ D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_sl
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_display.vert -o res\shaders\spv\shader_slice_display.vert.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_display.frag -o res\shaders\spv\shader_slice_display.frag.spv
 
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_contour.vert -o res\shaders\spv\shader_slice_contour.vert.spv
+D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_contour.frag -o res\shaders\spv\shader_slice_contour.frag.spv
+
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_plane.vert -o res\shaders\spv\shader_slice_plane.vert.spv
 D:\Applications\DevTools\VulkanSDK\1.4.321.1\Bin\glslc.exe res\shaders\shader_slice_plane.frag -o res\shaders\spv\shader_slice_plane.frag.spv
 

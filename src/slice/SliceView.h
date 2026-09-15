@@ -7,6 +7,7 @@
 
 #include "../Global.h"
 #include "LveRenderer.h"
+#include "SliceContourRenderSystem.h"
 #include "SliceDisplaySystem.h"
 #include "SliceMaskRenderSystem.h"
 #include "SliceOverlayRenderSystem.h"
@@ -83,6 +84,8 @@ private:
     std::unique_ptr<SliceProcessor> m_processor;
 
     std::unique_ptr<lve::SliceOverlayRenderSystem> m_overlayRenderSystem;
+    std::unique_ptr<lve::SliceContourRenderSystem> m_contourRenderSystem;
+    bool m_hasContourPoints = false;
 
     // --- 屏显资源 ---
     std::unique_ptr<lve::SliceDisplaySystem> m_displaySystem;

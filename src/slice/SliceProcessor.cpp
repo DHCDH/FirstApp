@@ -149,7 +149,7 @@ bool SliceProcessor::GetAnalysisResult(uint32_t numPlanes,
 
 const std::vector<glm::vec2>& SliceProcessor::GetContourPoints() const
 {
-    return {};
+    return m_analyzer->GetContourPoints();
 }
 
 VkFence SliceProcessor::GetComputeFence() const

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <semaphore>
 #include <thread>
@@ -17,9 +18,9 @@ static const float M_PI_2 = glm::pi<float>() / 2.f;
 
 using range_ = std::pair<float, float>;
 
-static const float R = 5.;
+static const float R0 = 6.;
 static const float beta = 30.f;
-static const float lead = M_PI * R * 2 / tan(glm::radians(beta));
+static const float lead = M_PI * R0 * 2 / tan(glm::radians(beta));
 
 namespace cpu
 {
@@ -158,7 +159,7 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
     std::vector<M1FgPair> m1fgPairs;
     for (int j = 0; j < m_gEquations.size(); j++) {
         float M1 = m_gRanges[j].second;
-        float deltaM1 = 0.1f;  // mark
+        float deltaM1 = 0.01f;  // mark
         for (float m1 = m_gRanges[j].first; m1 < M1 + deltaM1; m1 += deltaM1) {
             if (m1 > M1) m1 = M1;
             m1fgPairs.push_back({m1, m_gEquations[j](m1)});
@@ -195,7 +196,7 @@ std::vector<glm::vec3> CalculateFlute::CalculateFlutePointSet(const glm::mat4& M
     float deltaT = T / nT;
     #else
     float T = 0.589;
-    int nT = 26;  // nT = R x T/(dz x tan(B))  dz为插值间隔
+    int nT = 61;  // nT = R x T/(dz x tan(B))  dz为插值间隔
     float deltaT = T / nT;
     #endif
 
@@ -276,7 +277,7 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
         const double y = cosTL * (row1_base + fx10 * c + fx11 * s) +
                          sinTL * (row0_base + fx00 * c + fx01 * s);
 
-        if (x * x + y * y <= static_cast<double>(R * R)) {
+        if (x * x + y * y <= static_cast<double>(R0 * R0)) {
             return {static_cast<float>(x), static_cast<float>(y), z};
         }
     }
@@ -284,13 +285,137 @@ glm::vec3 CalculateFlute::SolveNewton2D(float m1, float t, float z, float fg,
     return {-1.f, -1.f, -1.f};
 }
 
+// 求从点 P 出发、沿单位方向 dir 的射线与 XY 平面内圆心原点半径 R 的圆的交点
+static bool FindCircleIntersection(const glm::vec3& P, const glm::vec3& dir, float R,
+                                   glm::vec3& out)
+{
+    float b = P.x * dir.x + P.y * dir.y;
+    float c = P.x * P.x + P.y * P.y - R * R;
+    float disc = b * b - c;
+    if (disc < 0.f) return false;
+
+    float t = -b + std::sqrt(disc);
+    if (t < 0.f) return false;
+
+    out = glm::vec3(P.x + t * dir.x, P.y + t * dir.y, P.z);
+    return true;
+}
+
+// 将开环两端补到刀坯外圆上（半径 R）
+static void CompletePointSet(std::vector<glm::vec3>& pSet)
+{
+    if (pSet.size() < 4) return;
+
+    glm::vec3 pS = pSet.front();
+    glm::vec3 pL = pSet.back();
+    glm::vec3 pS1 = pSet[1];
+    glm::vec3 pL1 = pSet[pSet.size() - 2];
+
+    float dis1 = std::sqrt(pS.x * pS.x + pS.y * pS.y);
+    float dis2 = std::sqrt(pL.x * pL.x + pL.y * pL.y);
+
+    const float tol = 1e-6f;
+    if (std::abs(dis1 - R0) > tol) {
+        glm::vec3 dir = glm::normalize(pS - pS1);
+        glm::vec3 pC;
+        if (FindCircleIntersection(pS, dir, R0, pC)) {
+            pSet.insert(pSet.begin(), pC);
+        }
+    }
+    if (std::abs(dis2 - R0) > tol) {
+        glm::vec3 dir = glm::normalize(pL - pL1);
+        glm::vec3 pC;
+        if (FindCircleIntersection(pL, dir, R0, pC)) {
+            pSet.push_back(pC);
+        }
+    }
+}
+
+// 按最近邻贪心顺序重排点集
+static void SortChipFlutePointSet(std::vector<glm::vec3>& pSet)
+{
+    if (pSet.size() < 3) return;
+
+    std::vector<glm::vec3> sorted;
+    sorted.reserve(pSet.size());
+    std::vector<char> visited(pSet.size(), 0);
+
+    size_t current = 0;
+    sorted.push_back(pSet[current]);
+    visited[current] = 1;
+
+    while (sorted.size() < pSet.size()) {
+        size_t next = static_cast<size_t>(-1);
+        float bestDist2 = std::numeric_limits<float>::max();
+        for (size_t i = 0; i < pSet.size(); ++i) {
+            if (visited[i]) continue;
+            float dx = pSet[i].x - pSet[current].x;
+            float dy = pSet[i].y - pSet[current].y;
+            float dz = pSet[i].z - pSet[current].z;
+            float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                next = i;
+            }
+        }
+        if (next == static_cast<size_t>(-1)) {
+            for (size_t i = 0; i < pSet.size(); ++i) {
+                if (!visited[i]) {
+                    next = i;
+                    break;
+                }
+            }
+            if (next == static_cast<size_t>(-1)) break;
+        }
+        sorted.push_back(pSet[next]);
+        visited[next] = 1;
+        current = next;
+    }
+
+    for (size_t i = 0; i < pSet.size(); ++i) {
+        if (!visited[i]) sorted.push_back(pSet[i]);
+    }
+
+    pSet = std::move(sorted);
+}
+
+void CalculateFlute::RemoveRedundantPointSet(std::vector<std::vector<glm::vec3>>& pSets)
+{
+    int turningIdx = 0;
+    int windSize = 5;  // 至少连续4次下降
+    int n = static_cast<int>(pSets.size());
+    for (int i = 0; i <= n - windSize; ++i) {
+        bool decreasing = true;
+        for (int j = 0; j < windSize - 1; ++j) {
+            if (pSets[i + j + 1].size() >= pSets[i + j].size()) {
+                decreasing = false;
+                break;
+            }
+        }
+        if (decreasing) {
+            turningIdx = i;
+            break;
+        }
+    }
+
+    if (turningIdx > 0) pSets.erase(pSets.begin(), pSets.begin() + turningIdx);
+
+    // 将Z轴坐标修改为从0开始
+    if (pSets.empty() || pSets[0].empty()) return;
+    float z0 = pSets[0][0].z;
+    for (auto& pSet : pSets) {
+        for (auto& p : pSet) {
+            p.z -= z0;
+        }
+    }
+}
+
 std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pSet)
 {
     if (pSet.size() <= 2) return pSet;
 
-    glm::vec3 pO{0.f, 0.f, 0.f};
-    int number = R * 50;  //圆环数量
-    float delta_mR = R / number;
+    int number = R0 * 120;  //圆环数量
+    float delta_mR = R0 / number;
     std::vector<std::vector<glm::vec3>> ring(number + 1);
 
     //分配圆环
@@ -307,18 +432,16 @@ std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pS
     std::vector<glm::vec3> pSet3;
 
     for (auto& points : ring) {
-        #if 0
         //根据与Y轴夹角大小排序，确保iter[0]位置
-        std::sort(points.begin(),
-                  points.end(),
-                  [pO](const glm::vec3& p1, const glm::vec3& p2) {
-                      glm::vec3 vec1 = p1 - pO;
-                      glm::vec3 vec2 = p2 - pO;
-                      glm::vec3 DY{0.f, 1.f, 0.f};
-                      return std::acos(glm::dot(vec1, DY)) >
-                             std::acos(glm::dot(vec2, DY));
-                  });
-        #endif
+        std::sort(points.begin(), points.end(), [](const glm::vec3& p1, const glm::vec3& p2) {
+            auto angleFromY = [](const glm::vec3& p) {
+                float len = std::sqrt(p.x * p.x + p.y * p.y);
+                if (len < 1e-12f) return 0.f;
+                return std::acos(glm::clamp(p.y / len, -1.f, 1.f));
+            };
+            return angleFromY(p1) > angleFromY(p2);
+        });
+
         glm::vec3 p2, p3;
         if (points.empty())
             continue;
@@ -359,8 +482,24 @@ std::vector<glm::vec3> CalculateFlute::ProcessPointSet(std::vector<glm::vec3> pS
 
     if (pSet2.empty() || pSet3.empty()) throw std::runtime_error("pSet2 or pSet3 is empty");
 
+    //将p2，p3按与原点距离排序
+    std::sort(pSet2.begin(), pSet2.end(), [](const glm::vec3& p2_1, const glm::vec3& p2_2) {
+        float dis1 = p2_1.x * p2_1.x + p2_1.y * p2_1.y;
+        float dis2 = p2_2.x * p2_2.x + p2_2.y * p2_2.y;
+        return dis1 > dis2;
+    });
+    std::sort(pSet3.begin(), pSet3.end(), [](const glm::vec3& p3_1, const glm::vec3& p3_2) {
+        float dis1 = p3_1.x * p3_1.x + p3_1.y * p3_1.y;
+        float dis2 = p3_2.x * p3_2.x + p3_2.y * p3_2.y;
+        return dis1 < dis2;
+    });
+
     std::vector<glm::vec3> pSetTmp = pSet2;
     pSetTmp.insert(pSetTmp.end(), pSet3.begin(), pSet3.end());
+    CompletePointSet(pSetTmp);
+
+    //按距离排序
+    SortChipFlutePointSet(pSetTmp);
 
     return pSetTmp;
 }

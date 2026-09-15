@@ -141,7 +141,7 @@ void main() {
                 float score = -999999.0;
                 
                 if (coreRadius <= push.radius) { 
-                    float targetSlotAngle = 90;
+                    float targetSlotAngle = 60;
                     float targetArcLength = push.radius * radians(targetSlotAngle); 
                     float targetCoreRadius = 3.;
 

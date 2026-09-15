@@ -61,6 +61,11 @@ private:
     QLineEdit* m_editNormal;
     QCheckBox* m_checkParametricWheelRequested;
 
+    // --- 镜头控制 ---
+    QLabel* m_labelViewInfo;     // 实时显示镜头中心点 + 放大倍数
+    QLineEdit* m_editViewCenter; // 输入镜头中心点 "x, y"
+    QLineEdit* m_editViewZoom;   // 输入放大倍数
+
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
@@ -81,6 +86,9 @@ private:
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
+
+    void UpdateViewInfoLabel();
+    void ApplyViewInput();
 
     Plane FetchDisplayPlane();
 

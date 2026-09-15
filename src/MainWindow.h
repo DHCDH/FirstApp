@@ -25,6 +25,8 @@ private:
     void InitRenderWidget();
     void InitUI();
     void OnCpuWearInversion();
+    void OnCalculateFlute();
+    void OnFluteMeasure();
 
 private:
     QWidget* m_renderWidget;

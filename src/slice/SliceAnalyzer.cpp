@@ -98,6 +98,15 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     }
 #endif
 
+    // --- 保存 plane 0 的有序轮廓点，供屏上叠加显示 ---
+    if (numPlanes > 0 && pointCounts[0] > 0) {
+        uint32_t count = pointCounts[0];
+        if (count > MAX_POINTS) count = MAX_POINTS;
+        m_contourPoints.assign(srcBegin, srcBegin + count);
+    } else {
+        m_contourPoints.clear();
+    }
+
     context.m_readbackBuffer->Unmap();
 
     return true;
