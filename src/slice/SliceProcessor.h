@@ -39,6 +39,10 @@ public:
     void ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                              const SliceFrameData& frameData);
 
+    // 反演会污染离屏遮罩与共享相机，此方法用显示相机 + 真实砂轮实例重渲染恢复
+    void RestoreDisplay(const SliceFrameData& frameData,
+                        const SliceViewConfig& viewConfig);
+
 public:
     void SetModels(lve::LveModel* blank, lve::LveModel* grndWheel)
     {

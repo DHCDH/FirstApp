@@ -126,6 +126,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
 {
     if (!m_window) return;
 
+    m_lastDisplayPlane = frameData.displayPlane;
+
     // --- 处理窗口大小变化 ---
     if (m_window->WasWindowResized()) {
         m_window->ResetWindowResizedFlag();
@@ -158,11 +160,12 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
     }
 
     // 将requestThisFrame信号传递给Processor
+    // 屏上显示永远用真实砂轮；参数化砂轮只在 ExecuteWearAnalysis 反演内部使用
     m_processor->ProcessFrame(commandBuffer,
                               frameData,
                               m_viewConfig,
                               requestThisFrame,
-                              m_isParametricWheel);
+                              false);
 
     // 屏上显示
     m_renderer->BeginSwapChainRenderPass(commandBuffer);
@@ -185,11 +188,13 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 
+    #if 0  // 暂时屏蔽容屑槽轮廓线显示
     if (m_hasContourPoints) {
         m_contourRenderSystem->Render(
             commandBuffer,
             {m_viewConfig.xMin, m_viewConfig.xMax, m_viewConfig.zMin, m_viewConfig.zMax});
     }
+    #endif
 
     m_renderer->EndSwapChainRenderPass(commandBuffer);
 
@@ -205,6 +210,9 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         WaitIdle();
 
         m_processor->ExecuteWearAnalysis(targetFlutefile, frameData);
+
+        // 反演污染了离屏遮罩与共享相机，用显示相机重渲染恢复
+        m_processor->RestoreDisplay(frameData, m_viewConfig);
     }
 
     // --- 后台线程等待fence并触发UI回调 ---
@@ -233,6 +241,46 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
     }
 }
 
+void SliceView::RePresent()
+{
+    if (!m_window || !m_renderer || !m_displaySystem) return;
+
+    // --- 处理窗口大小变化 ---
+    if (m_window->WasWindowResized()) {
+        m_window->ResetWindowResizedFlag();
+        m_renderer->RecreateSwapChain();
+    }
+
+    VkCommandBuffer commandBuffer = m_renderer->BeginFrame();
+    if (commandBuffer == nullptr) {
+        return;
+    }
+
+    // 只重新采样已算好的离屏遮罩，不重跑 ProcessFrame 的实例化求交
+    m_renderer->BeginSwapChainRenderPass(commandBuffer);
+
+    m_displaySystem->Render(commandBuffer,
+                            m_displayDescriptorSet,
+                            m_viewConfig.nX,
+                            m_viewConfig.nZ,
+                            false);
+
+    if (m_displayWireframe && m_grndWheelModel) {
+        SliceInstancedInfo info{commandBuffer,
+                                *m_grndWheelModel,
+                                m_processor->GetGrndWheelInstancesBuffer(),
+                                m_processor->GetGrndWheelInstancesCount(),
+                                m_processor->GetGlobalDescriptorSet(),
+                                m_lastDisplayPlane.normal,
+                                m_lastDisplayPlane.point,
+                                1};
+        m_overlayRenderSystem->RenderSliceContour(info);
+    }
+
+    m_renderer->EndSwapChainRenderPass(commandBuffer);
+    m_renderer->EndFrame();
+}
+
 bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
 {
     if (numPlanes == 0) {
@@ -248,6 +296,7 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
                   << " Planes) =========\n";
 
         for (uint32_t i = 0; i < numPlanes; i++) {
+            if (i > 0) break;  // 只输出 Plane[0]
             auto resultData = results[i];
             uint32_t distBits = resultData.coreRadiusSqBits;
 

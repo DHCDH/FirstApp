@@ -1035,7 +1035,6 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
     // --- 绘制砂轮实例 ---
     if (rasData.grndWheelModel != nullptr && renderPassData.grndWheelInstancesCount > 0 &&
         !parametricData.useParametricWheel) {
-        DEBUG("Use obj");
         SliceInstancedInfo instInfo{commandBuffer,
                                     *rasData.grndWheelModel,
                                     renderPassData.grndWheelInstancesBuffer->GetBuffer(),
@@ -1043,7 +1042,7 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                     renderPassData.globalDescriptorSet,
                                     plane.normal,
                                     plane.point};
-        const uint32_t BATCH_SIZE = 100;
+        const uint32_t BATCH_SIZE = 1000;
 
         for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
              i += BATCH_SIZE) {
@@ -1401,11 +1400,11 @@ void SliceMaskRenderSystem::RenderParametricInstances(VkCommandBuffer commandBuf
                                                       uint32_t firstInstance)
 {
     WearPushConstants push{};
-    /*push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
+    push.gR = CalculateGrindingWheelMaxRadius::Calculate1V1GrindingWheelMaxRadius(
         50.f,
         data.candidatesRadius,
-        glm::radians(60.f));*/
-    push.gR = 50.f;
+        glm::radians(60.f));
+    //push.gR = 50.f;
     push.grVec = glm::vec4(data.candidatesRadius, data.candidatesRadius, 0.f, 0.f);
     push.gaVec = glm::vec4(glm::radians(60.f), 0.f, 0.f, 0.f);
     push.width = 10.f;

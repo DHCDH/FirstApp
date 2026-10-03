@@ -134,6 +134,15 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     InitSliceView(device, hwnd, hinstance);
 
+    // 持续轻量重绘：只重新 present 已算好的离屏遮罩，不重跑实例化求交。
+    // 用于窗口失去焦点/被遮挡后画面被 Qt 刷黑时自动恢复。
+    connect(m_renderTimer, &QTimer::timeout, this, [this]() {
+        if (m_sliceView) {
+            m_sliceView->RePresent();
+        }
+    });
+    m_renderTimer->start(16);  // 60 FPS
+
     connect(m_resizeTimer, &QTimer::timeout, [this]() {
         std::cout << "[Real Widget Size] W: " << m_renderWidget->width()
                   << ", H: " << m_renderWidget->height() << std::endl;
@@ -316,6 +325,9 @@ void Simulation2DDialog::BuildContactMask()
     /*执行GPU计算*/
     m_sliceView->BuildContactMask(frameData, m_checkParametricWheelRequested, m_targetFlutePath);
 
+    // 反演只执行一次：清空路径，避免拖拽/缩放时反复重跑反演并污染显示相机
+    m_targetFlutePath.clear();
+
     // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
     if (wasAnalysisRequested) {
         auto microConfigs = m_sliceView->GetLastMicroConfigs();
@@ -358,7 +370,7 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
 #else
     // 固定分辨率
-    const uint32_t FIXED_RES = 2048;
+    const uint32_t FIXED_RES = 1024;
 
     config.nX = FIXED_RES;
     config.nZ = FIXED_RES;

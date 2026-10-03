@@ -7,6 +7,8 @@
 #include "RenderDocHelper.h"
 #include "vulkan/vulkan_core.h"
 
+#include "../performance/PerformanceCollector.h"
+
 namespace slice
 {
 SliceWearFitter::SliceWearFitter(lve::LveDevice& device,
@@ -161,8 +163,14 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
     VkCommandBuffer mainCmd, const FitConfig& config,
     ParametricInstancedData& parametricData, VkDescriptorSet globalDescriptorSet,
     const RasterizerData& rasterizerData, const SliceFrameData& frameData,
-    const SliceViewConfig& viewConfig)
+    const SliceViewConfig& viewConfig, double* gpuTimeUsOut)
 {
+    // --- GPU 时间戳池：测量纯 GPU 反演耗时（每轮 evalPoint 累加） ---
+    GpuTimestampPool gpuTimer;
+    gpuTimer.Initialize(m_lveDevice.device(), 2);
+    gpuTimer.SetTimestampPeriod(m_lveDevice.properties.limits.timestampPeriod);
+    double totalGpuUs = 0.0;
+
     // 1. Initialize search state on GPU buffer
     InitializeSearchState(config);
 
@@ -184,10 +192,23 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
         lossValues[0] = 0;
         state->x1 = point;
         VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+
+        // 起点：本轮提交的 GPU 执行开始
+        gpuTimer.Reset(cmd);
+        gpuTimer.WriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0);
+
         parametricData.candidateIndex = 0;
         m_rasterizer.ProcessAllPlanes(cmd, m_context, rasterizerData, frameData,
                                       viewConfig, true, searchStateSet, parametricData);
+
+        // 终点：本轮提交的 GPU 执行结束
+        gpuTimer.WriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 1);
+
         m_lveDevice.endSingleTimeCommands(cmd);
+
+        gpuTimer.ReadResults(0, 2);
+        totalGpuUs += gpuTimer.TimestampDeltaUs(0, 1);
+
         return static_cast<float>(lossValues[0]);
     };
 
@@ -288,7 +309,11 @@ float SliceWearFitter::FitGrindingWheelCornerRadius(
         state->converged = 1;
     }
 
-    INFO("GPU golden section search completed: bestR = %f", state->bestR);
+    if (gpuTimeUsOut) {
+        *gpuTimeUsOut = totalGpuUs;
+    }
+    INFO("GPU golden section search completed: bestR = %f, pure GPU time = %.3f us",
+         state->bestR, totalGpuUs);
     return state->bestR;
 }
 

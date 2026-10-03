@@ -35,6 +35,9 @@ public:
     void BuildContactMask(const SliceFrameData& frameData,
                           bool isParametricWheelRequested, std::string targetFlutefile);
 
+    // 轻量重绘：只重新提交已算好的离屏遮罩与线框，不重跑实例化求交
+    void RePresent();
+
     // 更新视图配置
     void UpdateSliceViewConfig(const SliceViewConfig& config);
 
@@ -95,6 +98,7 @@ private:
 
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
+    Plane m_lastDisplayPlane{};  // 缓存最近一次的显示截面，用于轻量重绘线框
     bool m_isParametricWheel = false;
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
     bool m_isWaitingForAnalysis = false;  // 是否挂起等待GPU

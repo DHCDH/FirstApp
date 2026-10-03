@@ -5,6 +5,8 @@
 #include "Logger.h"
 #include "RenderDocHelper.h"
 
+#include "../performance/PerformanceCollector.h"
+
 using namespace lve;
 
 static const std::string ORIGINAL_FLUTE_FILE_PATH =
@@ -47,13 +49,10 @@ void SliceProcessor::ProcessFrame(VkCommandBuffer commandBuffer,
     // 重置Fence锁
     m_analyzer->ResetFence();
 
-    // --- 只有需要显示的截面需要更新相机UBO，用于显示渲染结果 ---
-    // 只有在非反演模式下，才允许更新相机UBO用于显示渲染结果
-    if (isParametricWheelRequested == false) {
-        UpdateCameraUbo(frameData.displayPlane.normal,
-                        frameData.displayPlane.point,
-                        viewConfig);
-    }
+    // --- 更新显示相机（每帧都更新；反演流程会在其后覆盖为自己的拟合相机）---
+    UpdateCameraUbo(frameData.displayPlane.normal,
+                    frameData.displayPlane.point,
+                    viewConfig);
 
     // 组装Draw Mask数据
     RasterizerData rasterizerData{m_blankModel,
@@ -92,17 +91,6 @@ void SliceProcessor::UpdateCameraUbo(const glm::vec3& normal, const glm::vec3& p
     }
 
     m_camera->SetViewTarget(cameraPos, point, v);
-
-    INFO("camera info: position(%f, %f, %f), target(%f, %f, %f), up(%f, %f, %f)",
-         cameraPos.x,
-         cameraPos.y,
-         cameraPos.z,
-         point.x,
-         point.y,
-         point.z,
-         v.x,
-         v.y,
-         v.z);
 
     m_camera->SetOrthographicProjection(viewConfig.xMin,
                                         viewConfig.xMax,
@@ -199,6 +187,10 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
 
     // RENDERDOC_START;
 
+    GpuTimestampPool sdfTimer;
+    sdfTimer.Initialize(m_lveDevice.device(), 2);
+    sdfTimer.SetTimestampPeriod(m_lveDevice.properties.limits.timestampPeriod);
+
     VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
 
     m_rasterizer->TransitionImageLayout(cmd,
@@ -213,12 +205,18 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                   (fitViewConfig.zMax - fitViewConfig.zMin) /
                                       static_cast<float>(m_context->GetHeight()),
                                   static_cast<uint32_t>(points.size())};
+
+    sdfTimer.Reset(cmd);
+    sdfTimer.WriteTimestamp(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0);
+
     m_rasterizer->GetRenderSystem().ComputeSdfGenerate(
         cmd,
         m_context->GetSdfGenerateDescriptorSet(),
         push,
         m_context->GetWidth(),
         m_context->GetHeight());
+
+    sdfTimer.WriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 1);
 
 #if 0
     // --- 出图：将SDF数据回读到CPU并保存 ---
@@ -302,11 +300,15 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
 
     m_lveDevice.endSingleTimeCommands(cmd);
 
+    sdfTimer.ReadResults(0, 2);
+    double sdfGenerateGpuUs = sdfTimer.TimestampDeltaUs(0, 1);
+    INFO("GPU SDF generate time: %.3f us", sdfGenerateGpuUs);
+
     // RENDERDOC_END;
 
     SliceWearFitter::FitConfig config{};
-    config.grMin = 0.01f;
-    config.grMax = 1.5f;
+    config.grMin = 0.1f;
+    config.grMax = 1.f;
     config.tolerance = 0.0001f;
     config.maxIterations = 25;
 
@@ -319,6 +321,7 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                   m_blankMatrix,
                                   m_grndWheelInstances};
 
+    double inversionGpuUs = 0.0;
     float bestCornerRadius =
         m_wearFitter->FitGrindingWheelCornerRadius(nullptr,
                                                    config,
@@ -326,9 +329,13 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
                                                    globalDescriptorSet,
                                                    rasterizerData,
                                                    frameData,
-                                                   fitViewConfig);
+                                                   fitViewConfig,
+                                                   &inversionGpuUs);
 
     INFO("Best corner radius: %f", bestCornerRadius);
+    INFO("GPU wear inversion loop time: %.3f us", inversionGpuUs);
+    INFO("GPU wear inversion total (SDF generate + loop): %.3f us",
+         sdfGenerateGpuUs + inversionGpuUs);
 
 #if 0
     // --- GPU轮廓提取：用最优圆角半径渲染并提取容屑槽点集 ---
@@ -405,6 +412,32 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
     // 暂时忽略Analyzer的工作
 
     return;
+}
+
+void SliceProcessor::RestoreDisplay(const SliceFrameData& frameData,
+                                    const SliceViewConfig& viewConfig)
+{
+    // 恢复显示相机（反演会把它改成微小的拟合相机且不还原）
+    UpdateCameraUbo(frameData.displayPlane.normal,
+                    frameData.displayPlane.point,
+                    viewConfig);
+
+    RasterizerData rasterizerData{m_blankModel,
+                                  m_grndWheelModel,
+                                  m_blankMatrix,
+                                  m_grndWheelInstances};
+
+    m_parametricInstancedData = BuildFreshParametricInstancedData(false);
+
+    VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
+    m_rasterizer->ProcessAllPlanes(cmd,
+                                   *m_context,
+                                   rasterizerData,
+                                   frameData,
+                                   viewConfig,
+                                   false,
+                                   m_parametricInstancedData);
+    m_lveDevice.endSingleTimeCommands(cmd);
 }
 
 ParametricInstancedData SliceProcessor::BuildFreshParametricInstancedData(

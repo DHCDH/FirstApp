@@ -54,7 +54,8 @@ public:
                                        VkDescriptorSet globalDescriptorSet,
                                        const RasterizerData& rasterizerData,
                                        const SliceFrameData& frameData,
-                                       const SliceViewConfig& viewConfig);
+                                       const SliceViewConfig& viewConfig,
+                                       double* gpuTimeUsOut = nullptr);
 
 private:
     struct ThreadResource {
