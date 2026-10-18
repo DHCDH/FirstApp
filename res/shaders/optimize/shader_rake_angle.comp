@@ -49,65 +49,67 @@ void main()
     uint global_0 = plnIdx * push.maxPoints + 0;
     uint global_end = plnIdx * push.maxPoints + validCount - 1;
     vec2 tipVec = finalPoints[global_0];               // 第一个点
-    vec2 heelVec = finalPoints[global_end]; // 最后一个点
+    vec2 heelVec = finalPoints[global_end];            // 最后一个点
     tipVec = normalize(tipVec);
     heelVec = normalize(heelVec);
     float slotAngleRad = acos(clamp(dot(tipVec, heelVec), -1., 1.));
     outputBuffer.allResults[plnIdx].slotAngle = degrees(slotAngleRad);
 
-    
-    // 点数过少无法拟合
-    if (validCount < 50) return;
-
-    // 用于拟合曲线的点数
-    uint N = min(100, validCount);
-
-    // --- 累积弦长参数化 ---
-    float t[100];
-    t[0] = 0.;
-    float totalLen = 0.;
-    for (uint i = 1; i < N; i++) {
-        uint g_curr = plnIdx * push.maxPoints + i;
-        uint g_prev = plnIdx * push.maxPoints + i - 1;
-        totalLen += distance(finalPoints[g_curr], finalPoints[g_prev]);
-        t[i] = totalLen;
-    }
-
-    if (totalLen > 0.0001) {
-        for (uint i = 0; i < N; i++) {
-            t[i] /= totalLen;
+    // --- 找到芯厚点（距离原点最近的点） ---
+    uint coreRadiusIdx = 0;
+    float minDistSq = 1e10;
+    for (uint i = 0; i < validCount; i++) {
+        vec2 p = finalPoints[plnIdx * push.maxPoints + i];
+        float d2 = dot(p, p);
+        if (d2 < minDistSq) {
+            minDistSq = d2;
+            coreRadiusIdx = i;
         }
     }
 
-    // --- 构建3x3最小二乘法矩阵 (M^T * M) * X = M^T * P ---
-    float S0 = float(N);
-    float S1 = 0.0, S2 = 0.0, S3 = 0.0, S4 = 0.0;
-    float Rx0 = 0.0, Rx1 = 0.0, Rx2 = 0.0; // X 坐标的等式右侧
-    float Ry0 = 0.0, Ry1 = 0.0, Ry2 = 0.0; // Y 坐标的等式右侧
+    // --- 拟合区间：从起点(刀尖)到芯厚点 ---
+    uint N = min(2500u, coreRadiusIdx + 1u);
+    if (N < 3) return;
 
-    for(uint i = 0; i < N; ++i) {
-        float ti = t[i];
+    // 第一遍：累计弦长
+    float totalLen = 0.0;
+    for (uint i = 1; i < N; i++) {
+        vec2 a = finalPoints[plnIdx * push.maxPoints + i - 1];
+        vec2 b = finalPoints[plnIdx * push.maxPoints + i];
+        totalLen += distance(a, b);
+    }
+    if (totalLen <= 1e-6) return;
+
+    // 第二遍：弦长参数化 + 二次曲线最小二乘的法方程累计
+    float S0 = 0.0, S1 = 0.0, S2 = 0.0, S3 = 0.0, S4 = 0.0;
+    float Rx0 = 0.0, Rx1 = 0.0, Rx2 = 0.0;
+    float Ry0 = 0.0, Ry1 = 0.0, Ry2 = 0.0;
+    float acc = 0.0;
+    for (uint i = 0; i < N; i++) {
+        if (i > 0) {
+            acc += distance(finalPoints[plnIdx * push.maxPoints + i],
+                            finalPoints[plnIdx * push.maxPoints + i - 1]);
+        }
+        float ti = acc / totalLen;
         float t2 = ti * ti;
         float t3 = t2 * ti;
         float t4 = t3 * ti;
-
-        S1 += ti;  S2 += t2;  S3 += t3;  S4 += t4;
-
         vec2 p = finalPoints[plnIdx * push.maxPoints + i];
+
+        S0 += 1.0; S1 += ti; S2 += t2; S3 += t3; S4 += t4;
         Rx0 += p.x;       Rx1 += p.x * ti;       Rx2 += p.x * t2;
         Ry0 += p.y;       Ry1 += p.y * ti;       Ry2 += p.y * t2;
     }
 
-    // --- 计算 3x3 矩阵的行列式 ---
+    // --- 3x3 法方程 [S0..S4] -> 系数 [a0 a1 a2]，伴随矩阵求逆，解 t=0 处切线 ---
     float det = S0 * (S2 * S4 - S3 * S3) - S1 * (S1 * S4 - S3 * S2) + S2 * (S1 * S3 - S2 * S2);
-    if (abs(det) < 1e-6) return; // 奇异矩阵保护
+    if (abs(det) < 1e-6) return;
 
-    // 4. 利用伴随矩阵直接求逆，解出系数 B
     float A10 = S2 * S3 - S1 * S4;
     float A11 = S0 * S4 - S2 * S2;
     float A12 = S1 * S2 - S0 * S3;
 
-    // 得到 t=0 处的切线向量 (bx, by)
+    // 一次项系数 (bx, by) 即 t=0 处的切线方向
     float bx = (A10 * Rx0 + A11 * Rx1 + A12 * Rx2) / det;
     float by = (A10 * Ry0 + A11 * Ry1 + A12 * Ry2) / det;
 

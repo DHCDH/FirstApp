@@ -594,8 +594,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
                                      glm::vec4(0.f)};
         maskRenderSystem.ComputeFlute(cmdPrecise,
                                       computeInfo,
-                                      context.GetGlobalDescriptorSet());
-                                      //context.GetTipInfoBuffer());
+                                      context.GetGlobalDescriptorSet(),
+                                      context.GetTipInfoBuffer());
 
         RENDERDOC_START;
 
@@ -625,7 +625,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     float sq = std::bit_cast<float>(m_bestResult.coreRadiusSqBits);
     std::cout << "core radius: " << std::sqrt(sq) << "\n";
     std::cout << "slot angle: " << m_bestResult.slotAngle << "\n";
-    //std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
+    std::cout << "rake angle: " << m_bestResult.rakeAngle << "\n";
 
     std::cout << "\n========== [ Result ] Best Pose Matrix ==========\n";
     for (int row = 0; row < 4; ++row) {
@@ -660,22 +660,22 @@ float GrindingWheelPoseOptimizer::EvaluateFitness(const ResultData& result)
         return -999999.0f;
     }
 
-    float targetSlotAngle = 65.0f;
-    float targetArcLength = 5.f * glm::radians(targetSlotAngle);
-    float targetCoreRadius = 3.0f;
-    // float targetRakeAngle = 10.0f;
+    float targetSlotAngle = 60.0f;
+    float targetCoreRadius = 4.0f;
+    float targetRakeAngle = 10.0f;
 
-    float resultArcLength = glm::radians(result.slotAngle) * 5.f;
+    // 权重：芯厚 > 槽宽角 > 前角，优先保证芯厚和槽宽角
+    float weightCore = 50.0f;
+    float weightSlot = 25.0f;
+    float weightRake = 1.0f;
 
-    float slotAngleError = std::abs(resultArcLength - targetArcLength);
-    float coreRadiusError = std::abs(coreRadius - targetCoreRadius);
-    // ArcProjection已经的计算已经保证了前角和螺旋角
-    // float rakeAngleError = std::abs(result.rakeAngle - targetRakeAngle);
+    float slotRel = (result.slotAngle - targetSlotAngle) / targetSlotAngle;
+    float coreRel = (coreRadius - targetCoreRadius) / targetCoreRadius;
+    float rakeRel = (result.rakeAngle - targetRakeAngle) / targetRakeAngle;
 
-    float weightSlot = 1.f;
-    float weightCore = 1.f;
-
-    float score = -(slotAngleError * weightSlot + coreRadiusError * weightCore);
+    float score = -std::sqrt(weightCore * coreRel * coreRel +
+                             weightSlot * slotRel * slotRel +
+                             weightRake * rakeRel * rakeRel);
 
     return score;
 }

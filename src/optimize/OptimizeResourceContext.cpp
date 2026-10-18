@@ -371,7 +371,7 @@ void OptimizeResourceContext::CreateComputeResources()
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-#if 0
+#if 1
     // --- 获取前角所需buffer ---
     m_knnBuffer = std::make_unique<LveBuffer>(m_lveDevice,
                                               sizeof(uint32_t) * 4,
@@ -395,29 +395,6 @@ void OptimizeResourceContext::CreateComputeResources()
         MAX_POINTS * BATCH_LAYER_COUNT,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    // --- 包围盒Bbox存储和读回buffer
-    m_bboxBuffer = std::make_unique<LveBuffer>(m_lveDevice,
-                                               sizeof(BBoxData),
-                                               BATCH_LAYER_COUNT,
-                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    m_bboxReadbackBuffer = std::make_unique<LveBuffer>(
-        m_lveDevice,
-        sizeof(BBoxData),
-        BATCH_LAYER_COUNT,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    m_bboxComputeSetLayout =
-        LveDescriptorSetLayout::Builder(m_lveDevice)
-            .AddBinding(0,
-                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                        VK_SHADER_STAGE_COMPUTE_BIT)
-            .AddBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
-            .Build();
 
     // 创建计算描述符集布局
     m_contourComputeSetLayout =
@@ -522,8 +499,11 @@ void OptimizeResourceContext::CreateComputeResources()
             .Build();
 
     auto bboxInfo = m_bboxBuffer->DescriptorInfo();
+    VkDescriptorImageInfo bboxImageInfo{m_maskSampler,
+                                        m_blankMaskView,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     LveDescriptorWriter(*m_bboxComputeSetLayout, *m_computeDescriptorPool)
-        .WriteImage(0, &imageInfo)  // 共用一张blankMaskView
+        .WriteImage(0, &bboxImageInfo)  // 共用一张blankMaskView
         .WriteBuffer(1, &bboxInfo)
         .Build(m_bboxDescriptorSet);
 

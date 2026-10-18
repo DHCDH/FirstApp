@@ -14,8 +14,8 @@ struct GrindingWheelParameters {
     double d1{100.};  // 大端圆直径
     double d2{100.};  // 小端圆直径
     double width{10.};
-    double gr1{0.1};  // 大端面圆角
-    double gr2{0.2};  // 小端面圆角
+    double gr1{0.3};  // 大端面圆角
+    double gr2{0.3};  // 小端面圆角
     // 默认为1A1砂轮
     std::function<double(double)> radius{[&](double u0) {
         // 磨削前角仅用到大端面圆角

@@ -237,7 +237,6 @@ void OptimizeMaskRenderSystem::CreateComputePipeline()
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_optimize_extract_contour.comp.spv",
         configInfo);
-#if 0
     m_knnPipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_sort_contour.comp.spv",
@@ -257,7 +256,6 @@ void OptimizeMaskRenderSystem::CreateComputePipeline()
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_rake_angle.comp.spv",
         configInfo);
-#endif
     m_fluteWidthPipeline = std::make_unique<LvePipeline>(
         m_lveDevice,
         "../../../res/shaders/spv/optimize/shader_optimize_flute_width.comp.spv",
@@ -437,27 +435,25 @@ void OptimizeMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
     m_fluteWidthPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
 
-    #if 0
     // KNN 建图：X 轴管点数，Z 轴并发 256 次
     uint32_t groupCount = (computeInfo.maxPoints + 255) / 256;
     m_knnPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  
+    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);
     insert_compute_barrier();
 
     // Trace 单线程寻迹：X、Y=1，Z 轴并发 256 次
     m_tracePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);  
+    vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
     insert_compute_barrier();
 
     // Align 对齐：X 轴管点数，Z 轴并发 256 次
     m_alignPipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);  
+    vkCmdDispatch(commandBuffer, groupCount, 1, BATCH_LAYER_COUNT);
     insert_compute_barrier();
 
     // RakeAngle 前角计算：X、Y=1，Z 轴并发 256 次
     m_rakeAnglePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(commandBuffer, 1, 1, BATCH_LAYER_COUNT);
-    #endif
 }
 
 void OptimizeMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
