@@ -28,6 +28,9 @@ private:
     //std::string m_filepath{
     //    "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\blanks\\flat\\blank_flat_D8_"
     //    "L40_X\\blank_flat_D8_L40_X.obj"};
+
+     //std::string m_filepath{
+     //   "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\blanks\\blank_ball_D10.obj"};
     uint32_t m_id{};
 };
 }  // namespace entity

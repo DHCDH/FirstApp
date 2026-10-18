@@ -18,6 +18,10 @@ class QTimer;
 class QLineEdit;
 class QLabel;
 
+namespace flute {
+class FluteAnalyzer;
+}
+
 class Simulation2DDialog : public QDialog
 {
     Q_OBJECT
@@ -83,6 +87,8 @@ private:
 
     std::string m_targetFlutePath;
 
+    std::unique_ptr<flute::FluteAnalyzer> m_fluteAnalyzer = nullptr;
+
 private:
     void InitSliceView(lve::LveDevice& device, void* hwnd, void* hinstance);
     SliceViewConfig UpdateView();
@@ -98,6 +104,7 @@ private:
     void UpdateToolPath(std::filesystem::path path);
     void ApplyInterpolation();
     void GenerateHelix();
+    void AnalyzeFluteFromFile();
     void UpdateGrindingWheelInstances();
 
 protected:

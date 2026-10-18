@@ -188,13 +188,11 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         m_overlayRenderSystem->RenderSliceContour(info);
     }
 
-    #if 0  // 暂时屏蔽容屑槽轮廓线显示
-    if (m_hasContourPoints) {
+    if (m_hasContourPoints && m_displayContour) {
         m_contourRenderSystem->Render(
             commandBuffer,
             {m_viewConfig.xMin, m_viewConfig.xMax, m_viewConfig.zMin, m_viewConfig.zMax});
     }
-    #endif
 
     m_renderer->EndSwapChainRenderPass(commandBuffer);
 
@@ -275,6 +273,12 @@ void SliceView::RePresent()
                                 m_lastDisplayPlane.point,
                                 1};
         m_overlayRenderSystem->RenderSliceContour(info);
+    }
+
+    if (m_hasContourPoints && m_displayContour) {
+        m_contourRenderSystem->Render(
+            commandBuffer,
+            {m_viewConfig.xMin, m_viewConfig.xMax, m_viewConfig.zMin, m_viewConfig.zMax});
     }
 
     m_renderer->EndSwapChainRenderPass(commandBuffer);

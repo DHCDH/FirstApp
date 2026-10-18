@@ -4,6 +4,7 @@
 #include <iomanip>
 
 #include "../Global.h"
+#include "ToolPathCLWriter.h"
 #include "ArcProjectionSolver.h"
 #include "RenderDocHelper.h"
 
@@ -285,6 +286,7 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     float helixAngle = static_cast<float>(context.GetCutterParameters().helixAngle(0.));
     float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
 
+    ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
     int num = 52;
     float stepX = 0.1f;
     for (int stepIndex = 0; stepIndex < num; ++stepIndex) {
@@ -315,11 +317,26 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
         // --- 6. 写入文件 ---
         outFile << p.x << "," << p.y << "," << p.z << "," << n.x << "," << n.y << ","
                 << n.z << "\n";
+
+        tp.points.push_back(p);
+        tp.normals.push_back(n);
     }
+    tp.size = tp.points.size();
 
     outFile.close();
 
     std::cout << "[System] Successfully exported tool path to: " << filename << "\n";
+
+    // 输出 CL 文件, 格式与 lucToolPathCLWriter::WriteData() 严格一致
+    ToolPathCLWriter::Config clConfig;
+    clConfig.toolNum = 0;            // 头部: G54, T1
+    clConfig.width = 0.0;            // 砂轮宽度
+    clConfig.wheelClampOut = false;  // true 时沿法向偏移砂轮宽度并反向法向
+
+    std::string clFilename =
+        "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.cl";
+    std::vector<ToolPath> segs{tp};
+    ToolPathCLWriter::Write(segs, clConfig, clFilename);
 }
 
 std::vector<Triangle> GrindingWheelPoseOptimizer::ExtractTriangles(

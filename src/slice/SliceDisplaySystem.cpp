@@ -101,6 +101,12 @@ void SliceDisplaySystem::Render(VkCommandBuffer commandBuffer,
     float w = (width > 0) ? static_cast<float>(width) : 1.0f;
     float h = (height > 0) ? static_cast<float>(height) : 1.0f;
     push.texelSize = {1.0f / w, 1.0f / h};
+
+    push.gridEnabled = m_gridEnabled ? 1 : 0;
+    push.gridCellTexels = m_gridCellTexels;
+    push.gridLineWidthPx = m_gridLineWidthPx;
+    push.rawContourEnabled = m_rawContourEnabled ? 1 : 0;
+
     vkCmdPushConstants(commandBuffer,
                        m_pipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT,

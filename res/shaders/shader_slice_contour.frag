@@ -4,5 +4,5 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
-    outColor = vec4(177.0 / 255.0, 93.0 / 255.0, 36.0 / 255.0, 1.0);
+    outColor = vec4(1.0, 0.24, 0.0, 1.0);  // 红橙色, 更偏红
 }

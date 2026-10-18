@@ -1,5 +1,6 @@
 ﻿#include "Simulation2DDialog.h"
 
+#include <bit>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -17,6 +18,7 @@
 #include "Logger.h"
 #include "RenderDocHelper.h"
 #include "algorithm/DualNURBSCurveInterpolator.h"
+#include "flute/FluteAnalyzer.h"
 #include "optimize/OptimizeGlobalConfig.h"
 
 const std::filesystem::path DEFAULT_TOOL_PATH =
@@ -31,14 +33,14 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     DEBUG("Construct Simulation2DDialog");
 
     this->setWindowTitle("2D Simulation");
-    this->resize(1100, 900);
+    this->resize(1350, 1080);
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     m_renderWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     mainLayout->addWidget(m_renderWidget, 1);
-    m_renderWidget->setFixedSize(800, 800);
+    m_renderWidget->setFixedSize(1024, 1024);
 
     QVBoxLayout* controlLayout = new QVBoxLayout();
     controlLayout->setContentsMargins(5, 5, 5, 5);
@@ -49,6 +51,12 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnToolPath = new QPushButton("Tool Path", this);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
+    QCheckBox* checkDisplaySubpixelContour = new QCheckBox("Display Subpixel Contour", this);
+    checkDisplaySubpixelContour->setChecked(true);
+    QCheckBox* checkDisplayRawContour = new QCheckBox("Display Raw Contour", this);
+    checkDisplayRawContour->setChecked(true);
+    QCheckBox* checkDisplayPixelGrid = new QCheckBox("Display Pixel Grid", this);
+    checkDisplayPixelGrid->setChecked(true);
     m_editDiameter = new QLineEdit("10.", this);
     m_editSliceNum = new QLineEdit("1", this);
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
@@ -56,6 +64,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
+    QPushButton* btnAnalyzeFlute = new QPushButton("Analyze Flute", this);
     m_checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
     m_checkParametricWheelRequested->setChecked(false);
     m_labelViewInfo = new QLabel("Center: (0.00, 0.00) | Zoom: 8.00", this);
@@ -66,6 +75,9 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(m_labelRes);
     controlLayout->addWidget(btnToolPath);
     controlLayout->addWidget(checkDisplayWireframe);
+    controlLayout->addWidget(checkDisplaySubpixelContour);
+    controlLayout->addWidget(checkDisplayRawContour);
+    controlLayout->addWidget(checkDisplayPixelGrid);
     controlLayout->addWidget(new QLabel("Diameter", this));
     controlLayout->addWidget(m_editDiameter);
     controlLayout->addWidget(new QLabel("Number of Slices", this));
@@ -78,6 +90,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
     controlLayout->addWidget(m_checkParametricWheelRequested);
+    controlLayout->addWidget(btnAnalyzeFlute);
 
     // --- 镜头控制 ---
     controlLayout->addWidget(new QLabel("--- View ---", this));
@@ -160,6 +173,18 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         }
     });
 
+    connect(checkDisplaySubpixelContour, &QCheckBox::stateChanged, this, [this](int state) {
+        m_sliceView->SetDisplayContour(state == Qt::Checked);
+    });
+
+    connect(checkDisplayRawContour, &QCheckBox::stateChanged, this, [this](int state) {
+        m_sliceView->SetDisplayRawContour(state == Qt::Checked);
+    });
+
+    connect(checkDisplayPixelGrid, &QCheckBox::stateChanged, this, [this](int state) {
+        m_sliceView->SetDisplayGrid(state == Qt::Checked);
+    });
+
     connect(btnDisplayOnly, &QPushButton::clicked, this, [this]() {
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
         m_runningMode = RunningMode::DISPLAY_ONLY;
@@ -210,6 +235,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
 
     connect(btnOptimize, &QPushButton::clicked, this, [this]() {
         OptimizeGrindingWheelPose();
+    });
+
+    connect(btnAnalyzeFlute, &QPushButton::clicked, this, [this]() {
+        AnalyzeFluteFromFile();
     });
 
     connect(btnToolPath, &QPushButton::clicked, this, [this]() {
@@ -361,24 +390,6 @@ SliceViewConfig Simulation2DDialog::UpdateView()
 
     /*配置视图*/
     SliceViewConfig config{};
-#if 0
-    // 采样倍率，被率越高，Solid边缘越平滑，图形越精确，显存和性能开销越大
-    constexpr float renderScale = 1.f;
-    /*分辨率 pixels*/
-    config.nX = static_cast<uint32_t>(w * renderScale);
-    config.nZ = static_cast<uint32_t>(h * renderScale);
-
-#else
-    // 固定分辨率
-    const uint32_t FIXED_RES = 1024;
-
-    config.nX = FIXED_RES;
-    config.nZ = FIXED_RES;
-
-    QString resText = QString("Res: %1 x %2").arg(config.nX).arg(config.nZ);
-    m_labelRes->setText(resText);
-    m_labelRes->adjustSize();
-#endif
 
     float xHalf, zHalf;
 
@@ -396,6 +407,29 @@ SliceViewConfig Simulation2DDialog::UpdateView()
     config.xMax = m_viewCenter.x + xHalf;
     config.zMin = m_viewCenter.y - zHalf;
     config.zMax = m_viewCenter.y + zHalf;
+
+    // --- 分辨率随视野缩放, 让每个 texel 的世界尺寸固定 ---
+    // 基准: 视野半宽 BASE_HALF_SIZE 时用 FIXED_RES 个 texel。
+    // 放大(视野变小) -> texel 数变少 -> 每个方块在屏幕上变大。
+    const uint32_t FIXED_RES = 1024;
+    const double BASE_HALF_SIZE = 8.0;
+    const double texelWorld = (2.0 * BASE_HALF_SIZE) / static_cast<double>(FIXED_RES);
+
+    int nx = static_cast<int>((config.xMax - config.xMin) / texelWorld + 0.5);
+    int nz = static_cast<int>((config.zMax - config.zMin) / texelWorld + 0.5);
+
+    // 下限 1 texel; 上限 FIXED_RES(缩小视野时保持用户设定的 256, 不再变密)
+    if (nx < 1) nx = 1;
+    if (nz < 1) nz = 1;
+    if (nx > static_cast<int>(FIXED_RES)) nx = static_cast<int>(FIXED_RES);
+    if (nz > static_cast<int>(FIXED_RES)) nz = static_cast<int>(FIXED_RES);
+
+    config.nX = static_cast<uint32_t>(nx);
+    config.nZ = static_cast<uint32_t>(nz);
+
+    QString resText = QString("Res: %1 x %2").arg(config.nX).arg(config.nZ);
+    m_labelRes->setText(resText);
+    m_labelRes->adjustSize();
 
     UpdateViewInfoLabel();
 
@@ -488,10 +522,10 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
         m_optContext->SetGrindingWheelParameters(
             {.gR{50.},
-             .gr1{0.1},
-             .gr2{0.1},
+             .gr1{0.3},
+             .gr2{0.3},
              .width{10.},
-             .radius{[r1 = 50., gr1 = 0.1, width = 8., gr2 = 0.1](double u0) {
+             .radius{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](double u0) {
                  // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
                  //         << "\n";
                  if (u0 < gr1) {
@@ -503,7 +537,8 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                  }
                  return r1;
              }},
-             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 8., gr2 = 0.1](double u0) {
+             .radiusDeriv{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](
+                              double u0) {
                  if (u0 < gr1) {
                      return (gr1 - u0) / std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
                  } else if (u0 > (width - gr1) && u0 <= width) {
@@ -546,12 +581,12 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
     optimize::BatchedWheelPushConstants pushData{};
     pushData.normal = plane.normal;
     pushData.point = plane.point;
-    pushData.stepX = 0.1f;
+    pushData.stepX = 0.02f;
     double helixAngle =
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 52;
+    pushData.stepsPerPose = 104;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,
@@ -567,6 +602,53 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     UpdateToolPath(DEFAULT_TOOL_PATH);
     UpdateGrindingWheelInstances();
+}
+
+void Simulation2DDialog::AnalyzeFluteFromFile()
+{
+    const QString qPath = QFileDialog::getOpenFileName(
+        this,
+        tr("选择容屑槽点集文件"),
+        QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear"),
+        tr("Flute Point Files (*.txt);;All Files (*.*)"));
+    if (qPath.isEmpty()) {
+        return;
+    }
+
+    std::filesystem::path path = std::filesystem::u8path(qPath.toUtf8().constData());
+
+    if (!m_fluteAnalyzer) {
+        m_fluteAnalyzer = std::make_unique<flute::FluteAnalyzer>(m_lveDevice);
+    }
+
+    if (!m_fluteAnalyzer->ParseFlutePointSet(path.string())) {
+        QMessageBox::critical(this, tr("错误"), tr("读取容屑槽点集失败"));
+        return;
+    }
+
+    flute::FluteGeometryResult result;
+    if (!m_fluteAnalyzer->Analyze(result)) {
+        QMessageBox::warning(this,
+                             tr("警告"),
+                             tr("分析失败（点数过少或未得到有效结果）"));
+        return;
+    }
+
+    float radius = std::sqrt(std::bit_cast<float>(result.coreRadiusSqBits));
+    QString msg = QString("Core Radius: %1 mm\n"
+                          "Core Point: (%2, %3)\n"
+                          "Rake Angle: %4 deg\n"
+                          "Slot Angle: %5 deg\n"
+                          "Tip Point: (%6, %7)")
+                      .arg(radius, 0, 'f', 6)
+                      .arg(result.coreRadiusPoint.x, 0, 'f', 6)
+                      .arg(result.coreRadiusPoint.y, 0, 'f', 6)
+                      .arg(result.rakeAngle, 0, 'f', 6)
+                      .arg(result.slotAngle, 0, 'f', 6)
+                      .arg(result.tipPoint.x, 0, 'f', 6)
+                      .arg(result.tipPoint.y, 0, 'f', 6);
+
+    QMessageBox::information(this, tr("Flute Geometry"), msg);
 }
 
 int Simulation2DDialog::ReadToolPath(std::filesystem::path path)

@@ -56,12 +56,12 @@ private:
 
     std::string m_filepath{
         "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1V1/"
-        "1V1_D100_W10_R0.1_A60/1V1_D100_W10_R0.1_A60.obj"};
+        "1V1_D100_W10_R0.3_A60/1V1_D100_W10_R0.3_A60_new.obj"};
 
     //磨损模拟用砂轮
     //std::string m_filepath{
     //        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
-    //        "1A1_D100_W10_R1.0_A90/1A1_D100_W10_R1.0_A90.obj"};
+    //        "1A1_D100_W10_R0.1_A90/1A1_D100_W10_R0.1_A90.obj"};
 
     // --- 渲染用砂轮 ---
     // std::string m_filepath{

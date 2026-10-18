@@ -17,5 +17,5 @@ void main()
     float ndcY = 2.0 * (inWorldPos.y - zMax) / (zMin - zMax) - 1.0;
 
     gl_Position = vec4(ndcX, ndcY, 0.0, 1.0);
-    gl_PointSize = 10.0;
+    gl_PointSize = 16.0;
 }

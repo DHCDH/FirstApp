@@ -50,6 +50,18 @@ public:
     {
         m_displayWireframe = display;
     }
+    void SetDisplayContour(const bool& display)
+    {
+        m_displayContour = display;
+    }
+    void SetDisplayRawContour(const bool& display)
+    {
+        m_displaySystem->SetRawContourEnabled(display);
+    }
+    void SetDisplayGrid(const bool& display)
+    {
+        m_displaySystem->SetGridEnabled(display);
+    }
     void SetRunningMode(RunningMode mode)
     {
         m_runningMode = mode;
@@ -98,6 +110,7 @@ private:
 
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
+    bool m_displayContour = true;
     Plane m_lastDisplayPlane{};  // 缓存最近一次的显示截面，用于轻量重绘线框
     bool m_isParametricWheel = false;
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};

@@ -4,6 +4,7 @@
 
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -24,6 +25,7 @@
 #include "comparison/FluteMeasure.h"
 #include "slice/SliceView.h"
 #include "lve/LveWindow.h"
+#include "ToolPathCLWriter.h"
 #include "Logger.h"
 
 MainWindow::MainWindow(QWidget* parent)
@@ -78,6 +80,7 @@ void MainWindow::InitUI()
 {
     QVBoxLayout* buttonLayout = new QVBoxLayout(m_buttonWidget);
     QPushButton* btnToolPath = new QPushButton("Tool Path", m_buttonWidget);
+    QPushButton* btnExportCL = new QPushButton("Export CL", m_buttonWidget);
     QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
     QPushButton* btnStart = new QPushButton("Start", m_buttonWidget);
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
@@ -97,6 +100,7 @@ void MainWindow::InitUI()
     //m_camUp = new QLineEdit("0, -1, 0", m_buttonWidget);
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
+    buttonLayout->addWidget(btnExportCL);
     buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
@@ -126,6 +130,47 @@ void MainWindow::InitUI()
 
         std::filesystem::path path = std::filesystem::u8path(qPath.toUtf8().constData());
         m_vulkanApp->ReadToolPath(path);
+    });
+    connect(btnExportCL, &QPushButton::clicked, this, [this]() {
+        const QString qTxt = QFileDialog::getOpenFileName(
+            this,
+            tr("选择 optimize 刀轨文件"),
+            QString("D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff"),
+            tr("Toolpath Files (*.txt);;All Files (*.*)"));
+        if (qTxt.isEmpty()) return;
+
+        std::vector<ToolPath> toolpaths;
+        std::string txtPath =
+            std::filesystem::u8path(qTxt.toUtf8().constData()).string();
+        if (!ToolPathCLWriter::LoadOptimizeToolPath(txtPath, toolpaths)) {
+            QMessageBox::critical(this, tr("错误"), tr("刀轨文件解析失败"));
+            return;
+        }
+
+        QFileInfo fi(qTxt);
+        QString defaultCl = fi.absolutePath() + "/" + fi.completeBaseName() + ".cl";
+        const QString qCl = QFileDialog::getSaveFileName(
+            this,
+            tr("保存 CL 文件"),
+            defaultCl,
+            tr("CL Files (*.cl);;All Files (*.*)"));
+        if (qCl.isEmpty()) return;
+
+        std::string clPath =
+            std::filesystem::u8path(qCl.toUtf8().constData()).string();
+
+        ToolPathCLWriter::Config cfg;
+        cfg.toolNum = 0;
+        cfg.width = 0.0;
+        cfg.wheelClampOut = false;
+
+        if (!ToolPathCLWriter::Write(toolpaths, cfg, clPath)) {
+            QMessageBox::critical(this, tr("错误"), tr("CL 文件写出失败"));
+            return;
+        }
+
+        QMessageBox::information(this, tr("完成"),
+                                 QString("已导出 CL 文件:\n%1").arg(qCl));
     });
     connect(btnReset, &QPushButton::clicked, [this]() { m_vulkanApp->ResetView(); });
     connect(btnStart, &QPushButton::clicked, this, [this]() {
