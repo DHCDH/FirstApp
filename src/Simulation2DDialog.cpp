@@ -56,7 +56,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QCheckBox* checkDisplayRawContour = new QCheckBox("Display Raw Contour", this);
     checkDisplayRawContour->setChecked(true);
     QCheckBox* checkDisplayPixelGrid = new QCheckBox("Display Pixel Grid", this);
-    checkDisplayPixelGrid->setChecked(true);
+    checkDisplayPixelGrid->setChecked(false);
     m_editDiameter = new QLineEdit("10.", this);
     m_editSliceNum = new QLineEdit("1", this);
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
@@ -588,7 +588,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 104;
+    pushData.stepsPerPose = 208;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,

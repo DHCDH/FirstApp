@@ -53,7 +53,7 @@ void main() {
     uint halfSize = zMap.length() / 2;
 
     if(localIdx == 0) {
-        float stepDist = float(stepIdx) * push.stepX;
+        float stepDist = (float(stepIdx) - 0.5f * float(push.stepsPerPose - 1)) * push.stepX;
         float theta = (stepDist * push.tanHelixAngle) / push.radius;
         
         // 构建局部平移和旋转矩阵

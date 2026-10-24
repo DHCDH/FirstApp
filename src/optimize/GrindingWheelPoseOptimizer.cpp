@@ -150,7 +150,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     for (uint32_t iter = 0; iter < PSO_ITERATION_COUNT; iter++) {
         if (iter >= thresholdIter) {
             polarPush.stepX = 0.2f;
-            polarPush.stepsPerPose = 26;
+            polarPush.stepsPerPose = 52;
         }
 
         maskRenderSystem.ComputePolarPSOUpdate(m_cmdCompute,
@@ -287,11 +287,12 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
 
     ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
-    int num = 52;
+    int num = 104;
     float stepX = 0.1f;
     for (int stepIndex = 0; stepIndex < num; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
-        float stepDist = static_cast<float>(stepIndex) * stepX;
+        float stepDist =
+            (static_cast<float>(stepIndex) - 0.5f * static_cast<float>(num - 1)) * stepX;
         float theta = (stepDist * tan(glm::radians(helixAngle))) /
                       radius;  // 注意：半径为5mm，此处写死了
 
