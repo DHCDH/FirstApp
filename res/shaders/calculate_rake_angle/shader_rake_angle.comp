@@ -69,8 +69,25 @@ void main()
     outputBuffer.allResults[plnIdx].coreRadiusPoint = finalPoints[plnIdx * push.maxPoints + coreRadiusIdx];
     outputBuffer.allResults[plnIdx].coreRadiusSqBits = floatBitsToUint(minDistSq);
 
-    // 用于拟合曲线的点数：从起点到芯厚点
-    uint N = min(2500, coreRadiusIdx + 1);
+    // 用于拟合曲线的点数：从刀尖顺序走到距离圆心 9/10 棒料半径的点
+    // 刀尖位于棒料外圆上，用刀尖到圆心的距离作为棒料半径
+    vec2 P0 = finalPoints[global_0];
+    float blankRadius = length(P0);
+    float stopDistSq = (0.9f * blankRadius) * (0.9f * blankRadius);
+
+    uint N = 0;
+    for (uint i = 0; i < coreRadiusIdx; ++i) {
+        uint gCurr = plnIdx * push.maxPoints + i;
+        if (dot(finalPoints[gCurr], finalPoints[gCurr]) <= stopDistSq) {
+            N = i + 1;
+            break;
+        }
+    }
+
+    // 找不到 0.9R 截断点就退回“刀尖到芯厚”
+    if (N == 0) {
+        N = min(2500, coreRadiusIdx + 1);
+    }
     if (N < 3) return;
 
     // --- 累积弦长参数化 ---
@@ -123,7 +140,6 @@ void main()
     float by = (A10 * Ry0 + A11 * Ry1 + A12 * Ry2) / det;
 
     vec2 T = normalize(vec2(bx, by));
-    vec2 P0 = finalPoints[global_0];
     vec2 R = normalize(-P0);
 
     float crossVal = R.x * T.y - R.y * T.x;

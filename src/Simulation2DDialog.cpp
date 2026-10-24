@@ -522,12 +522,13 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
         m_optContext->SetGrindingWheelParameters(
             {.gR{50.},
-             .gr1{0.3},
-             .gr2{0.3},
+             .gr1{0.1},
+             .gr2{0.1},
              .width{10.},
              .radius{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](double u0) {
                  // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
                  //         << "\n";
+                // 1A1
                  if (u0 < gr1) {
                      return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
                  } else if (u0 > (width - gr1) && u0 <= width) {
@@ -539,6 +540,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
              }},
              .radiusDeriv{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](
                               double u0) {
+                 // 1A1
                  if (u0 < gr1) {
                      return (gr1 - u0) / std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
                  } else if (u0 > (width - gr1) && u0 <= width) {
