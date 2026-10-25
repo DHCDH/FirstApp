@@ -288,8 +288,8 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
 
     ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
-    int num = 104;
-    float stepX = 0.1f;
+    int num = 416;
+    float stepX = 0.01f;
     int totalNum = num * 2;
     for (int stepIndex = 0; stepIndex < totalNum; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---

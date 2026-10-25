@@ -1,6 +1,5 @@
 ﻿#include "Simulation2DDialog.h"
 
-#include <bit>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -13,6 +12,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <bit>
 #include <fstream>
 
 #include "Logger.h"
@@ -51,7 +51,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnToolPath = new QPushButton("Tool Path", this);
     QCheckBox* checkDisplayWireframe = new QCheckBox("Display Wireframe", this);
     checkDisplayWireframe->setChecked(true);
-    QCheckBox* checkDisplaySubpixelContour = new QCheckBox("Display Subpixel Contour", this);
+    QCheckBox* checkDisplaySubpixelContour =
+        new QCheckBox("Display Subpixel Contour", this);
     checkDisplaySubpixelContour->setChecked(true);
     QCheckBox* checkDisplayRawContour = new QCheckBox("Display Raw Contour", this);
     checkDisplayRawContour->setChecked(true);
@@ -173,9 +174,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         }
     });
 
-    connect(checkDisplaySubpixelContour, &QCheckBox::stateChanged, this, [this](int state) {
-        m_sliceView->SetDisplayContour(state == Qt::Checked);
-    });
+    connect(checkDisplaySubpixelContour,
+            &QCheckBox::stateChanged,
+            this,
+            [this](int state) { m_sliceView->SetDisplayContour(state == Qt::Checked); });
 
     connect(checkDisplayRawContour, &QCheckBox::stateChanged, this, [this](int state) {
         m_sliceView->SetDisplayRawContour(state == Qt::Checked);
@@ -270,9 +272,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         ApplyInterpolation();
     });
 
-    connect(btnGenerateHelix, &QPushButton::clicked, this, [this]() {
-        GenerateHelix();
-    });
+    connect(btnGenerateHelix, &QPushButton::clicked, this, [this]() { GenerateHelix(); });
 }
 
 void Simulation2DDialog::InitSliceView(lve::LveDevice& device, void* hwnd,
@@ -300,7 +300,6 @@ void Simulation2DDialog::UpdateEntitiesData(
 
 void Simulation2DDialog::BuildContactMask()
 {
-
     bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE);
 
     if (wasAnalysisRequested) {
@@ -352,7 +351,9 @@ void Simulation2DDialog::BuildContactMask()
     }
 
     /*执行GPU计算*/
-    m_sliceView->BuildContactMask(frameData, m_checkParametricWheelRequested, m_targetFlutePath);
+    m_sliceView->BuildContactMask(frameData,
+                                  m_checkParametricWheelRequested,
+                                  m_targetFlutePath);
 
     // 反演只执行一次：清空路径，避免拖拽/缩放时反复重跑反演并污染显示相机
     m_targetFlutePath.clear();
@@ -522,42 +523,77 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
         m_optContext->SetGrindingWheelParameters(
             {.gR{50.},
-             .gr1{0.1},
-             .gr2{0.1},
+             .gr1{0.5},
+             .gr2{0.5},
              .width{10.},
-             .radius{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
+             .radius{[r1 = 50., gr1 = 0.5, width = 10., gr2 = 0.5](double u0) {
                  // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
                  //         << "\n";
-                // 1A1
-                 if (u0 < gr1) {
-                     return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                 } else if (u0 > (width - gr1) && u0 <= width) {
-                     return r1 - gr2 +
-                            std::sqrt(gr2 * gr2 -
-                                      (u0 - (width - gr2)) * (u0 - (width - gr2)));
+                 if (1) {
+                     if (u0 < gr1) {
+                         return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                     } else if (u0 > (width - gr1) && u0 <= width) {
+                         return r1 - gr2 +
+                                std::sqrt(gr2 * gr2 -
+                                          (u0 - (width - gr2)) * (u0 - (width - gr2)));
+                     }
+                     return r1;
+                 } else {
+                     // 1V1
+                     float ga = glm::radians(60.f);
+                     if (u0 < gr1 + gr1 * cos(ga)) {
+                         return r1 - gr1 + sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                     } else if (u0 >= gr1 + gr1 * cos(ga) &&
+                                u0 < width - (gr2 - gr2 * cos(ga))) {
+                         return r1 - gr1 + gr1* sin(ga) -
+                             (u0 - (gr1 + gr1 * cos(ga))) * (1 / tan(ga));
+                     } else if (u0 >= width - (gr2 - gr2 * cos(ga)) && u0 <= width) {
+                         return r1 - gr1 * (1 - 1 / tan(ga / 2)) - width / tan(ga) -
+                                gr2 * tan(ga / 2) +
+                                sqrt(gr2 * gr2 - (gr2 - width + u0) * (gr2 - width + u0));
+                     } else
+                         return r1;
                  }
-                 return r1;
              }},
-             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](
-                              double u0) {
-                 // 1A1
-                 if (u0 < gr1) {
-                     return (gr1 - u0) / std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                 } else if (u0 > (width - gr1) && u0 <= width) {
-                     return (width - gr2 - u0) /
-                            std::sqrt(gr2 * gr2 -
-                                      (u0 - width + gr2) * (u0 - width + gr2));
+             .radiusDeriv{[r1 = 50., gr1 = 0.5, width = 10., gr2 = 0.5](double u0) {
+                 if (1) {
+                     // 1A1
+                     if (u0 < gr1) {
+                         return (gr1 - u0) /
+                                std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                     } else if (u0 > (width - gr1) && u0 <= width) {
+                         return (width - gr2 - u0) /
+                                std::sqrt(gr2 * gr2 -
+                                          (u0 - width + gr2) * (u0 - width + gr2));
+                     }
+                     return 0.;
+                 } else {
+                     // 1V1
+                    float ga = glm::radians(60.f);
+                    if (u0 < gr1 + gr1 * cos(ga)) {
+                        return (gr1 - u0) /
+                               std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+                    } else if (u0 >= gr1 + gr1 * cos(ga) &&
+                               u0 < width - (gr2 - gr2 * cos(ga))) {
+                        return -1.0 / std::tan(ga);
+                    } else if (u0 >= width - (gr2 - gr2 * cos(ga)) && u0 <= width) {
+                        return (width - gr2 - u0) /
+                               std::sqrt(gr2 * gr2 -
+                                         (u0 - width + gr2) * (u0 - width + gr2));
+                    }
+                    return 0.0;
                  }
-                 return 0.;
              }}});
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
-             .helixAngle{[](double u1) { return 30.; }},    // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
+             .helixAngle{[](double u1) {
+                 return 30.;
+             }},  // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
              .radius{[](double u1) { return 4; }},
              .radiusDeriv{[](double u1) { return 0.; }},
              .coreRadius{[](double u1) { return 2.4; }},
              .slotAngle{[](double u1) { return 60.; }},
-             .radialRakeAngle{[](double u1) { return 13.7; }}});
+             .radialRakeAngle{[](double u1) { return 16.5; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
@@ -637,11 +673,12 @@ void Simulation2DDialog::AnalyzeFluteFromFile()
     }
 
     float radius = std::sqrt(std::bit_cast<float>(result.coreRadiusSqBits));
-    QString msg = QString("Core Radius: %1 mm\n"
-                          "Core Point: (%2, %3)\n"
-                          "Rake Angle: %4 deg\n"
-                          "Slot Angle: %5 deg\n"
-                          "Tip Point: (%6, %7)")
+    QString msg = QString(
+                      "Core Radius: %1 mm\n"
+                      "Core Point: (%2, %3)\n"
+                      "Rake Angle: %4 deg\n"
+                      "Slot Angle: %5 deg\n"
+                      "Tip Point: (%6, %7)")
                       .arg(radius, 0, 'f', 6)
                       .arg(result.coreRadiusPoint.x, 0, 'f', 6)
                       .arg(result.coreRadiusPoint.y, 0, 'f', 6)
@@ -726,11 +763,10 @@ int Simulation2DDialog::ReadToolPath(std::filesystem::path path)
     int numSegs = totalPts > 0 ? totalPts - (int)m_rawToolpaths.size() : 0;
     double avgXStep = numSegs > 0 ? totalXStep / numSegs : 0.0;
 
-    m_labelToolPathStats->setText(
-        QString("Segments: %1 | Points: %2\nAvg X step: %3 mm")
-            .arg(m_rawToolpaths.size())
-            .arg(totalPts)
-            .arg(avgXStep, 0, 'f', 3));
+    m_labelToolPathStats->setText(QString("Segments: %1 | Points: %2\nAvg X step: %3 mm")
+                                      .arg(m_rawToolpaths.size())
+                                      .arg(totalPts)
+                                      .arg(avgXStep, 0, 'f', 3));
 
     DEBUG("Parse tool path succeed: ", path.string());
 
@@ -754,7 +790,8 @@ void Simulation2DDialog::ApplyInterpolation()
     bool ok = false;
     float stepLength = m_editInterpStep->text().toFloat(&ok);
     if (!ok || stepLength <= 0.f) {
-        DEBUG("Invalid interpolation step length: ", m_editInterpStep->text().toStdString());
+        DEBUG("Invalid interpolation step length: ",
+              m_editInterpStep->text().toStdString());
         return;
     }
 
@@ -770,11 +807,12 @@ void Simulation2DDialog::ApplyInterpolation()
     double origAvgXStep = totalSegs > 0 ? totalXSpan / totalSegs : 0.0;
 
     if (stepLength > origAvgXStep) {
-        QMessageBox::warning(this, tr("警告"),
-            QString(tr("插值间距 (%1 mm) 大于原始刀轨平均间距 (%2 mm)，"
-                       "将导致刀位点变稀疏，可能丢失几何特征。"))
-                .arg(stepLength, 0, 'f', 3)
-                .arg(origAvgXStep, 0, 'f', 3));
+        QMessageBox::warning(this,
+                             tr("警告"),
+                             QString(tr("插值间距 (%1 mm) 大于原始刀轨平均间距 (%2 mm)，"
+                                        "将导致刀位点变稀疏，可能丢失几何特征。"))
+                                 .arg(stepLength, 0, 'f', 3)
+                                 .arg(origAvgXStep, 0, 'f', 3));
     }
 
     m_toolpaths.clear();
@@ -839,7 +877,8 @@ void Simulation2DDialog::GenerateHelix()
         float y = r * std::cos(theta);
         float z = r * std::sin(theta);
 
-        glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), rotAngle, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 rotX =
+            glm::rotate(glm::mat4(1.0f), rotAngle, glm::vec3(1.0f, 0.0f, 0.0f));
         glm::vec3 n = glm::vec3(rotX * glm::vec4(n0, 0.0f));
 
         helix.points.push_back({x, y, z});
