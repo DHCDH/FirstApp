@@ -41,7 +41,7 @@ layout(push_constant) uniform Push{
 void main() 
 {
     uint plnIdx = push.planeIndex;
-    uint validCount = count[plnIdx];
+    uint validCount = min(count[plnIdx], push.maxPoints);
 
     if(validCount < 50) return;
 
@@ -89,6 +89,8 @@ void main()
         N = min(2500, coreRadiusIdx + 1);
     }
     if (N < 3) return;
+
+    // N = min(2500, coreRadiusIdx + 1);
 
     // --- 累积弦长参数化 ---
     float t[2500];

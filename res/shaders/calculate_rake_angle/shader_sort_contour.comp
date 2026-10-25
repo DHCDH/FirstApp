@@ -40,7 +40,7 @@ void main()
 {
     uint i = gl_GlobalInvocationID.x;   // 当前执行线程在整个grid中的索引
     uint plnIdx = push.planeIndex;
-    uint validCount = count[plnIdx];
+    uint validCount = min(count[plnIdx], push.maxPoints);
     if (i >= validCount) return;
 
     uint global_i = plnIdx * push.maxPoints + i;

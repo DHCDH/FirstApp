@@ -17,6 +17,11 @@ using namespace lve;
 
 namespace slice
 {
+// 砂轮正反面用模板低 7 位计数，批次必须小于 7 位可表示范围，避免密集刀轨下回绕。
+constexpr uint32_t kMaxStencilInstancesPerBatch = 32;
+static_assert(kMaxStencilInstancesPerBatch < 64,
+              "Stencil batches must stay within the signed range of the low 7 bits.");
+
 struct SlicePushConstants {
     glm::mat4 modelMatrix;
     alignas(16) glm::vec3 normal;
@@ -1042,7 +1047,7 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                                     renderPassData.globalDescriptorSet,
                                     plane.normal,
                                     plane.point};
-        const uint32_t BATCH_SIZE = 1000;
+        constexpr uint32_t BATCH_SIZE = kMaxStencilInstancesPerBatch;
 
         for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
              i += BATCH_SIZE) {
@@ -1087,7 +1092,7 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
                 renderPassData.globalDescriptorSet,
                 plane.normal,
                 plane.point};
-            const uint32_t BATCH_SIZE = 100;
+            constexpr uint32_t BATCH_SIZE = kMaxStencilInstancesPerBatch;
 
             for (uint32_t i = 0; i < renderPassData.grndWheelInstancesCount;
                  i += BATCH_SIZE) {

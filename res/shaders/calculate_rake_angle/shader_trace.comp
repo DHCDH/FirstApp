@@ -58,7 +58,7 @@ void setVisited(uint idx) {
 void main()
 {
     uint plnIdx = push.planeIndex;
-    uint validCount = count[plnIdx];
+    uint validCount = min(count[plnIdx], push.maxPoints);
     if (validCount == 0) return;
 
     // --- 初始化位图 ---

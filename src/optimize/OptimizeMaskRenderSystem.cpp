@@ -110,8 +110,10 @@ void OptimizeMaskRenderSystem::ComputePolarIntersect(VkCommandBuffer cmd,
                        &push);
 
     // X轴处理三角形，Y轴处理步数，Z轴处理层数(并发位姿)
+    // +X 侧 stepsPerPose 步，-X 侧同样 stepsPerPose 步
     uint32_t groupX = (push.numTriangles + 255) / 256;
-    vkCmdDispatch(cmd, groupX, push.stepsPerPose, push.curBatchSize);
+    uint32_t totalSteps = push.stepsPerPose * 2;
+    vkCmdDispatch(cmd, groupX, totalSteps, push.curBatchSize);
 }
 
 void OptimizeMaskRenderSystem::ComputePolarEvaluate(

@@ -525,7 +525,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
              .gr1{0.1},
              .gr2{0.1},
              .width{10.},
-             .radius{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](double u0) {
+             .radius{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](double u0) {
                  // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
                  //         << "\n";
                 // 1A1
@@ -538,7 +538,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                  }
                  return r1;
              }},
-             .radiusDeriv{[r1 = 50., gr1 = 0.3, width = 10., gr2 = 0.3](
+             .radiusDeriv{[r1 = 50., gr1 = 0.1, width = 10., gr2 = 0.1](
                               double u0) {
                  // 1A1
                  if (u0 < gr1) {
@@ -553,11 +553,11 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         m_optContext->SetCutterParameters(
             {.cuttingEdgeLength{30.},
              .helixAngle{[](double u1) { return 30.; }},    // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
-             .radius{[](double u1) { return 5; }},
+             .radius{[](double u1) { return 4; }},
              .radiusDeriv{[](double u1) { return 0.; }},
-             .coreRadius{[](double u1) { return 3; }},
+             .coreRadius{[](double u1) { return 2.4; }},
              .slotAngle{[](double u1) { return 60.; }},
-             .radialRakeAngle{[](double u1) { return 10.; }}});
+             .radialRakeAngle{[](double u1) { return 13.7; }}});
 
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
@@ -588,7 +588,7 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
         glm::radians<double>(m_optContext->GetCutterParameters().helixAngle(0.));
     pushData.tanHelixAngle = static_cast<float>(tan(helixAngle));
     pushData.radius = m_optContext->GetCutterParameters().radius(0.);
-    pushData.stepsPerPose = 208;
+    pushData.stepsPerPose = 312;
 
     optimizer.InitializeDataForPSO(*m_optContext);
     optimizer.RunOptimization(*m_optContext,

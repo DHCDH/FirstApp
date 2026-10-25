@@ -19,7 +19,7 @@ constexpr uint32_t BATCH_LAYER_COUNT = 128; // 每次提交的粒子群数量（
 constexpr uint32_t ZMAP_RESOLUTION =
     7200;  // 180度分成7200份，每个theta同时存储对应的rMin和rMax
 constexpr uint32_t SWARM_SIZE = 128;
-constexpr uint32_t PSO_ITERATION_COUNT = 30;
+constexpr uint32_t PSO_ITERATION_COUNT = 50;
 #else
 constexpr uint32_t MAX_POINTS = 10000;
 constexpr uint32_t BATCH_LAYER_COUNT = 2048;  // 粒子群大小

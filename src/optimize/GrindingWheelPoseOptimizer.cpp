@@ -146,7 +146,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     vkBeginCommandBuffer(m_cmdCompute, &beginInfo);
 
-    uint32_t thresholdIter = PSO_ITERATION_COUNT * 0.7;
+    // 精调阶段已禁用：让条件永远不成立，全程使用初始的 stepX / stepsPerPose。
+    uint32_t thresholdIter = PSO_ITERATION_COUNT;
     for (uint32_t iter = 0; iter < PSO_ITERATION_COUNT; iter++) {
         if (iter >= thresholdIter) {
             polarPush.stepX = 0.2f;
@@ -289,10 +290,16 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
     int num = 104;
     float stepX = 0.1f;
-    for (int stepIndex = 0; stepIndex < num; ++stepIndex) {
+    int totalNum = num * 2;
+    for (int stepIndex = 0; stepIndex < totalNum; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
-        float stepDist =
-            (static_cast<float>(stepIndex) - 0.5f * static_cast<float>(num - 1)) * stepX;
+        float stepDist;
+        if (stepIndex < num) {
+            stepDist = static_cast<float>(stepIndex) * stepX;
+        } else {
+            int negIdx = stepIndex - num;
+            stepDist = -static_cast<float>(negIdx + 1) * stepX;
+        }
         float theta = (stepDist * tan(glm::radians(helixAngle))) /
                       radius;  // 注意：半径为5mm，此处写死了
 

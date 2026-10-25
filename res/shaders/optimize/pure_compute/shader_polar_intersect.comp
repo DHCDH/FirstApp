@@ -52,8 +52,17 @@ void main() {
 
     uint halfSize = zMap.length() / 2;
 
+    // +X 侧 stepsPerPose 个，-X 侧同样 stepsPerPose 个
+    uint totalSteps = push.stepsPerPose * 2;
+
     if(localIdx == 0) {
-        float stepDist = (float(stepIdx) - 0.5f * float(push.stepsPerPose - 1)) * push.stepX;
+        float stepDist;
+        if (stepIdx < push.stepsPerPose) {
+            stepDist = float(stepIdx) * push.stepX;
+        } else {
+            uint negIdx = stepIdx - push.stepsPerPose;
+            stepDist = -float(negIdx + 1) * push.stepX;
+        }
         float theta = (stepDist * push.tanHelixAngle) / push.radius;
         
         // 构建局部平移和旋转矩阵
@@ -77,7 +86,7 @@ void main() {
     barrier();
 
     // 确保没有越界的线程，保证不会写出界
-    bool validWork = (triIdx < push.numTriangles) && (stepIdx < push.stepsPerPose) && (poseIdx < push.curBatchSize);
+    bool validWork = (triIdx < push.numTriangles) && (stepIdx < totalSteps) && (poseIdx < push.curBatchSize);
 
     if (validWork) {
         Triangle tri = triangles[triIdx];
