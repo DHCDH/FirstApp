@@ -293,12 +293,14 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     int totalNum = num * 2;
     for (int stepIndex = 0; stepIndex < totalNum; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
-        float stepDist;
+        // 输出顺序: -X 最远处 -> 0 -> +X 最远处，保证刀轨是连续的一段。
+        float stepDist = 0.0f;
         if (stepIndex < num) {
-            stepDist = static_cast<float>(stepIndex) * stepX;
+            // -X 侧: 从 -num*stepX 走到 -1*stepX
+            stepDist = -static_cast<float>(num - stepIndex) * stepX;
         } else {
-            int negIdx = stepIndex - num;
-            stepDist = -static_cast<float>(negIdx + 1) * stepX;
+            // +X 侧: 从 0 走到 (num-1)*stepX
+            stepDist = static_cast<float>(stepIndex - num) * stepX;
         }
         float theta = (stepDist * tan(glm::radians(helixAngle))) /
                       radius;  // 注意：半径为5mm，此处写死了
