@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTimer>
@@ -15,6 +16,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QStringList>
+#include <gtc/matrix_transform.hpp>
 
 #include <chrono>
 
@@ -27,6 +29,7 @@
 #include "lve/LveWindow.h"
 #include "ToolPathCLWriter.h"
 #include "Logger.h"
+#include "output_nc/NcExportDialog.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
@@ -81,6 +84,7 @@ void MainWindow::InitUI()
     QVBoxLayout* buttonLayout = new QVBoxLayout(m_buttonWidget);
     QPushButton* btnToolPath = new QPushButton("Tool Path", m_buttonWidget);
     QPushButton* btnExportCL = new QPushButton("Export CL", m_buttonWidget);
+    QPushButton* btnExportNC = new QPushButton("Export NC", m_buttonWidget);
     QPushButton* btn2DSimulation = new QPushButton("2D Simulation", m_buttonWidget);
     QPushButton* btnStart = new QPushButton("Start", m_buttonWidget);
     QPushButton* btnPause = new QPushButton("Pause", m_buttonWidget);
@@ -101,6 +105,7 @@ void MainWindow::InitUI()
     QPushButton* btnUpdateCam = new QPushButton("Update Camera", m_buttonWidget);
     buttonLayout->addWidget(btnToolPath);
     buttonLayout->addWidget(btnExportCL);
+    buttonLayout->addWidget(btnExportNC);
     buttonLayout->addWidget(btn2DSimulation);
     buttonLayout->addWidget(btnStart);
     buttonLayout->addWidget(btnPause);
@@ -147,6 +152,18 @@ void MainWindow::InitUI()
             return;
         }
 
+        bool ok = false;
+        int angleDeg = QInputDialog::getInt(
+            this,
+            tr("旋转角度"),
+            tr("绕 X 轴旋转角度（度）:"),
+            120,
+            1,
+            359,
+            1,
+            &ok);
+        if (!ok) return;
+
         QFileInfo fi(qTxt);
         QString defaultCl = fi.absolutePath() + "/" + fi.completeBaseName() + ".cl";
         const QString qCl = QFileDialog::getSaveFileName(
@@ -169,8 +186,50 @@ void MainWindow::InitUI()
             return;
         }
 
-        QMessageBox::information(this, tr("完成"),
-                                 QString("已导出 CL 文件:\n%1").arg(qCl));
+        auto rotateAroundX = [](const glm::vec3& v, float deg) {
+            glm::mat4 R = glm::rotate(glm::mat4(1.0f),
+                                      glm::radians(deg),
+                                      glm::vec3(1.0f, 0.0f, 0.0f));
+            return glm::vec3(R * glm::vec4(v, 0.0f));
+        };
+
+        QStringList written;
+        written << qCl;
+
+        for (int a = angleDeg; a < 360; a += angleDeg) {
+            std::vector<ToolPath> rotated;
+            rotated.reserve(toolpaths.size());
+            for (const ToolPath& seg : toolpaths) {
+                ToolPath copy = seg;
+                for (glm::vec3& p : copy.points) {
+                    p = rotateAroundX(p, static_cast<float>(a));
+                }
+                for (glm::vec3& n : copy.normals) {
+                    n = rotateAroundX(n, static_cast<float>(a));
+                }
+                rotated.push_back(std::move(copy));
+            }
+
+            QString rotatedCl = fi.absolutePath() + "/" + fi.completeBaseName() +
+                                "_" + QString::number(a) + ".cl";
+            std::string rotatedPath =
+                std::filesystem::u8path(rotatedCl.toUtf8().constData()).string();
+            if (!ToolPathCLWriter::Write(rotated, cfg, rotatedPath)) {
+                QMessageBox::critical(this,
+                                      tr("错误"),
+                                      QString("CL 文件写出失败:\n%1").arg(rotatedCl));
+                return;
+            }
+            written << rotatedCl;
+        }
+
+        QMessageBox::information(this,
+                                 tr("完成"),
+                                 QString("已导出 CL 文件:\n%1").arg(written.join("\n")));
+    });
+    connect(btnExportNC, &QPushButton::clicked, this, [this]() {
+        NcExportDialog dlg(this);
+        dlg.exec();
     });
     connect(btnReset, &QPushButton::clicked, [this]() { m_vulkanApp->ResetView(); });
     connect(btnStart, &QPushButton::clicked, this, [this]() {
