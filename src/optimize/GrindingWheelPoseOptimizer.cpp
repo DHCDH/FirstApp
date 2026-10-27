@@ -114,6 +114,7 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     mappedBest[0].slotAngle = 0.0f;  // lambda复用slotAngle
 
     const GrindingWheelParameters& gp = context.GetGrindingWheelParameters();
+    const CutterParameters& cp = context.GetCutterParameters();
 
     PolarPushConstants polarPush{};
     polarPush.planeNormal = plane.normal;
@@ -131,6 +132,8 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     polarPush.nt = m_poseConstants.nt;
     polarPush.gR = static_cast<float>(gp.gR);
     polarPush.gr1 = static_cast<float>(gp.gr1);
+    polarPush.targetSlotAngle = static_cast<float>(cp.slotAngle(m_poseConstants.u1));
+    polarPush.targetCoreRadius = static_cast<float>(cp.coreRadius(m_poseConstants.u1));
 
     std::cout << "[Debug] curBatchSize: " << polarPush.curBatchSize << "\n";
 
@@ -288,7 +291,7 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
 
     ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
-    int num = 416;
+    int num = 1000;
     float stepX = 0.01f;
     int totalNum = num * 2;
     for (int stepIndex = 0; stepIndex < totalNum; ++stepIndex) {

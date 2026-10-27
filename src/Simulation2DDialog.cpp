@@ -12,7 +12,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <algorithm>
 #include <bit>
+#include <cmath>
 #include <fstream>
 
 #include "Logger.h"
@@ -501,13 +503,22 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 {
     std::cout << "Enter function: " << __FUNCTION__ << "\n";
 
-    this->setProperty("isOptimization", true);
-    m_sliceView->SetRunningMode(RunningMode::OPTIMIZE);
-    m_runningMode = RunningMode::OPTIMIZE;
-
     if (!m_blank || !m_grndWheel) {
         throw std::runtime_error("Grinding wheel or blank not set");
     }
+
+    // 每次点击 Optimize 都先确认参数；取消时保持当前仿真状态不变。
+    WheelParamDialog paramDialog(m_wheelParams, m_cutterParams, this);
+    if (paramDialog.exec() != QDialog::Accepted) {
+        std::cout << "[Optimize] Cancelled by user.\n";
+        return;
+    }
+    m_wheelParams = paramDialog.GetWheelParams();
+    m_cutterParams = paramDialog.GetCutterParams();
+
+    this->setProperty("isOptimization", true);
+    m_sliceView->SetRunningMode(RunningMode::OPTIMIZE);
+    m_runningMode = RunningMode::OPTIMIZE;
 
     if (!m_optContext) {
         std::cout << "[System] Initializing Optimizer Core for the first time... (May "
@@ -521,84 +532,16 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
                                                                            texWidth,
                                                                            texHeight);
 
-        m_optContext->SetGrindingWheelParameters(
-            {.gR{50.},
-             .gr1{0.5},
-             .gr2{0.5},
-             .width{10.},
-             .radius{[r1 = 50., gr1 = 0.5, width = 10., gr2 = 0.5](double u0) {
-                 // std::cout << "[GrindingWheel radius] r1: " << r1 << " gr1: " << gr1
-                 //         << "\n";
-                 if (1) {
-                     if (u0 < gr1) {
-                         return r1 - gr1 + std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                     } else if (u0 > (width - gr1) && u0 <= width) {
-                         return r1 - gr2 +
-                                std::sqrt(gr2 * gr2 -
-                                          (u0 - (width - gr2)) * (u0 - (width - gr2)));
-                     }
-                     return r1;
-                 } else {
-                     // 1V1
-                     float ga = glm::radians(60.f);
-                     if (u0 < gr1 + gr1 * cos(ga)) {
-                         return r1 - gr1 + sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                     } else if (u0 >= gr1 + gr1 * cos(ga) &&
-                                u0 < width - (gr2 - gr2 * cos(ga))) {
-                         return r1 - gr1 + gr1* sin(ga) -
-                             (u0 - (gr1 + gr1 * cos(ga))) * (1 / tan(ga));
-                     } else if (u0 >= width - (gr2 - gr2 * cos(ga)) && u0 <= width) {
-                         return r1 - gr1 * (1 - 1 / tan(ga / 2)) - width / tan(ga) -
-                                gr2 * tan(ga / 2) +
-                                sqrt(gr2 * gr2 - (gr2 - width + u0) * (gr2 - width + u0));
-                     } else
-                         return r1;
-                 }
-             }},
-             .radiusDeriv{[r1 = 50., gr1 = 0.5, width = 10., gr2 = 0.5](double u0) {
-                 if (1) {
-                     // 1A1
-                     if (u0 < gr1) {
-                         return (gr1 - u0) /
-                                std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                     } else if (u0 > (width - gr1) && u0 <= width) {
-                         return (width - gr2 - u0) /
-                                std::sqrt(gr2 * gr2 -
-                                          (u0 - width + gr2) * (u0 - width + gr2));
-                     }
-                     return 0.;
-                 } else {
-                     // 1V1
-                    float ga = glm::radians(60.f);
-                    if (u0 < gr1 + gr1 * cos(ga)) {
-                        return (gr1 - u0) /
-                               std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
-                    } else if (u0 >= gr1 + gr1 * cos(ga) &&
-                               u0 < width - (gr2 - gr2 * cos(ga))) {
-                        return -1.0 / std::tan(ga);
-                    } else if (u0 >= width - (gr2 - gr2 * cos(ga)) && u0 <= width) {
-                        return (width - gr2 - u0) /
-                               std::sqrt(gr2 * gr2 -
-                                         (u0 - width + gr2) * (u0 - width + gr2));
-                    }
-                    return 0.0;
-                 }
-             }}});
-        m_optContext->SetCutterParameters(
-            {.cuttingEdgeLength{30.},
-             .helixAngle{[](double u1) {
-                 return 30.;
-             }},  // shader_polar_PSO同步修改pos.y = clamp(pos.y, 0.0, 1.0472);
-             .radius{[](double u1) { return 4; }},
-             .radiusDeriv{[](double u1) { return 0.; }},
-             .coreRadius{[](double u1) { return 2.4; }},
-             .slotAngle{[](double u1) { return 60.; }},
-             .radialRakeAngle{[](double u1) { return 16.5; }}});
-
         m_optMaskSystem = std::make_unique<optimize::OptimizeMaskRenderSystem>(
             m_lveDevice,
             m_optContext->GetContourComputeSetLayout());
     }
+
+    // 参数写入必须放在 m_optContext 创建分支之外，
+    // 这样第二次及以后点击 Optimize 时也会使用对话框中的最新值。
+    m_optContext->SetGrindingWheelParameters(
+        BuildGrindingWheelParameters(m_wheelParams));
+    m_optContext->SetCutterParameters(BuildCutterParameters(m_cutterParams));
 
     optimize::GrindingWheelPoseOptimizer optimizer(m_lveDevice,
                                                    *m_blank->GetModel(),
@@ -640,6 +583,119 @@ void Simulation2DDialog::OptimizeGrindingWheelPose()
 
     UpdateToolPath(DEFAULT_TOOL_PATH);
     UpdateGrindingWheelInstances();
+}
+
+optimize::GrindingWheelParameters Simulation2DDialog::BuildGrindingWheelParameters(
+    const WheelParamValues& values) const
+{
+    optimize::GrindingWheelParameters params;
+    params.gR = values.gR;
+    params.gr1 = values.gr1;
+    params.gr2 = values.gr2;
+    params.width = values.width;
+
+    const double r1 = values.gR;
+    const double gr1 = values.gr1;
+    const double gr2 = values.gr2;
+    const double width = values.width;
+
+    if (values.profile == WheelProfileType::A1A1) {
+        params.radius = [r1, gr1, gr2, width](double u0) {
+            if (u0 < gr1) {
+                return r1 - gr1 +
+                       std::sqrt(gr1 * gr1 - (gr1 - u0) * (gr1 - u0));
+            }
+            if (u0 > (width - gr1) && u0 <= width) {
+                return r1 - gr2 +
+                       std::sqrt(gr2 * gr2 -
+                                 (u0 - (width - gr2)) * (u0 - (width - gr2)));
+            }
+            return r1;
+        };
+
+        params.radiusDeriv = [gr1, gr2, width](double u0) {
+            if (u0 < gr1) {
+                return (gr1 - u0) /
+                       std::sqrt(std::max(
+                           gr1 * gr1 - (gr1 - u0) * (gr1 - u0), 1e-12));
+            }
+            if (u0 > (width - gr1) && u0 <= width) {
+                return (width - gr2 - u0) /
+                       std::sqrt(std::max(
+                           gr2 * gr2 -
+                               (u0 - width + gr2) * (u0 - width + gr2),
+                           1e-12));
+            }
+            return 0.0;
+        };
+    } else {
+        const double ga = glm::radians(values.bevelAngleDeg);
+        const double cosGa = std::cos(ga);
+        const double sinGa = std::sin(ga);
+        const double tanGa = std::tan(ga);
+        const double tanHalfGa = std::tan(ga / 2.0);
+        const double largeCornerEnd = gr1 + gr1 * cosGa;
+        const double smallCornerStart = width - (gr2 - gr2 * cosGa);
+
+        params.radius = [r1, gr1, gr2, width, sinGa, tanGa, tanHalfGa,
+                         largeCornerEnd, smallCornerStart](double u0) {
+            if (u0 < largeCornerEnd) {
+                return r1 - gr1 +
+                       std::sqrt(std::max(
+                           gr1 * gr1 - (gr1 - u0) * (gr1 - u0), 0.0));
+            }
+            if (u0 >= largeCornerEnd && u0 < smallCornerStart) {
+                return r1 - gr1 + gr1 * sinGa -
+                       (u0 - largeCornerEnd) * (1.0 / tanGa);
+            }
+            if (u0 >= smallCornerStart && u0 <= width) {
+                return r1 - gr1 * (1.0 - 1.0 / tanHalfGa) - width / tanGa -
+                       gr2 * tanHalfGa +
+                       std::sqrt(std::max(
+                           gr2 * gr2 - (gr2 - width + u0) * (gr2 - width + u0),
+                           0.0));
+            }
+            return r1;
+        };
+
+        params.radiusDeriv = [gr1, gr2, width, tanGa, largeCornerEnd,
+                              smallCornerStart](double u0) {
+            if (u0 < largeCornerEnd) {
+                return (gr1 - u0) /
+                       std::sqrt(std::max(
+                           gr1 * gr1 - (gr1 - u0) * (gr1 - u0), 1e-12));
+            }
+            if (u0 >= largeCornerEnd && u0 < smallCornerStart) {
+                return -1.0 / tanGa;
+            }
+            if (u0 >= smallCornerStart && u0 <= width) {
+                return (width - gr2 - u0) /
+                       std::sqrt(std::max(
+                           gr2 * gr2 -
+                               (u0 - width + gr2) * (u0 - width + gr2),
+                           1e-12));
+            }
+            return 0.0;
+        };
+    }
+
+    return params;
+}
+
+optimize::CutterParameters Simulation2DDialog::BuildCutterParameters(
+    const CutterParamValues& values) const
+{
+    optimize::CutterParameters params;
+    params.cuttingEdgeLength = values.cuttingEdgeLength;
+    params.helixAngle = [helix = values.helixAngleDeg](double) { return helix; };
+    params.radius = [radius = values.radius](double) { return radius; };
+    params.radiusDeriv = [](double) { return 0.0; };
+    params.coreRadius = [core = values.coreRadius](double) { return core; };
+    params.slotAngle = [slot = values.slotAngleDeg](double) { return slot; };
+    params.radialRakeAngle = [rake = values.radialRakeAngleDeg](double) {
+        return rake;
+    };
+    return params;
 }
 
 void Simulation2DDialog::AnalyzeFluteFromFile()

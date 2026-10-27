@@ -60,6 +60,8 @@ set(PROJECT_SOURCES
     src/FirstApp.cpp
     src/Simulation2DDialog.h
     src/Simulation2DDialog.cpp
+    src/ui/WheelParamDialog.h
+    src/ui/WheelParamDialog.cpp
     src/Global.h
 
     ${LVE_SOURCES}

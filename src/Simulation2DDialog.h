@@ -13,6 +13,7 @@
 #include "optimize/OptimizeResourceContext.h"
 #include "optimize/OptimizeMaskRenderSystem.h"
 #include "optimize/OptimizePoseRenderSystem.h"
+#include "ui/WheelParamDialog.h"
 
 class QTimer;
 class QLineEdit;
@@ -73,6 +74,10 @@ private:
     std::unique_ptr<optimize::OptimizeResourceContext> m_optContext;
     std::unique_ptr<optimize::OptimizeMaskRenderSystem> m_optMaskSystem;
 
+    // 最近一次在 Optimize 对话框里确认的砂轮/刀具参数
+    WheelParamValues m_wheelParams;
+    CutterParamValues m_cutterParams;
+
     std::vector<ToolPath> m_rawToolpaths;  // 原始刀轨（插值前，保留用于重新插值）
     std::vector<ToolPath> m_toolpaths;     // 当前使用的刀轨（原始或插值后）
 
@@ -97,6 +102,11 @@ private:
     void ApplyViewInput();
 
     Plane FetchDisplayPlane();
+
+    optimize::GrindingWheelParameters BuildGrindingWheelParameters(
+        const WheelParamValues& values) const;
+    optimize::CutterParameters BuildCutterParameters(
+        const CutterParamValues& values) const;
 
     void OptimizeGrindingWheelPose();
 

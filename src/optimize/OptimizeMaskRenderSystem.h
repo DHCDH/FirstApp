@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <cstddef>
 #include <glm.hpp>
 #include <memory>
 #include <vector>
@@ -38,9 +39,19 @@ struct PolarPushConstants {
     alignas(16) float gR;
     float gr1;
     float gw;
-
     float pad2_{0.};
+
+    // 目标槽形参数：由 CutterParameters 传入，shader_polar_evaluate.comp
+    // 在 offset 144 / 148 处读取，单位分别为 deg 与 mm。
+    alignas(16) float targetSlotAngle;
+    float targetCoreRadius;
 };
+
+// push constant 布局必须与 shader_polar_evaluate.comp 的 layout(offset = ...)
+// 严格一致，否则 GPU 侧读到的目标值会错位。
+static_assert(sizeof(PolarPushConstants) == 160);
+static_assert(offsetof(PolarPushConstants, targetSlotAngle) == 144);
+static_assert(offsetof(PolarPushConstants, targetCoreRadius) == 148);
 
 struct OptimizeDrawInfo {
     VkCommandBuffer commandBuffer;

@@ -53,6 +53,8 @@ layout(push_constant) uniform Push {
     layout(offset = 76) uint stepsPerPose;
     layout(offset = 80) uint numTriangles;
     layout(offset = 84) uint curBatchSize;
+    layout(offset = 144) float targetSlotAngle;    // 目标槽宽角（deg）
+    layout(offset = 148) float targetCoreRadius;   // 目标芯厚半径（mm）
 } push;
 
 shared float s_minR[16];
@@ -141,13 +143,12 @@ void main() {
                 float score = -999999.0;
                 
                 if (coreRadius <= push.radius) { 
-                    float targetSlotAngle = 90;
-                    float targetArcLength = push.radius * radians(targetSlotAngle); 
-                    float targetCoreRadius = 2.;
+                    float targetArcLength =
+                        push.radius * radians(push.targetSlotAngle);
 
                     float resultArcLength = radians(finalSlotAngle) * push.radius; 
                     float slotAngleError = abs(resultArcLength - targetArcLength);
-                    float coreRadiusError = abs(coreRadius - targetCoreRadius);
+                    float coreRadiusError = abs(coreRadius - push.targetCoreRadius);
 
                     float weightSlot = 20.0;
                     float weightCore = 70.0;
