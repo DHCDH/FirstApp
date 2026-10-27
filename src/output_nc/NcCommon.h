@@ -102,16 +102,16 @@ struct NcProcessorConfig
 struct NcWriterConfig
 {
     OperationType pathType = OperationType::Flute;  // 对应 PathType
-    int toolNum = 0;
-    double cylinderRate = 0.0;        // 切削进给率
-    double engamentRate = 0.0;        // 进刀进给率
-    double disengagementRate = 0.0;   // 退刀进给率
+    int toolNum = 10;
+    double cylinderRate = 200.0;      // 切削进给率
+    double engamentRate = 30.0;       // 进刀进给率
+    double disengagementRate = 1000.0;  // 退刀进给率
     double toolLength = 0.0;          // 刀具长度
     double fLangeDist = 0.0;          // FLangeDist 法兰长度
     double wheelPackageLength = 0.0;  // 砂轮组总长
     bool wheelClampOut = false;       // 砂轮安装方向（false=外, true=内）
-    double clampingLength = 134.51;   // 工件夹紧外露长度
-    double rs = 50.0;                 // 砂轮半径
+    double clampingLength = 130.0;    // 工件夹紧外露长度
+    double rs = 60.0;                 // 砂轮半径
     double lp = 0.0;                  // 砂轮端机床结构
     int mountingShaftIndex = 0;       // 安装轴序号（0 或 1）
 };

@@ -1,0 +1,141 @@
+NC 生成参数清单（不含刀轨输入文件）
+====================================
+
+对应界面：MainWindow -> Export NC 弹窗
+说明：本清单列出除“刀轨文件”外，需要用户填写的全部参数。
+      默认值来自原 .md 源码；长度单位 mm，进给 F 单位按机床定义。
+      生成前请按实际机床、砂轮与夹具修改，切勿直接套用默认值。
+
+
+一、输出文件
+------------
+输出 .nc 文件路径              = 与刀轨文件同名 .nc
+   说明：生成结果保存位置，可在弹窗中另行指定。
+
+
+二、工序类型（下拉框，默认 Flute）
+--------------------------------
+工序类型 OperationType         = Flute
+   说明：决定进刀/退刀策略，以及后置处理中的奇异点、移刀拆行等分支。
+   可选值见文末“工序类型可选值”。
+
+
+三、进给率（默认均为 0，生成前必须填写）
+----------------------------------------
+切削进给 CylinderRate          = 0
+   说明：CUT（切削）段的 F 值。
+进刀进给 EngamentRate          = 0
+   说明：ENGAGE（进刀）段的 F 值。
+退刀进给 DisengagementRate     = 0
+   说明：RETRACT（退刀）段的 F 值。
+   补充：APPROACH / DEPARTURE / TRANSFER 固定为 F2000，其余类型默认 F150。
+
+
+四、刀具 / 砂轮 / 机床结构
+---------------------------
+刀具号 ToolNum                 = 0
+   说明：保留参数，当前输出未使用（头部固定 G54）。
+刀具长度 ToolLength            = 0
+   说明：保留参数，当前输出未使用。
+法兰长度 FLangeDist             = 0
+   说明：参与运动学解算 L = Lp + FLangeDist，必须与实际一致。
+砂轮组总长 WheelPackageLength   = 0
+   说明：参与头部/尾部回位 X 坐标计算。
+砂轮安装方向 WheelClampOut      = false
+   说明：false=外部安装，true=内部安装（法向整体取反）。
+夹紧外露长度 ClampingLength     = 134.51
+   说明：直接进入 X 偏置，必须与实际装夹一致。
+砂轮半径 Rs                    = 50
+   说明：保留参数，当前输出未使用。
+砂轮端结构 Lp                  = 0
+   说明：参与运动学解算 L = Lp + FLangeDist。
+安装轴序号 MountingShaftIndex   = 0
+   说明：0=默认轴，1=180° 轴；为 1 时输出 B 角整体 +180°。
+
+
+五、进退刀参数
+--------------
+安全距离 SafeDistance            = 2.0
+   说明：APPROACH / DEPARTURE / TRANSFER 沿法向的偏置距离。
+进刀距离 EngagementDistance      = 2.0
+   说明：进刀段长度（AXIAL 进刀除外）。
+退刀距离 DisengagementDistance   = 10.0
+   说明：退刀段长度，轴向退刀也使用此值。
+进刀方向 EngagementDirection     = 0
+   说明：0=自动方向，1=沿法向。
+
+
+六、注意事项
+------------
+1. 三个进给率默认为 0，不填写会输出 F0，生成前必须设置。
+2. FLangeDist、ClampingLength、Lp、WheelPackageLength 影响机床坐标，
+   必须按实际机床结构/装夹填写，否则会触发超程判断。
+3. 超程软限位（源码写死）：
+   X  ∈ [89.7435, 559.7435]
+   Y  ∈ [-192.326, 282.674]
+   Z  ∈ [-27.6545, 218.3455]
+   C  ∈ [-30, 290]（含 MountingShaftIndex 偏置后的角度）
+4. WheelClampOut=true 时法向整体取反；
+   MountingShaftIndex=1 时 B 角整体 +180°。
+5. 原算法中 EngageMode 被钳制在 [EMPTY, NORMAL]，
+   因此 AXIAL 进刀实际会退化为 NORMAL 进刀，本程序按原行为保留。
+
+
+七、工序类型可选值
+------------------
+FormRelief1
+FormRelief2
+NoseEndTipGashOut
+TslotManualStepFaceCam
+BarrelFlute
+WoodToolFlute
+Flute
+TipGashOut
+BallEndTipGashOut
+ChamferGashOut
+DrillClearance
+Relief1
+Relief2
+TipRelief1
+TipRelief2
+BallEndTipClearance
+BarrelRelief1
+BarrelRelief2
+Chamfer1
+Chamfer2
+Chamfer2V2
+DrillGashOut
+BallEndTipRelief1
+BallEndTipRelief2
+NoseEndTipRelief1
+NoseEndTipRelief2
+WoodToolFirstRelief
+WoodToolSecondRelief
+WoodToolRoughMill
+
+
+八、当前主流程有效默认
+----------------------
+说明：以下为当前 NC(F8) 主流程在新建工序数据对象、
+      且未加载已有定制配置时，最终传给 Processor / Writer 的有效默认值。
+      这些不是 src/Frame 控件的构造初值。
+
+工序类型 OperationType         = Flute (0)
+切削进给 CylinderRate          = 200
+进刀进给 EngamentRate          = 30
+退刀进给 DisengagementRate     = 1000
+
+刀具号 ToolNum                 = 10
+刀具长度 ToolLength            = 根据砂轮组动态计算，当前 NC 输出未使用
+法兰长度 FLangeDist             = 根据砂轮组动态计算，无固定值
+砂轮组总长 WheelPackageLength   = 根据砂轮组动态计算，无固定值
+砂轮安装方向 WheelClampOut      = false
+夹紧外露长度 ClampingLength     = 130
+砂轮半径 Rs                    = 60
+砂轮端结构 Lp                  = 0
+安装轴序号 MountingShaftIndex   = 0
+
+安全距离 SafeDistance            = 2.0
+进刀距离 EngagementDistance      = 2.0
+退刀距离 DisengagementDistance   = 10.0
+进刀方向 EngagementDirection     = 0

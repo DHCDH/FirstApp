@@ -66,13 +66,13 @@ NcExportDialog::NcExportDialog(QWidget* parent) : QDialog(parent)
     form->addRow("工序类型 OperationType", m_operation);
 
     // 加工参数
-    m_toolNum = new QLineEdit("0", this);
+    m_toolNum = new QLineEdit("10", this);
     form->addRow("刀具号 ToolNum", m_toolNum);
-    m_cylinderRate = new QLineEdit("0", this);
+    m_cylinderRate = new QLineEdit("200", this);
     form->addRow("切削进给 CylinderRate (F)", m_cylinderRate);
-    m_engamentRate = new QLineEdit("0", this);
+    m_engamentRate = new QLineEdit("30", this);
     form->addRow("进刀进给 EngamentRate (F)", m_engamentRate);
-    m_disengagementRate = new QLineEdit("0", this);
+    m_disengagementRate = new QLineEdit("1000", this);
     form->addRow("退刀进给 DisengagementRate (F)", m_disengagementRate);
 
     // 刀具/机床结构
@@ -85,9 +85,9 @@ NcExportDialog::NcExportDialog(QWidget* parent) : QDialog(parent)
     m_wheelClampOut = new QCheckBox("反向砂轮法向（内部安装）", this);
     m_wheelClampOut->setChecked(false);
     form->addRow("砂轮安装方向 WheelClampOut", m_wheelClampOut);
-    m_clampingLength = new QLineEdit("134.51", this);
+    m_clampingLength = new QLineEdit("130", this);
     form->addRow("夹紧外露长度 ClampingLength", m_clampingLength);
-    m_rs = new QLineEdit("50", this);
+    m_rs = new QLineEdit("60", this);
     form->addRow("砂轮半径 Rs", m_rs);
     m_lp = new QLineEdit("0", this);
     form->addRow("砂轮端结构 Lp", m_lp);
