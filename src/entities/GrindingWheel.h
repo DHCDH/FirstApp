@@ -41,29 +41,24 @@ public:
                                          const glm::mat4& baseMat) const;
 
 private:
-    // --- 计算管线用砂轮 ---
-    // std::string m_filepath{
-    //   "D:\\Data\\Study\\vulkan\\FirstApp\\res\\models\\grindingwheels\\1A1\\1a1_d100_"
-    //   "w10_r0.1_x_calculate\\1A1_D100_W10_r0.1_x_calculate_half_less_accurate.obj"};
-
-    /*std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
-        "1A1_D120_W15_R0.2_A90/1A1_D120_W15_R0.2_A90.obj"};*/
-
-    //std::string m_filepath{
-    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
-    //    "1a1_d100_w10_r0.3_x_calculate_wear/1a1_d100_w10_r0.1_x_calculate_wear.obj"};
-
     std::string m_filepath{
         "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1V1/"
-        "1V1_D100_W10_R0.5_A60/1V1_D100_W10_R0.5_A60_new.obj"};
+        "1V1_D100_W10_R0.1_A60/1V1_D100_W10_R0.1_A60.obj"};
 
-    //磨损模拟用砂轮
+    // 实机加工砂轮
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1V1/"
+    //    "physical machining/1V1_D98_W6.1_R0.01_A45/1V1_D98_W6.1_R0.01_A45.obj"};
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
+    //    "physical machining/1A1_D125_W10_R0.01_A90/1A1_D125_W10_R0.01_A90.obj"};
+
+    // 磨损模拟用砂轮
     //std::string m_filepath{
     //        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
     //        "1A1_D100_W10_R1.0_A90/1A1_D100_W10_R1.0_A90_new.obj"};
 
-    // --- 渲染用砂轮 ---
+    // 渲染用砂轮
     // std::string m_filepath{
     //     "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\img\\model_for_img\\1V1\\1V1_1.obj"};
 
