@@ -32,8 +32,11 @@ public:
     void WaitIdle();
 
     // 主渲染流程
+    // wearEstimationFluteFile 非空且 isWearEstimationRequested 为 true 时，
+    // 会在本帧渲染结束后顺带执行一次 GPU 磨损反演（一次性，不常驻）
     void BuildContactMask(const SliceFrameData& frameData,
-                          bool isParametricWheelRequested, std::string targetFlutefile);
+                          bool isWearEstimationRequested,
+                          std::string wearEstimationFluteFile);
 
     // 轻量重绘：只重新提交已算好的离屏遮罩与线框，不重跑实例化求交
     void RePresent();
@@ -65,10 +68,6 @@ public:
     void SetRunningMode(RunningMode mode)
     {
         m_runningMode = mode;
-    }
-    void SetParametricWheelRequested(bool isParametricWheel)
-    {
-        m_isParametricWheel = isParametricWheel;
     }
 
     lve::LveWindow* GetWindow() const
@@ -112,7 +111,6 @@ private:
     bool m_displayWireframe = true;
     bool m_displayContour = true;
     Plane m_lastDisplayPlane{};  // 缓存最近一次的显示截面，用于轻量重绘线框
-    bool m_isParametricWheel = false;
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
     bool m_isWaitingForAnalysis = false;  // 是否挂起等待GPU
     uint32_t m_analysisPlaneCount = 0;    // 记住派发了多少个面

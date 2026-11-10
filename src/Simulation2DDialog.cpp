@@ -68,8 +68,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
     QPushButton* btnAnalyzeFlute = new QPushButton("Analyze Flute", this);
-    m_checkParametricWheelRequested = new QCheckBox("Parametric Wheel", this);
-    m_checkParametricWheelRequested->setChecked(false);
+    // GPU 砂轮磨损反演：一键完成「选容屑槽点集 -> 反演圆角半径 -> 导出轮廓 -> 回显」
+    QPushButton* btnWearEstimation = new QPushButton("Wear Estimation", this);
     m_labelViewInfo = new QLabel("Center: (0.00, 0.00) | Zoom: 8.00", this);
     m_editViewCenter = new QLineEdit("0.0, 0.0", this);
     m_editViewZoom = new QLineEdit("8.0", this);
@@ -92,7 +92,7 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     controlLayout->addWidget(btnDisplayOnly);
     controlLayout->addWidget(btnDisplayAndAnalysis);
     controlLayout->addWidget(btnOptimize);
-    controlLayout->addWidget(m_checkParametricWheelRequested);
+    controlLayout->addWidget(btnWearEstimation);
     controlLayout->addWidget(btnAnalyzeFlute);
 
     // --- 镜头控制 ---
@@ -200,20 +200,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
         m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
 
-        if (m_checkParametricWheelRequested->isChecked()) {
-            const QString qPath = QFileDialog::getOpenFileName(
-                this,
-                tr("选择 toolpath 文件"),
-                QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear"),
-                tr("Toolpath Files (*.txt);;All Files (*.*)"));
-            if (qPath.isEmpty())
-                QMessageBox::critical(this, tr("警告"), tr("输入正确容屑槽点集文件"));
-
-            std::filesystem::path path =
-                std::filesystem::u8path(qPath.toUtf8().constData());
-            m_targetFlutePath = path.string();
-        }
-
         BuildContactMask();
     });
 
@@ -259,16 +245,9 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         UpdateGrindingWheelInstances();
     });
 
-    connect(m_checkParametricWheelRequested,
-            &QCheckBox::stateChanged,
-            this,
-            [this](int state) {
-                if (state == Qt::Checked) {
-                    m_sliceView->SetParametricWheelRequested(true);
-                } else {
-                    m_sliceView->SetParametricWheelRequested(false);
-                }
-            });
+    connect(btnWearEstimation, &QPushButton::clicked, this, [this]() {
+        RunWearEstimation();
+    });
 
     connect(btnInterpolate, &QPushButton::clicked, this, [this]() {
         ApplyInterpolation();
@@ -353,11 +332,14 @@ void Simulation2DDialog::BuildContactMask()
     }
 
     /*执行GPU计算*/
+    // 只有 Wear Estimation 按钮会把 m_wearEstimationRequested 置 true，
+    // 普通显示/拖拽/缩放都传 false，反演不会混在显示流程里被误触发。
     m_sliceView->BuildContactMask(frameData,
-                                  m_checkParametricWheelRequested,
+                                  m_wearEstimationRequested,
                                   m_targetFlutePath);
 
-    // 反演只执行一次：清空路径，避免拖拽/缩放时反复重跑反演并污染显示相机
+    // 反演只执行一次：清空路径并复位标志，避免拖拽/缩放时反复重跑反演并污染显示相机
+    m_wearEstimationRequested = false;
     m_targetFlutePath.clear();
 
     // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
@@ -696,6 +678,49 @@ optimize::CutterParameters Simulation2DDialog::BuildCutterParameters(
         return rake;
     };
     return params;
+}
+
+void Simulation2DDialog::RunWearEstimation()
+{
+    std::cout << "Enter function: " << __FUNCTION__ << "\n";
+
+    if (!m_blank || !m_grndWheel) {
+        QMessageBox::warning(this, tr("警告"), tr("毛坯或砂轮模型尚未初始化"));
+        return;
+    }
+
+    // 反演需要砂轮实例（刀位点）才能求交，没有刀轨时先引导用户加载
+    if (m_grndWheelInstances.empty()) {
+        QMessageBox::warning(this,
+                             tr("警告"),
+                             tr("尚未加载刀轨，请先用 Tool Path 加载刀轨文件"));
+        emit OpenToolPathSignal();
+        return;
+    }
+
+    // 第一步：选容屑槽点集（磨损反演的输入）
+    const QString qPath = QFileDialog::getOpenFileName(
+        this,
+        tr("选择容屑槽点集文件（磨损反演输入）"),
+        QString("D:/Data/Study/vulkan/FirstApp/output_stuff/wear"),
+        tr("Flute Point Files (*.txt);;All Files (*.*)"));
+    if (qPath.isEmpty()) {
+        // 用户取消：什么都不做，保持当前画面与状态
+        return;
+    }
+
+    m_targetFlutePath = std::filesystem::u8path(qPath.toUtf8().constData()).string();
+
+    // 第二步：只让紧接着的这一次 BuildContactMask 走反演分支
+    m_wearEstimationRequested = true;
+
+    // 反演内部会切到拟合相机，结束后把视野同步回微观区域，
+    // 因此沿用「分析入场」的流程；结束后 runningMode 会被 BuildContactMask 自动复位。
+    m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
+    m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
+
+    // 第三步：渲染 + 反演 + 回显（ExecuteWearAnalysis 同步执行，返回后画面已恢复）
+    BuildContactMask();
 }
 
 void Simulation2DDialog::AnalyzeFluteFromFile()

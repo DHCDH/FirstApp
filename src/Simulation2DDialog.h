@@ -4,7 +4,6 @@
 #include <QLabel>
 #include <memory>
 #include <filesystem>
-#include <QCheckBox>
 
 #include "entities\Blank.h"
 #include "entities\GrindingWheel.h"
@@ -64,7 +63,6 @@ private:
     QLineEdit* m_editSliceNum;
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
-    QCheckBox* m_checkParametricWheelRequested;
 
     // --- 镜头控制 ---
     QLabel* m_labelViewInfo;     // 实时显示镜头中心点 + 放大倍数
@@ -90,7 +88,10 @@ private:
     QLineEdit* m_editHelixLength;
     QLineEdit* m_editHelixXStep;
 
-    std::string m_targetFlutePath;
+    std::string m_targetFlutePath;  // 磨损反演输入：容屑槽点集
+    // 只在「Wear Estimation」按钮触发的那一次 BuildContactMask 里开启反演，
+    // 之后拖拽/缩放/改截面都不会再重跑反演
+    bool m_wearEstimationRequested = false;
 
     std::unique_ptr<flute::FluteAnalyzer> m_fluteAnalyzer = nullptr;
 
@@ -115,6 +116,7 @@ private:
     void ApplyInterpolation();
     void GenerateHelix();
     void AnalyzeFluteFromFile();
+    void RunWearEstimation();  // GPU 砂轮磨损反演：选点集 -> 反演 -> 回显，一步完成
     void UpdateGrindingWheelInstances();
 
 protected:

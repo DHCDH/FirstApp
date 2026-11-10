@@ -121,8 +121,8 @@ void SliceView::UpdateSliceViewConfig(const SliceViewConfig& config)
 }
 
 void SliceView::BuildContactMask(const SliceFrameData& frameData,
-                                 bool isParametricWheelRequested,
-                                 std::string targetFlutefile)
+                                 bool isWearEstimationRequested,
+                                 std::string wearEstimationFluteFile)
 {
     if (!m_window) return;
 
@@ -203,11 +203,11 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
 
     RENDERDOC_END;
 
-    // --- 砂轮圆角反演逻辑 ---
-    if (isParametricWheelRequested && !targetFlutefile.empty()) {
+    // --- 砂轮磨损反演（一次性：只由 Wear Estimation 按钮触发的那一帧执行）---
+    if (isWearEstimationRequested && !wearEstimationFluteFile.empty()) {
         WaitIdle();
 
-        m_processor->ExecuteWearAnalysis(targetFlutefile, frameData);
+        m_processor->ExecuteWearAnalysis(wearEstimationFluteFile, frameData);
 
         // 反演污染了离屏遮罩与共享相机，用显示相机重渲染恢复
         m_processor->RestoreDisplay(frameData, m_viewConfig);
