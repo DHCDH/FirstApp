@@ -2,10 +2,9 @@
 
 #include <fstream>
 
+#include "../performance/PerformanceCollector.h"
 #include "Logger.h"
 #include "RenderDocHelper.h"
-
-#include "../performance/PerformanceCollector.h"
 
 using namespace lve;
 
@@ -307,10 +306,10 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
     // RENDERDOC_END;
 
     SliceWearFitter::FitConfig config{};
-    config.grMin = 0.1f;
-    config.grMax = 1.f;
-    config.tolerance = 0.0001f;
-    config.maxIterations = 25;
+    config.grMin = 0.5f;
+    config.grMax = 3.f;
+    config.tolerance = 0.001f;
+    config.maxIterations = 50;
 
     m_parametricInstancedData = BuildFreshParametricInstancedData(true);
 
@@ -337,7 +336,7 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
     INFO("GPU wear inversion total (SDF generate + loop): %.3f us",
          sdfGenerateGpuUs + inversionGpuUs);
 
-#if 0
+#if 1
     // --- GPU轮廓提取：用最优圆角半径渲染并提取容屑槽点集 ---
     {
         auto& searchBuf = m_context->GetSearchStateBuffer();
@@ -353,8 +352,13 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
         m_parametricInstancedData.extractContour = true;
 
         VkCommandBuffer cmd = m_lveDevice.beginSingleTimeCommands();
-        m_rasterizer->ProcessAllPlanes(cmd, *m_context, rasterizerData, frameData,
-                                       fitViewConfig, true, m_parametricInstancedData);
+        m_rasterizer->ProcessAllPlanes(cmd,
+                                       *m_context,
+                                       rasterizerData,
+                                       frameData,
+                                       fitViewConfig,
+                                       true,
+                                       m_parametricInstancedData);
         m_lveDevice.endSingleTimeCommands(cmd);
 
         searchState->flags = savedFlags;
@@ -373,30 +377,48 @@ void SliceProcessor::ExecuteWearAnalysis(const std::string& targetFluteFilePath,
 
         if (pointCount > 0 && pointCount <= MAX_POINTS) {
             std::string outPath =
-                "D:/Data/Study/vulkan/articles/text/images/chapter5/udf/"
+                "D:/Data/Study/vulkan/articles/text/measurement data/matlab "
+                "code/manipulate data/try iteration/"
                 "flute_contour_bestR_" +
                 std::to_string(bestCornerRadius) + ".txt";
             std::ofstream outFile(outPath);
             if (outFile.is_open()) {
                 for (uint32_t i = 0; i < pointCount; i++) {
-                    outFile << points[i].x << ", " << points[i].y << "\n";
+                    // 反演点位于工件 ZOY(即 Y-Z) 截面。
+                    // 依据 shader_sdf_generate.comp 的映射：
+                    //   viewX(水平, points[i].x) -> 物理 Z；viewY(垂直, points[i].y) ->
+                    //   物理 Y。
+                    const float physY = centerVerticalY + points[i].y;  // 工件 Y（切向）
+                    const float physZ =
+                        centerHorizontalZ + points[i].x;  // 工件 Z（径向）
+                    // 输出改为论文坐标系（刀具轴 = Z）的 XOY 平面：
+                    //   X = 原 Z（径向），Y = 原 Y（切向），与 2D 仿真输出的 "x, y"
+                    //   两列格式一致。
+                    outFile << physZ << ", " << physY << "\n";
                 }
                 outFile.close();
                 INFO("Exported %u GPU contour points (bestR=%.4f) to %s",
-                     pointCount, bestCornerRadius, outPath.c_str());
+                     pointCount,
+                     bestCornerRadius,
+                     outPath.c_str());
 
                 std::string metaPath =
-                    "D:/Data/Study/vulkan/articles/text/images/chapter5/udf/"
+                    "D:/Data/Study/vulkan/articles/text/measurement data/matlab "
+                    "code/manipulate data/try iteration/"
                     "flute_contour_meta.txt";
                 std::ofstream metaFile(metaPath);
                 if (metaFile.is_open()) {
                     metaFile << "phys_size_mm=" << physSize << "\n";
+                    metaFile << "center_y=" << centerVerticalY << "\n";
+                    metaFile << "center_z=" << centerHorizontalZ << "\n";
+                    metaFile << "plane_x=" << targetPoint.x << "\n";
                     metaFile << "best_r=" << bestCornerRadius << "\n";
                     metaFile << "width=" << m_context->GetWidth() << "\n";
                     metaFile << "height=" << m_context->GetHeight() << "\n";
                     metaFile.close();
                     INFO("Exported metadata (physSize=%.4f) to %s",
-                         physSize, metaPath.c_str());
+                         physSize,
+                         metaPath.c_str());
                 }
             } else {
                 ERROR("Failed to open contour export: %s", outPath.c_str());

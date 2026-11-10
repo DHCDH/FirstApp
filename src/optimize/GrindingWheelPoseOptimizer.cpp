@@ -4,9 +4,9 @@
 #include <iomanip>
 
 #include "../Global.h"
-#include "ToolPathCLWriter.h"
 #include "ArcProjectionSolver.h"
 #include "RenderDocHelper.h"
+#include "ToolPathCLWriter.h"
 
 using namespace lve;
 
@@ -204,7 +204,6 @@ void GrindingWheelPoseOptimizer::RunOptimization(
     vkQueueSubmit(m_lveDevice.graphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
     // 依然死等 GPU 算完这一批，再进入下一次循环
     vkQueueWaitIdle(m_lveDevice.graphicsQueue());
-
 }
 
 void GrindingWheelPoseOptimizer::ReadBackBestResult(
@@ -275,7 +274,8 @@ void GrindingWheelPoseOptimizer::ReadBackBestResult(
 void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
 {
     std::string filename =
-        "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
+        "D:/Data/Study/vulkan/articles/text/measurement data/matlab code/manipulate "
+        "data/try iteration/optimize_toolpath.txt";
 
     std::ofstream outFile(filename);
     if (!outFile.is_open()) {
@@ -291,8 +291,8 @@ void GrindingWheelPoseOptimizer::WriteToolPath(OptimizeResourceContext& context)
     float radius = static_cast<float>(context.GetCutterParameters().radius(0.));
 
     ToolPath tp;  // 与 CL 输出共用同一份刀轨数据
-    int num = 1000;
-    float stepX = 0.01f;
+    int num = 400;
+    float stepX = 0.05f;
     int totalNum = num * 2;
     for (int stepIndex = 0; stepIndex < totalNum; ++stepIndex) {
         // --- 1. 计算位移和旋转角 (与 Vertex Shader 保持绝对一致) ---
@@ -386,7 +386,7 @@ std::vector<Triangle> GrindingWheelPoseOptimizer::ExtractTriangles(
 
 GrindingWheelPoseOptimizer::~GrindingWheelPoseOptimizer()
 {
-    //if (m_cmdCompute != VK_NULL_HANDLE) {
+    // if (m_cmdCompute != VK_NULL_HANDLE) {
     //    vkFreeCommandBuffers(m_lveDevice.device(),
     //                         m_lveDevice.getCommandPool(),
     //                         1,

@@ -65,7 +65,8 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
         // 将点外轮廓点写入文件
         std::cout << "Contour points size: " << m_contourPoints.size() << std::endl;
         std::string filepath =
-            "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\wear\\TMP.txt";
+            "D:/Data/Study/vulkan/articles/text/measurement data/matlab code/manipulate "
+            "data/try iteration/TMP.txt";
         std::ofstream outFile(filepath);
 
         uint32_t totalPoints = 0;

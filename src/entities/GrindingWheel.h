@@ -41,9 +41,9 @@ public:
                                          const glm::mat4& baseMat) const;
 
 private:
-    std::string m_filepath{
-        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1V1/"
-        "1V1_D100_W10_R0.1_A60/1V1_D100_W10_R0.1_A60.obj"};
+    //std::string m_filepath{
+    //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1V1/"
+    //    "1V1_D100_W10_R0.1_A60/1V1_D100_W10_R0.1_A60.obj"};
 
     // 实机加工砂轮
     //std::string m_filepath{
@@ -52,7 +52,10 @@ private:
     //std::string m_filepath{
     //    "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
     //    "physical machining/1A1_D125_W10_R0.01_A90/1A1_D125_W10_R0.01_A90.obj"};
-
+    std::string m_filepath{
+        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"
+        "physical machining/GSK/gsk_try_iteration.obj"};
+    
     // 磨损模拟用砂轮
     //std::string m_filepath{
     //        "D:/Data/Study/vulkan/FirstApp/res/models/grindingwheels/1A1/"

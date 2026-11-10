@@ -119,12 +119,12 @@ void main()
         // --- 端圆面 ---
         float t = uRaw / epsilon;
         u0 = 0.0;
-        r = mix(0.0, calculate1V1GrindingWheelRadius(0.0), t);
+        r = mix(0.0, calculate1A1GrindingWheelRadius(0.0), t);
     } else if (uRaw > 1.0 - epsilon) {
         // --- 端圆面 ---
         float t = (1.0 - uRaw) / epsilon;
         u0 = push.width;
-        r = mix(0.0, calculate1V1GrindingWheelRadius(push.width), t);
+        r = mix(0.0, calculate1A1GrindingWheelRadius(push.width), t);
     } else {
         // --- 侧面 ---
         float t_linear = (uRaw - epsilon) / (1.0 - 2.0 * epsilon);
@@ -133,7 +133,7 @@ void main()
         t = smoothstep(0.0, 1.0, t);
 
         u0 = t * push.width;
-        r = calculate1V1GrindingWheelRadius(u0);
+        r = calculate1A1GrindingWheelRadius(u0);
     }
 
     // ================== 对齐 .obj 坐标系==================
