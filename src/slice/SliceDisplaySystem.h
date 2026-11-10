@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -59,7 +59,8 @@ private:
     std::unique_ptr<LvePipeline> m_lvePipeline;
     VkPipelineLayout m_pipelineLayout;
 
-    bool m_gridEnabled = true;
+    // 像素网格默认关闭：与 2D Simulation 界面里 Pixel Grid 复选框的初始状态保持一致
+    bool m_gridEnabled = false;
     float m_gridCellTexels = 1.0f;
     float m_gridLineWidthPx = 1.0f;
     bool m_rawContourEnabled = true;

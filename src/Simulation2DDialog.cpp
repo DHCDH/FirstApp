@@ -1,6 +1,10 @@
 ﻿#include "Simulation2DDialog.h"
 
+#include <QCheckBox>
 #include <QFileDialog>
+#include <QFormLayout>
+#include <QFrame>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -8,6 +12,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
+#include <QScrollArea>
 #include <QStringList>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -26,6 +31,129 @@
 const std::filesystem::path DEFAULT_TOOL_PATH =
     "D:\\Data\\Study\\vulkan\\FirstApp\\output_stuff\\optimize_toolpath.txt";
 
+namespace
+{
+// 控制面板样式：跟随 main.cpp 里的 Fusion 深色调色板（底色 #353535、强调色 #2a82da）
+const char* kControlPanelStyle = R"(
+QWidget#renderViewport {
+    background: #1c1c1c;
+    border-right: 1px solid #3c3c3c;
+}
+QScrollArea#controlScroll {
+    background: #2e2e2e;
+    border-left: 1px solid #3c3c3c;
+}
+QWidget#controlPanel {
+    background: #2e2e2e;
+}
+QLabel {
+    color: #d6d6d6;
+}
+QLabel#resChip {
+    color: #9ecbff;
+    background: #232323;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QLabel#hintLabel {
+    color: #9a9a9a;
+}
+QGroupBox {
+    background: #343434;
+    border: 1px solid #454545;
+    border-radius: 6px;
+    margin-top: 16px;
+    padding: 8px 8px 10px 8px;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    top: 2px;
+    padding: 0 4px;
+    color: #8fc2ff;
+}
+QLineEdit {
+    background: #262626;
+    border: 1px solid #454545;
+    border-radius: 4px;
+    padding: 4px 6px;
+    color: #ededed;
+    selection-background-color: #2a82da;
+}
+QLineEdit:focus {
+    border: 1px solid #2a82da;
+}
+QPushButton {
+    background: #3d3d3d;
+    border: 1px solid #4d4d4d;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #ededed;
+}
+QPushButton:hover {
+    background: #4a4a4a;
+    border: 1px solid #5a5a5a;
+}
+QPushButton:pressed {
+    background: #2a82da;
+    border: 1px solid #2a82da;
+}
+QPushButton:disabled {
+    color: #7a7a7a;
+    border: 1px solid #3a3a3a;
+}
+QPushButton#primaryButton {
+    background: #2a82da;
+    border: 1px solid #3c92ea;
+    color: #ffffff;
+    font-weight: bold;
+}
+QPushButton#primaryButton:hover {
+    background: #3a92ea;
+}
+QPushButton#primaryButton:pressed {
+    background: #1f6fbf;
+}
+QCheckBox {
+    color: #d6d6d6;
+    spacing: 6px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #5a5a5a;
+    border-radius: 3px;
+    background: #262626;
+}
+QCheckBox::indicator:checked {
+    background: #2a82da;
+    border: 1px solid #3c92ea;
+}
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #4c4c4c;
+    border-radius: 5px;
+    min-height: 26px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #5c5c5c;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+)";
+}  // namespace
+
 Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     : QDialog(parent),
       m_renderWidget(new QWidget(this)),
@@ -37,16 +165,37 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     this->setWindowTitle("2D Simulation");
     this->resize(1350, 1080);
 
+    // ================= 布局骨架：左侧渲染区 + 右侧功能分块面板 =================
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
 
+    // 左：Vulkan 渲染区（外包一层容器，方便给画面加底色与分隔线）
     m_renderWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    mainLayout->addWidget(m_renderWidget, 1);
     m_renderWidget->setFixedSize(1024, 1024);
+    QWidget* renderViewport = new QWidget(this);
+    renderViewport->setObjectName("renderViewport");
+    QVBoxLayout* viewportLayout = new QVBoxLayout(renderViewport);
+    viewportLayout->setContentsMargins(0, 0, 0, 0);
+    viewportLayout->addWidget(m_renderWidget, 1, Qt::AlignCenter);
+    mainLayout->addWidget(renderViewport, 1);
 
-    QVBoxLayout* controlLayout = new QVBoxLayout();
-    controlLayout->setContentsMargins(5, 5, 5, 5);
-    mainLayout->addLayout(controlLayout);
+    // 右：可滚动的控制面板（窗口变矮时按钮不会被挤出视野）
+    QScrollArea* controlScroll = new QScrollArea(this);
+    controlScroll->setObjectName("controlScroll");
+    controlScroll->setWidgetResizable(true);
+    controlScroll->setFrameShape(QFrame::NoFrame);
+    controlScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    controlScroll->setFixedWidth(324);
+    QWidget* controlPanel = new QWidget(controlScroll);
+    controlPanel->setObjectName("controlPanel");
+    QVBoxLayout* controlLayout = new QVBoxLayout(controlPanel);
+    controlLayout->setContentsMargins(10, 10, 10, 10);
+    controlLayout->setSpacing(10);
+    controlScroll->setWidget(controlPanel);
+    mainLayout->addWidget(controlScroll);
+
+    this->setStyleSheet(kControlPanelStyle);
 
     m_labelRes = new QLabel("Res: 0 x 0", m_renderWidget);
     m_labelRes->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -75,61 +224,111 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_editViewZoom = new QLineEdit("8.0", this);
     QPushButton* btnApplyView = new QPushButton("Apply View", this);
 
-    controlLayout->addWidget(m_labelRes);
-    controlLayout->addWidget(btnToolPath);
-    controlLayout->addWidget(checkDisplayWireframe);
-    controlLayout->addWidget(checkDisplaySubpixelContour);
-    controlLayout->addWidget(checkDisplayRawContour);
-    controlLayout->addWidget(checkDisplayPixelGrid);
-    controlLayout->addWidget(new QLabel("Diameter", this));
-    controlLayout->addWidget(m_editDiameter);
-    controlLayout->addWidget(new QLabel("Number of Slices", this));
-    controlLayout->addWidget(m_editSliceNum);
-    controlLayout->addWidget(new QLabel("Point", this));
-    controlLayout->addWidget(m_editPoint);
-    controlLayout->addWidget(new QLabel("Normal", this));
-    controlLayout->addWidget(m_editNormal);
-    controlLayout->addWidget(btnDisplayOnly);
-    controlLayout->addWidget(btnDisplayAndAnalysis);
-    controlLayout->addWidget(btnOptimize);
-    controlLayout->addWidget(btnWearEstimation);
-    controlLayout->addWidget(btnAnalyzeFlute);
+    // ================= 功能分块 =================
+    // 每块一个 QGroupBox，块内用 QFormLayout 对齐「标签 - 输入框」；按钮按用途成组
 
-    // --- 镜头控制 ---
-    controlLayout->addWidget(new QLabel("--- View ---", this));
-    controlLayout->addWidget(m_labelViewInfo);
-    controlLayout->addWidget(new QLabel("View Center (x, y)", this));
-    controlLayout->addWidget(m_editViewCenter);
-    controlLayout->addWidget(new QLabel("Zoom (half size)", this));
-    controlLayout->addWidget(m_editViewZoom);
-    controlLayout->addWidget(btnApplyView);
+    // ---- 1. Toolpath：加载刀轨 / 统计 / 插值 ----
+    m_labelToolPathStats = new QLabel("No toolpath loaded", this);
+    m_labelToolPathStats->setObjectName("hintLabel");
+    m_labelToolPathStats->setWordWrap(true);
+    m_editInterpStep = new QLineEdit("0.5", this);
+    QPushButton* btnInterpolate = new QPushButton("Interpolate", this);
+
+    QGroupBox* groupToolPath = new QGroupBox("Toolpath", controlPanel);
+    QVBoxLayout* toolPathLayout = new QVBoxLayout(groupToolPath);
+    toolPathLayout->setSpacing(8);
+    btnToolPath->setMinimumHeight(30);
+    toolPathLayout->addWidget(btnToolPath);
+    toolPathLayout->addWidget(m_labelToolPathStats);
+    QFormLayout* interpForm = new QFormLayout();
+    interpForm->setSpacing(6);
+    interpForm->addRow("Interp X step (mm)", m_editInterpStep);
+    toolPathLayout->addLayout(interpForm);
+    toolPathLayout->addWidget(btnInterpolate);
+    controlLayout->addWidget(groupToolPath);
+
+    // ---- 2. Slice：截面参数 + 显示/计算 ----
+    QGroupBox* groupSlice = new QGroupBox("Slice", controlPanel);
+    QVBoxLayout* sliceLayout = new QVBoxLayout(groupSlice);
+    sliceLayout->setSpacing(8);
+    QFormLayout* sliceForm = new QFormLayout();
+    sliceForm->setSpacing(6);
+    sliceForm->addRow("Diameter", m_editDiameter);
+    sliceForm->addRow("Slices", m_editSliceNum);
+    sliceForm->addRow("Point", m_editPoint);
+    sliceForm->addRow("Normal", m_editNormal);
+    sliceLayout->addLayout(sliceForm);
+    QHBoxLayout* sliceButtons = new QHBoxLayout();
+    sliceButtons->setSpacing(6);
+    sliceButtons->addWidget(btnDisplayOnly);
+    sliceButtons->addWidget(btnDisplayAndAnalysis);
+    sliceLayout->addLayout(sliceButtons);
+    controlLayout->addWidget(groupSlice);
+
+    // ---- 3. Display：屏显开关 ----
+    QGroupBox* groupDisplay = new QGroupBox("Display", controlPanel);
+    QVBoxLayout* displayLayout = new QVBoxLayout(groupDisplay);
+    displayLayout->setSpacing(6);
+    displayLayout->addWidget(checkDisplayWireframe);
+    displayLayout->addWidget(checkDisplaySubpixelContour);
+    displayLayout->addWidget(checkDisplayRawContour);
+    displayLayout->addWidget(checkDisplayPixelGrid);
+    controlLayout->addWidget(groupDisplay);
+
+    // ---- 4. Analysis：磨损反演 / 槽形分析 / 位姿优化 ----
+    QGroupBox* groupAnalysis = new QGroupBox("Analysis", controlPanel);
+    QVBoxLayout* analysisLayout = new QVBoxLayout(groupAnalysis);
+    analysisLayout->setSpacing(8);
+    btnWearEstimation->setObjectName("primaryButton");  // 主操作，高亮显示
+    btnWearEstimation->setMinimumHeight(34);
+    btnWearEstimation->setToolTip(
+        "一次完成：选容屑槽点集 -> 反演砂轮圆角半径 -> 导出轮廓 -> 回显");
+    analysisLayout->addWidget(btnWearEstimation);
+    QHBoxLayout* analysisButtons = new QHBoxLayout();
+    analysisButtons->setSpacing(6);
+    analysisButtons->addWidget(btnAnalyzeFlute);
+    analysisButtons->addWidget(btnOptimize);
+    analysisLayout->addLayout(analysisButtons);
+    controlLayout->addWidget(groupAnalysis);
+
+    // ---- 5. View：镜头中心与缩放 ----
+    QGroupBox* groupView = new QGroupBox("View", controlPanel);
+    QVBoxLayout* viewLayout = new QVBoxLayout(groupView);
+    viewLayout->setSpacing(8);
+    m_labelViewInfo->setObjectName("hintLabel");
+    viewLayout->addWidget(m_labelViewInfo);
+    QFormLayout* viewForm = new QFormLayout();
+    viewForm->setSpacing(6);
+    viewForm->addRow("Center (x, y)", m_editViewCenter);
+    viewForm->addRow("Zoom (half size)", m_editViewZoom);
+    viewLayout->addLayout(viewForm);
+    viewLayout->addWidget(btnApplyView);
+    controlLayout->addWidget(groupView);
 
     connect(btnApplyView, &QPushButton::clicked, this, [this]() { ApplyViewInput(); });
 
-    // --- 刀轨插值控制 ---
-    controlLayout->addWidget(new QLabel("--- Toolpath ---", this));
-    m_labelToolPathStats = new QLabel("No toolpath loaded", this);
-    m_labelToolPathStats->setWordWrap(true);
-    controlLayout->addWidget(m_labelToolPathStats);
-    controlLayout->addWidget(new QLabel("Interp X Step (mm)", this));
-    m_editInterpStep = new QLineEdit("0.5", this);
-    controlLayout->addWidget(m_editInterpStep);
-    QPushButton* btnInterpolate = new QPushButton("Interpolate", this);
-    controlLayout->addWidget(btnInterpolate);
-
-    // --- 螺旋线刀轨生成控制 ---
-    controlLayout->addWidget(new QLabel("--- Helix ---", this));
-    controlLayout->addWidget(new QLabel("Helix Angle (deg)", this));
+    // ---- 6. Helix：螺旋线刀轨生成 ----
     m_editHelixAngle = new QLineEdit("30.0", this);
-    controlLayout->addWidget(m_editHelixAngle);
-    controlLayout->addWidget(new QLabel("Length (mm)", this));
     m_editHelixLength = new QLineEdit("10.0", this);
-    controlLayout->addWidget(m_editHelixLength);
-    controlLayout->addWidget(new QLabel("X Step (mm)", this));
     m_editHelixXStep = new QLineEdit("0.5", this);
-    controlLayout->addWidget(m_editHelixXStep);
     QPushButton* btnGenerateHelix = new QPushButton("Generate Helix", this);
-    controlLayout->addWidget(btnGenerateHelix);
+
+    QGroupBox* groupHelix = new QGroupBox("Helix", controlPanel);
+    QVBoxLayout* helixLayout = new QVBoxLayout(groupHelix);
+    helixLayout->setSpacing(8);
+    QFormLayout* helixForm = new QFormLayout();
+    helixForm->setSpacing(6);
+    helixForm->addRow("Angle (deg)", m_editHelixAngle);
+    helixForm->addRow("Length (mm)", m_editHelixLength);
+    helixForm->addRow("X step (mm)", m_editHelixXStep);
+    helixLayout->addLayout(helixForm);
+    helixLayout->addWidget(btnGenerateHelix);
+    controlLayout->addWidget(groupHelix);
+
+    // ---- 顶部：分辨率状态条（UpdateView 会实时刷新）----
+    m_labelRes->setObjectName("resChip");
+    m_labelRes->setAlignment(Qt::AlignCenter);
+    controlLayout->insertWidget(0, m_labelRes);
 
     controlLayout->addStretch();
 
@@ -149,6 +348,15 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     void* hinstance = GetModuleHandle(nullptr);
 
     InitSliceView(device, hwnd, hinstance);
+
+    // 把界面的初始勾选状态同步给渲染端。
+    // 注意：setChecked() 都在 connect() 之前调用，不会触发 stateChanged，
+    // 所以必须在这里显式推一次，否则渲染端会用自己内部的默认值（曾导致
+    // Pixel Grid 复选框未勾选、画面却仍画着像素网格）。
+    m_sliceView->SetDisplayWireframe(checkDisplayWireframe->isChecked());
+    m_sliceView->SetDisplayContour(checkDisplaySubpixelContour->isChecked());
+    m_sliceView->SetDisplayRawContour(checkDisplayRawContour->isChecked());
+    m_sliceView->SetDisplayGrid(checkDisplayPixelGrid->isChecked());
 
     // 持续轻量重绘：只重新 present 已算好的离屏遮罩，不重跑实例化求交。
     // 用于窗口失去焦点/被遮挡后画面被 Qt 刷黑时自动恢复。
