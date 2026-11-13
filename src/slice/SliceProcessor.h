@@ -31,6 +31,12 @@ public:
     // 每一面的有序轮廓点（平面局部 2D），下标与平面索引对应
     const std::vector<std::vector<glm::vec2>>& GetAllContourPoints() const;
 
+    // 上一次回读的细分耗时，转给 SliceView 统一打印
+    const SliceAnalyzer::ReadbackTiming& GetLastReadbackTiming() const
+    {
+        return m_analyzer->GetLastReadbackTiming();
+    }
+
     // 最近一次提交的截面列表（与结果数组一一对应）
     const std::vector<Plane>& GetPlanes() const
     {

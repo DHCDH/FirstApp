@@ -538,6 +538,10 @@ void Simulation2DDialog::UpdateEntitiesData(
 void Simulation2DDialog::BuildContactMask()
 {
     bool wasAnalysisRequested = (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE);
+    if (wasAnalysisRequested) {
+        // 端到端计时起点：从点击这一刻算起，把后面的 UI 准备与 WaitIdle 也算进去
+        m_clickTime = std::chrono::high_resolution_clock::now();
+    }
 
     if (wasAnalysisRequested) {
         // 不管是全量还是单截面分析，先把雷达拉回到刚好能包住整根棒料的范围！
@@ -587,6 +591,10 @@ void Simulation2DDialog::BuildContactMask()
     }
 
     /*执行GPU计算*/
+    // 端到端计时：把「点击时刻」交给 SliceView，由它在结果就绪时结算打印
+    if (wasAnalysisRequested) {
+        m_sliceView->SetAnalysisRequestTime(m_clickTime);
+    }
     // 只有 Wear Estimation 按钮会把 m_wearEstimationRequested 置 true，
     // 普通显示/拖拽/缩放都传 false，反演不会混在显示流程里被误触发。
     m_sliceView->BuildContactMask(frameData,

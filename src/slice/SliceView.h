@@ -59,6 +59,13 @@ public:
         m_onAnalysisFinished = std::move(callback);
     }
 
+    // 端到端计时起点（用户点击 Display&&Calculate 的那一刻）。
+    // 不设置时，SliceView 会在录制开始处自行取时间。
+    void SetAnalysisRequestTime(std::chrono::high_resolution_clock::time_point t)
+    {
+        m_analysisRequestTime = t;
+    }
+
     // 更新视图配置
     void UpdateSliceViewConfig(const SliceViewConfig& config);
 
@@ -114,6 +121,9 @@ private:
     void RecreateDisplayDescriptorSet();
     bool ProcessAnalysisResult(uint32_t numPlanes);
 
+    // 结算并打印一次端到端分析耗时（分区 + 跨次累计统计）
+    void ReportAnalysisTiming(uint32_t planes);
+
 private:
     lve::LveModel* m_blankModel = nullptr;
     lve::LveModel* m_grndWheelModel = nullptr;
@@ -154,6 +164,15 @@ private:
     float m_frameTimeSec = 0.f;
 
     std::chrono::high_resolution_clock::time_point m_analysisStartTime;
+    std::chrono::high_resolution_clock::time_point m_analysisRequestTime{};  // 点击时刻
+    std::chrono::high_resolution_clock::time_point m_analysisSubmitTime{};   // 提交完成
+    std::chrono::high_resolution_clock::time_point m_analysisGpuDoneTime{};  // fence 通过
+
+    // 跨多次分析的累计统计（本次运行内）
+    uint32_t m_timingRuns = 0;
+    double m_timingTotalSumMs = 0.0;
+    double m_timingMinMs = 0.0;
+    double m_timingMaxMs = 0.0;
 
     std::unique_ptr<wear::GrindingWheelWearCalculatorNew> m_wearCalculator;
 };

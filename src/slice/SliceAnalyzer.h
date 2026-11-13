@@ -19,9 +19,24 @@ public:
     SliceAnalyzer& operator=(const SliceAnalyzer&) = delete;
 
 public:
+    // 上一次回读的细分耗时，供 SliceView 统一汇总打印（避免日志顺序倒置）
+    struct ReadbackTiming {
+        double mapCopyMs = 0.0;   // 映射 staging + 拷贝 ResultData
+        double tmpFileMs = 0.0;   // 逐面逐点写 TMP.txt（调试用）
+        double collectMs = 0.0;   // 按面切分有序轮廓点
+        double unmapMs = 0.0;     // 解除映射
+        uint32_t points = 0;      // 本次回读的有效点总数
+        bool valid = false;       // 是否已产生过数据
+    };
+
     bool DownloadGPUCalculateResult(SliceResourceContext& context, uint32_t numPlanes,
                                     const std::vector<Plane>& planes,
                                     std::vector<ResultData>& outResult);
+
+    const ReadbackTiming& GetLastReadbackTiming() const
+    {
+        return m_lastReadbackTiming;
+    }
 
     VkFence GetFence() const
     {
@@ -54,6 +69,7 @@ private:
 
     std::vector<glm::vec2> m_contourPoints;
     std::vector<std::vector<glm::vec2>> m_allContourPoints;
+    ReadbackTiming m_lastReadbackTiming;
 };
 
 }  // namespace slice

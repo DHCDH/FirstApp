@@ -212,6 +212,10 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         m_analysisPlaneCount = static_cast<uint32_t>(frameData.planes.size());
         m_pendingAnalysisPlanes = frameData.planes;
         m_analysisStartTime = std::chrono::high_resolution_clock::now();
+        // 调用方没给「点击时刻」时，退化为从录制开始计
+        if (m_analysisRequestTime.time_since_epoch().count() == 0) {
+            m_analysisRequestTime = m_analysisStartTime;
+        }
 
         m_runningMode = RunningMode::DISPLAY_ONLY;
     }
@@ -273,6 +277,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
     VkFence computeFence = m_processor->GetComputeFence();
 
     m_renderer->EndFrame(m_processor->GetComputeFence());
+    m_analysisSubmitTime = std::chrono::high_resolution_clock::now();
 
     RENDERDOC_END;
 
@@ -293,17 +298,13 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
 
         std::thread([this, vkDevice, computeFence, planeCount]() {
             vkWaitForFences(vkDevice, 1, &computeFence, VK_TRUE, UINT64_MAX);
-            // --- 统计端到端耗时（从请求触发到GPU计算完成） ---
-            auto end = std::chrono::high_resolution_clock::now();
-            double elapsedMs =
-                std::chrono::duration<double, std::milli>(end - m_analysisStartTime)
-                    .count();
-            std::cout << "[Timing] End-to-end feature extraction: " << elapsedMs
-                      << " ms\n";
+            // GPU 侧全部完成的时刻。用捕获传递，避免跨线程写成员。
+            const auto gpuDoneAt = std::chrono::high_resolution_clock::now();
             // --- 通过Qt安全队列把任务扔回主线程 ---
             QMetaObject::invokeMethod(
                 qApp,
-                [this, planeCount] {
+                [this, planeCount, gpuDoneAt] {
+                    this->m_analysisGpuDoneTime = gpuDoneAt;
                     this->ProcessAnalysisResult(planeCount);
                     this->m_isWaitingForAnalysis = false;
                 },
@@ -429,6 +430,10 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
             m_hasContourPoints = true;
         }
 
+        // 回读、解析、CSV、屏显轮廓都已就绪 —— 在这里结算端到端耗时。
+        // 放在回调之前，避免把导出对话框里用户操作文件的时间也算进来。
+        ReportAnalysisTiming(numPlanes);
+
         // 结果已就绪，通知 UI 层（例如"算完就弹保存框导出"）
         if (m_onAnalysisFinished) {
             m_onAnalysisFinished();
@@ -439,6 +444,74 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
     }
     // fence未就绪，继续等待
     return false;
+}
+
+void SliceView::ReportAnalysisTiming(uint32_t planes)
+{
+    using clock = std::chrono::high_resolution_clock;
+    const auto toMs = [](clock::duration d) {
+        return std::chrono::duration<double, std::milli>(d).count();
+    };
+
+    const auto now = clock::now();
+
+    // 四个区间：点击→开始录制（UI 准备）、录制、GPU 等待、回读与解析
+    const double prepareMs = toMs(m_analysisStartTime - m_analysisRequestTime);
+    const double recordMs = toMs(m_analysisSubmitTime - m_analysisStartTime);
+    const double gpuMs = toMs(m_analysisGpuDoneTime - m_analysisSubmitTime);
+    const double readbackMs = toMs(now - m_analysisGpuDoneTime);
+    const double totalMs = toMs(now - m_analysisRequestTime);
+    const double perPlaneMs =
+        planes > 0 ? totalMs / static_cast<double>(planes) : 0.0;
+    const auto pct = [totalMs](double v) {
+        return totalMs > 0.0 ? v * 100.0 / totalMs : 0.0;
+    };
+
+    INFO("[Timing] ===== 截面分析：%u 面 =====", static_cast<unsigned>(planes));
+    INFO("[Timing]   总耗时 %.1f ms，平均 %.1f ms/面", totalMs, perPlaneMs);
+    INFO("[Timing]   1) 准备 %8.1f ms %5.1f%%  点击后到开始录制（界面准备、重建视口）",
+         prepareMs,
+         pct(prepareMs));
+    INFO("[Timing]   2) 录制 %8.1f ms %5.1f%%  把全部绘制/计算命令写进命令缓冲并提交",
+         recordMs,
+         pct(recordMs));
+    INFO("[Timing]   3) GPU  %8.1f ms %5.1f%%  等显卡跑完：找交集框 → 逐面渲染 → 算轮廓与前角",
+         gpuMs,
+         pct(gpuMs));
+    INFO("[Timing]   4) 回读 %8.1f ms %5.1f%%  结果拷回内存 + 写 CSV/日志 + 屏显轮廓更新",
+         readbackMs,
+         pct(readbackMs));
+
+    // 「4) 回读」的内部构成（由 SliceAnalyzer 记录，这里统一打印）
+    const auto& rb = m_processor->GetLastReadbackTiming();
+    if (rb.valid) {
+        INFO("[Timing]      其中：映射+拷贝 %8.1f | 写 TMP.txt %8.1f | 切分轮廓 %6.1f | 解除映射 %5.1f ms（%u 点）",
+             rb.mapCopyMs,
+             rb.tmpFileMs,
+             rb.collectMs,
+             rb.unmapMs,
+             rb.points);
+    }
+
+    // --- 跨多次分析的累计统计（本次运行内）---
+    m_timingRuns++;
+    m_timingTotalSumMs += totalMs;
+    if (m_timingRuns == 1) {
+        m_timingMinMs = totalMs;
+        m_timingMaxMs = totalMs;
+    } else {
+        m_timingMinMs = std::min(m_timingMinMs, totalMs);
+        m_timingMaxMs = std::max(m_timingMaxMs, totalMs);
+    }
+    INFO("[Timing] 累计 %u 次：最近 %.1f / 平均 %.1f / 最小 %.1f / 最大 %.1f ms",
+         m_timingRuns,
+         totalMs,
+         m_timingTotalSumMs / static_cast<double>(m_timingRuns),
+         m_timingMinMs,
+         m_timingMaxMs);
+
+    // 本次已经结算，清掉起点，避免下一次请求误用旧时刻
+    m_analysisRequestTime = clock::time_point{};
 }
 
 std::filesystem::path SliceView::ExportSections(const std::filesystem::path& filePath)

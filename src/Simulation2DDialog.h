@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QLabel>
+#include <chrono>
 #include <memory>
 #include <filesystem>
 
@@ -131,6 +132,9 @@ private:
 
     // Display&&Calculate 点击后置 true；分析结果回来时据此自动导出
     bool m_exportAfterAnalysis = false;
+
+    // 端到端计时的起点：用户点击 Display&&Calculate 的那一刻
+    std::chrono::high_resolution_clock::time_point m_clickTime{};
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
