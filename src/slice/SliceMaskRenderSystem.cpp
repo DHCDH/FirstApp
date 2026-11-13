@@ -17,10 +17,12 @@ using namespace lve;
 
 namespace slice
 {
-// 砂轮正反面用模板低 7 位计数，批次必须小于 7 位可表示范围，避免密集刀轨下回绕。
-constexpr uint32_t kMaxStencilInstancesPerBatch = 32;
-static_assert(kMaxStencilInstancesPerBatch < 64,
-              "Stencil batches must stay within the signed range of the low 7 bits.");
+// 棒料在写完颜色后立即清空模板，8 位模板全部用于砂轮正反面计数。
+// 计数是 8 位环绕的（模 256），单个非凸实例在一个像素上可能贡献 ±2，
+// 因此批内实例数取模数的一半 127，与旧方案（32 / 64）保持相同的 2 倍余量。
+constexpr uint32_t kMaxStencilInstancesPerBatch = 127;
+static_assert(kMaxStencilInstancesPerBatch < 128,
+              "Stencil batches must stay within the signed range of the full 8 bits.");
 
 struct SlicePushConstants {
     glm::mat4 modelMatrix;
@@ -327,8 +329,9 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilFrontPipeline(
     // config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.writeMask = 0x7F;
-    config.depthStencilInfo.front.compareMask = 0x7F;
+    // 棒料的奇偶位在写色后已清空，8 位模板全部用于砂轮正反面计数
+    config.depthStencilInfo.front.writeMask = 0xFF;
+    config.depthStencilInfo.front.compareMask = 0xFF;
     // config.depthStencilInfo.front.reference = 0x02;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
@@ -386,8 +389,9 @@ void SliceMaskRenderSystem::CreateGrindingWheelStencilBackPipeline(
     // config.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER;
 
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
-    config.depthStencilInfo.front.writeMask = 0x7F;
-    config.depthStencilInfo.front.compareMask = 0x7F;
+    // 棒料的奇偶位在写色后已清空，8 位模板全部用于砂轮正反面计数
+    config.depthStencilInfo.front.writeMask = 0xFF;
+    config.depthStencilInfo.front.compareMask = 0xFF;
     // config.depthStencilInfo.front.reference = 0x04;
 
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
@@ -662,13 +666,13 @@ void SliceMaskRenderSystem::CreateStencilResolvePipeline(VkRenderPass renderPass
     config.depthStencilInfo.depthTestEnable = VK_FALSE;
     config.depthStencilInfo.depthWriteEnable = VK_FALSE;
 
-    // 模板测试：只检测低 7 位 (0x7F) 是否非零
-    // 逻辑：如果 (Stencil & 0x7F) != 0，则通过测试，执行 Fragment Shader
+    // 模板测试：检测 8 位计数是否非零（棒料位已在写色后清空，不存在干扰）
+    // 逻辑：如果 Stencil != 0，则通过测试，执行 Fragment Shader
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
     config.depthStencilInfo.front.reference = 0;
-    config.depthStencilInfo.front.compareMask = 0x7F;  // 只读取砂轮的计数位
-    config.depthStencilInfo.front.writeMask = 0;       // 只读，不写 Stencil
+    config.depthStencilInfo.front.compareMask = 0xFF;
+    config.depthStencilInfo.front.writeMask = 0;  // 只读，不写 Stencil
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
@@ -709,10 +713,9 @@ void SliceMaskRenderSystem::CreateStencilClearPipeline(VkRenderPass renderPass)
     // 模板操作：Always Pass，然后 Replace 为 0
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
-    config.depthStencilInfo.front.reference = 0;  // 目标值 0
+    config.depthStencilInfo.front.reference = 0;       // 目标值 0
     config.depthStencilInfo.front.compareMask = 0xFF;  // 比较掩码无所谓，因为是 Always
-    config.depthStencilInfo.front.writeMask =
-        0x7F;  // 关键：只允许修改低 7 位，保留 Bit 7 (毛坯)
+    config.depthStencilInfo.front.writeMask = 0xFF;    // 8 位全清，不再需要保留棒料位
     config.depthStencilInfo.front.passOp = VK_STENCIL_OP_REPLACE;  // 替换为 reference (0)
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_REPLACE;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_REPLACE;
@@ -1033,6 +1036,20 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
 
         BindBlankColorPipeline(commandBuffer);
         RenderBlank(info);
+
+        // --- 棒料已经誊写进颜色（1u），模板里的奇偶位完成使命，整段清空 ---
+        // 之后 8 位模板全部用于砂轮正反面计数，批内实例上限因此从 32 提到 127。
+        // 注意：这里是「写后清零」，不能省 —— 否则棒料区域会被 resolve 当成砂轮。
+        vkCmdBindDescriptorSets(commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_pipelineLayout,
+                                0,
+                                1,
+                                &renderPassData.globalDescriptorSet,
+                                0,
+                                nullptr);
+        m_stencilClearPipeline->Bind(commandBuffer);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
     } else {
         throw std::runtime_error("Blank model is a null model!");
     }
@@ -1329,8 +1346,9 @@ void SliceMaskRenderSystem::CreateWearPipelines(VkRenderPass renderPass)
     config.depthStencilInfo.depthTestEnable = VK_FALSE;
     config.depthStencilInfo.stencilTestEnable = VK_TRUE;
 
-    config.depthStencilInfo.front.writeMask = 0x7F;
-    config.depthStencilInfo.front.compareMask = 0x7F;
+    // 与普通砂轮一致：棒料位已清空，8 位全部用于计数（批上限 127）
+    config.depthStencilInfo.front.writeMask = 0xFF;
+    config.depthStencilInfo.front.compareMask = 0xFF;
     config.depthStencilInfo.front.compareOp = VK_COMPARE_OP_ALWAYS;
     config.depthStencilInfo.front.failOp = VK_STENCIL_OP_KEEP;
     config.depthStencilInfo.front.depthFailOp = VK_STENCIL_OP_KEEP;
