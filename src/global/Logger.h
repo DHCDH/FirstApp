@@ -1,4 +1,4 @@
-﻿#ifndef LOGGER_HPP
+#ifndef LOGGER_HPP
 #define LOGGER_HPP
 
 #include <cstdio>
@@ -7,6 +7,20 @@
 
 #ifdef _WIN32
 #include <windows.h>
+
+// 源码以 /utf-8 编译，日志是按 UTF-8 字节写进控制台的；
+// 而控制台默认按本地代码页(GBK)解码，中文就会变成乱码。
+// 进程内第一次写日志时把控制台输出代码页切成 UTF-8，之后 printf/ cout / cerr 都正常。
+// 注意：VS 的"输出窗口"走 OutputDebugStringA，仍按系统 ANSI 代码页解释，
+// 那边若要中文需改成 OutputDebugStringW + MultiByteToWideChar。
+inline void EnsureUtf8ConsoleOutput()
+{
+    static const bool inited = [] {
+        SetConsoleOutputCP(CP_UTF8);
+        return true;
+    }();
+    (void)inited;
+}
 #endif
 
 // 颜色定义
@@ -22,6 +36,9 @@ public:
     static void log(const char* level, const char* color, const char* func, int line,
                     const char* format, Args... args)
     {
+#ifdef _WIN32
+        EnsureUtf8ConsoleOutput();
+#endif
         // 1. 获取时间
         std::time_t now = std::time(nullptr);
         char time_str[20];
