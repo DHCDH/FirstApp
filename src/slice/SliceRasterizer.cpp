@@ -1,4 +1,4 @@
-﻿#include "SliceRasterizer.h"
+#include "SliceRasterizer.h"
 
 #include <algorithm>
 #include <cstring>
@@ -242,7 +242,8 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
                                          frameData.displayPlane.point,
                                          mapInfo};
             m_renderSystem->ComputeFlute(commandBuffer, computeInfo,
-                                         context.m_tipInfoBuffer.get());
+                                         context.m_tipInfoBuffer.get(),
+                                         m_fluteFeatureEnabled);
 
             ReadbackFromGPU(commandBuffer, context, 1);
         }
@@ -630,6 +631,61 @@ void SliceRasterizer::ProcessAllPlanes(VkCommandBuffer commandBuffer,
 
     if (isAnalysisRequested) {
         ReadbackFromGPU(commandBuffer, context, numPlanes);
+
+        // --- 逐面算完后，最后再把「显示面」按宏观视野画一遍 ---
+        // 否则离屏遮罩里留下的是数组里最后一个面的图像，屏幕上看到的
+        // 就不是用户在 Point 里指定的那个截面了。
+        vkCmdUpdateBuffer(commandBuffer,
+                          context.m_cameraUboBuffer->GetBuffer(),
+                          0,
+                          sizeof(GlobalUbo),
+                          &baseUbo);
+
+        VkBufferMemoryBarrier displayUboBarrier{};
+        displayUboBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        displayUboBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        displayUboBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+        displayUboBarrier.buffer = context.m_cameraUboBuffer->GetBuffer();
+        displayUboBarrier.size = sizeof(GlobalUbo);
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             1,
+                             &displayUboBarrier,
+                             0,
+                             nullptr);
+
+        if (m_renderSystem) {
+            m_renderSystem->RenderMask(commandBuffer,
+                                       renderPassData,
+                                       rasterizerData,
+                                       frameData.displayPlane,
+                                       parametricData);
+        }
+
+        // RenderPass 结束后转成显示系统可采样的布局
+        VkImageMemoryBarrier displayColorBarrier{};
+        displayColorBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        displayColorBarrier.image = context.m_blankMaskImage;
+        displayColorBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        displayColorBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        displayColorBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        displayColorBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        displayColorBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &displayColorBarrier);
     }
 }
 
@@ -734,7 +790,8 @@ void SliceRasterizer::DispatchCompute(VkCommandBuffer commandBuffer,
                                      mapInfo};
         m_renderSystem->ComputeFlute(commandBuffer,
                                      computeInfo,
-                                     context.m_tipInfoBuffer.get());
+                                     context.m_tipInfoBuffer.get(),
+                                     m_fluteFeatureEnabled);
     }
 
     return;
@@ -754,8 +811,11 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
     computeToTransferBarriers[1] = computeToTransferBarriers[0];
     computeToTransferBarriers[1].buffer = context.m_resultBuffer->GetBuffer();
 
+    // 排序永远执行，因此回读的始终是排好序的轮廓点
+    VkBuffer contourPointsSrc = context.m_sortedPointsBuffer->GetBuffer();
+
     computeToTransferBarriers[2] = computeToTransferBarriers[0];
-    computeToTransferBarriers[2].buffer = context.m_sortedPointsBuffer->GetBuffer();
+    computeToTransferBarriers[2].buffer = contourPointsSrc;
 
     vkCmdPipelineBarrier(commandBuffer,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -795,7 +855,7 @@ void SliceRasterizer::ReadbackFromGPU(VkCommandBuffer commandBuffer,
     copyPoints.size =
         sizeof(glm::vec2) * MAX_POINTS * MAX_PLANES;  // 假设 maxPoints 是 50000
     vkCmdCopyBuffer(commandBuffer,
-                    context.m_sortedPointsBuffer->GetBuffer(),
+                    contourPointsSrc,
                     context.m_readbackBuffer->GetBuffer(),
                     1,
                     &copyPoints);

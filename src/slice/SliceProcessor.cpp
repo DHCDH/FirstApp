@@ -1,4 +1,4 @@
-﻿#include "SliceProcessor.h"
+#include "SliceProcessor.h"
 
 #include <fstream>
 
@@ -137,6 +137,11 @@ bool SliceProcessor::GetAnalysisResult(uint32_t numPlanes,
 const std::vector<glm::vec2>& SliceProcessor::GetContourPoints() const
 {
     return m_analyzer->GetContourPoints();
+}
+
+const std::vector<std::vector<glm::vec2>>& SliceProcessor::GetAllContourPoints() const
+{
+    return m_analyzer->GetAllContourPoints();
 }
 
 VkFence SliceProcessor::GetComputeFence() const

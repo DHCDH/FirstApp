@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -21,6 +21,16 @@ public:
 public:
     // 更新实例数据
     void UpdateInstances(const std::vector<glm::mat4>& instanceData);
+
+    // 容屑槽特征提取开关：false 时只做亚像素轮廓提取 + 工件坐标转换
+    void SetFluteFeatureEnabled(bool enabled)
+    {
+        m_fluteFeatureEnabled = enabled;
+    }
+    bool IsFluteFeatureEnabled() const
+    {
+        return m_fluteFeatureEnabled;
+    }
 
     void ProcessAllPlanes(VkCommandBuffer commandBuffer, SliceResourceContext& context,
                           const RasterizerData& rasterizerData,
@@ -74,6 +84,9 @@ private:
     // 实例缓冲区
     std::unique_ptr<lve::LveBuffer> m_grndWheelInstancesBuffer;
     uint32_t m_grndWheelInstancesCount{0};
+
+    // 是否执行容屑槽专用的特征提取（芯厚半径 / 槽宽角 / 前角）
+    bool m_fluteFeatureEnabled{true};
 
     std::vector<SliceViewConfig> m_lastMicroConfigs;
 };

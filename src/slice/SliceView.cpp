@@ -1,4 +1,4 @@
-﻿#include "SliceView.h"
+#include "SliceView.h"
 
 #include <windows.h>
 // windows.h must be included before vulkan.h
@@ -6,14 +6,84 @@
 
 #include <QCoreApplication>
 #include <QMetaObject>
+#include <algorithm>
+#include <bit>
+#include <cmath>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <thread>
 
+#include "Logger.h"
 #include "RenderDocHelper.h"
+#include "SectionExporter.h"
 
 using namespace lve;
+
+namespace
+{
+// 把逐面分析结果写成 CSV（文件名带时间戳），方便直接拿去画曲线/做表
+std::string WriteSectionReportCsv(const std::vector<Plane>& planes,
+                                  const std::vector<slice::ResultData>& results)
+{
+    // 与工程里其它输出一致，固定落到 output_stuff 下（不依赖进程工作目录）
+    const std::filesystem::path dir =
+        "D:/Data/Study/vulkan/FirstApp/output_stuff/section_analysis";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
+    std::time_t now = std::time(nullptr);
+    std::tm tmBuf{};
+#ifdef _WIN32
+    localtime_s(&tmBuf, &now);
+#else
+    localtime_r(&now, &tmBuf);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmBuf);
+
+    const std::filesystem::path path =
+        dir / ("sections_" + std::string(stamp) + ".csv");
+
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        ERROR("Failed to open section report: %s", path.string().c_str());
+        return {};
+    }
+
+    out << "index,point_x,point_y,point_z,normal_x,normal_y,normal_z,"
+           "has_intersection,core_radius_mm,core_point_x,core_point_y,"
+           "rake_angle_deg,slot_angle_deg\n";
+    out << std::fixed << std::setprecision(6);
+
+    for (size_t i = 0; i < results.size(); ++i) {
+        const slice::ResultData& r = results[i];
+        const Plane plane = (i < planes.size()) ? planes[i] : Plane{};
+        const bool valid = (r.coreRadiusSqBits != 0xFFFFFFFFu);
+
+        float radius = 0.f;
+        if (valid) radius = std::sqrt(std::bit_cast<float>(r.coreRadiusSqBits));
+
+        out << i << ',' << plane.point.x << ',' << plane.point.y << ',' << plane.point.z
+            << ',' << plane.normal.x << ',' << plane.normal.y << ',' << plane.normal.z
+            << ',' << (valid ? 1 : 0) << ',' << (valid ? radius : 0.f) << ','
+            << (valid ? r.coreRadiusPoint.x : 0.f) << ','
+            << (valid ? r.coreRadiusPoint.y : 0.f) << ','
+            << (valid ? r.rakeAngle : 0.f) << ',' << (valid ? r.slotAngle : 0.f)
+            << '\n';
+    }
+
+    out.close();
+
+    // 返回绝对路径，方便在控制台里直接看到文件落在哪
+    std::error_code absEc;
+    const std::filesystem::path absPath = std::filesystem::absolute(path, absEc);
+    return absEc ? path.string() : absPath.string();
+}
+}  // namespace
 
 namespace slice
 {
@@ -140,6 +210,7 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
         requestThisFrame = true;
         m_isWaitingForAnalysis = true;
         m_analysisPlaneCount = static_cast<uint32_t>(frameData.planes.size());
+        m_pendingAnalysisPlanes = frameData.planes;
         m_analysisStartTime = std::chrono::high_resolution_clock::now();
 
         m_runningMode = RunningMode::DISPLAY_ONLY;
@@ -149,6 +220,8 @@ void SliceView::BuildContactMask(const SliceFrameData& frameData,
     m_processor->SetModels(m_blankModel, m_grndWheelModel);
     m_processor->SetBlankMatrix(frameData.blankMatrix);
     m_processor->SetGrindingWheelInstances(frameData.wheelMatrixes);
+    // 截面类型：容屑槽 / 仅轮廓，决定是否执行特征参数提取
+    m_processor->SetFluteFeatureEnabled(m_fluteFeatureEnabled);
 
     RENDERDOC_START;
 
@@ -294,33 +367,58 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
     std::vector<ResultData> results;
 
     if (m_processor->GetAnalysisResult(numPlanes, results)) {
-        // --- 打印统计数据 ---
-        std::cout << std::fixed << std::setprecision(6);
-        std::cout << "========= GPU Geometry Analysis (" << numPlanes
-                  << " Planes) =========\n";
+        const std::vector<Plane>& planes = m_pendingAnalysisPlanes;
 
-        for (uint32_t i = 0; i < numPlanes; i++) {
-            if (i > 0) break;  // 只输出 Plane[0]
-            auto resultData = results[i];
-            uint32_t distBits = resultData.coreRadiusSqBits;
+        INFO("========= Plane Analysis: %u plane(s) [%s] =========",
+             static_cast<unsigned>(planes.size()),
+             m_fluteFeatureEnabled ? "flute" : "contour only");
 
-            if (distBits != 0xFFFFFFFF) {
-                float worldDistSq = std::bit_cast<float>(distBits);
-                float radius = std::sqrt(worldDistSq);
+        // --- 每个截面打印成一块：几何(点/法向) + 容屑槽特征(如果有) ---
+        const size_t rowCount = std::max(planes.size(), results.size());
+        for (size_t i = 0; i < rowCount; ++i) {
+            const Plane plane = (i < planes.size()) ? planes[i] : Plane{};
+            const ResultData r =
+                (i < results.size()) ? results[i] : ResultData{};
 
-                std::cout << "Plane[" << i << "]"
-                          << "\n";
-                std::cout << "Core Radius: " << radius << " mm\n"
-                          << "Core Radius Point : (" << resultData.coreRadiusPoint.x
-                          << ", " << resultData.coreRadiusPoint.y << ")\n";
-                std::cout << "Rake Angle : " << resultData.rakeAngle << " deg\n";
-                std::cout << "Tangent : (" << resultData.tangent.x << ", "
-                          << resultData.tangent.y << ")\n";
-                std::cout << "Slot Angle : " << resultData.slotAngle << " deg\n";
-                std::cout << "-----------------------------------------\n";
-            } else {
-                std::cout << "Plane[" << i << "] No valid intersection.\n";
-                std::cout << "-----------------------------------------\n";
+            INFO("Plane[%u] point=(%.4f, %.4f, %.4f) normal=(%.4f, %.4f, %.4f)",
+                 static_cast<unsigned>(i),
+                 static_cast<double>(plane.point.x),
+                 static_cast<double>(plane.point.y),
+                 static_cast<double>(plane.point.z),
+                 static_cast<double>(plane.normal.x),
+                 static_cast<double>(plane.normal.y),
+                 static_cast<double>(plane.normal.z));
+
+            // 仅轮廓模式没有特征提取，几何打完就下一个
+            if (!m_fluteFeatureEnabled) {
+                continue;
+            }
+
+            if (r.coreRadiusSqBits == 0xFFFFFFFFu) {
+                INFO("        No valid intersection.");
+                continue;
+            }
+
+            const float radius = std::sqrt(std::bit_cast<float>(r.coreRadiusSqBits));
+            INFO("        Core Radius: %.6f mm  Core Radius Point: (%.6f, %.6f)",
+                 static_cast<double>(radius),
+                 static_cast<double>(r.coreRadiusPoint.x),
+                 static_cast<double>(r.coreRadiusPoint.y));
+            INFO("        Rake Angle: %.6f deg  Tangent: (%.6f, %.6f)",
+                 static_cast<double>(r.rakeAngle),
+                 static_cast<double>(r.tangent.x),
+                 static_cast<double>(r.tangent.y));
+            INFO("        Slot Angle: %.6f deg", static_cast<double>(r.slotAngle));
+        }
+
+        // --- 容屑槽模式才写特征 CSV；仅轮廓模式不产生特征数据 ---
+        if (m_fluteFeatureEnabled) {
+            const std::string csvPath =
+                WriteSectionReportCsv(m_pendingAnalysisPlanes, results);
+            if (!csvPath.empty()) {
+                INFO("Section report (%u planes) written to %s",
+                     numPlanes,
+                     csvPath.c_str());
             }
         }
 
@@ -331,6 +429,11 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
             m_hasContourPoints = true;
         }
 
+        // 结果已就绪，通知 UI 层（例如"算完就弹保存框导出"）
+        if (m_onAnalysisFinished) {
+            m_onAnalysisFinished();
+        }
+
         // 成功解析完毕
         return true;
     }
@@ -338,8 +441,43 @@ bool SliceView::ProcessAnalysisResult(uint32_t numPlanes)
     return false;
 }
 
-void SliceView::RunFrame()
+std::filesystem::path SliceView::ExportSections(const std::filesystem::path& filePath)
 {
+    if (m_pendingAnalysisPlanes.empty()) {
+        ERROR("Export sections failed: no analysis result, run Display&&Calculate first.");
+        return {};
+    }
+
+    const auto& allPoints = m_processor->GetAllContourPoints();
+    if (allPoints.empty()) {
+        ERROR("Export sections failed: contour point set is empty.");
+        return {};
+    }
+
+    const size_t count = std::min(m_pendingAnalysisPlanes.size(), allPoints.size());
+    std::vector<SectionExportSection> sections;
+    sections.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        SectionExportSection s;
+        s.planePoint = m_pendingAnalysisPlanes[i].point;
+        s.planeNormal = m_pendingAnalysisPlanes[i].normal;
+        s.orderedPoints = allPoints[i];
+        sections.push_back(std::move(s));
+    }
+
+    if (m_blankRadius <= 0.0) {
+        ERROR("Export sections: blank radius is not set, the closing arc in CAD "
+              "will be wrong.");
+    }
+
+    SectionExportOptions options;
+    options.blankRadius = m_blankRadius;
+    options.source = "Vulkan 2D slice simulation";
+
+    return SectionExporter::Write(filePath, options, sections);
+}
+
+void SliceView::RunFrame(){
     auto now = std::chrono::high_resolution_clock::now();
     m_frameTimeSec =
         std::chrono::duration<float, std::chrono::seconds::period>(now - m_lastTick)

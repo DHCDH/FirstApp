@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -95,8 +95,10 @@ public:
                     const ParametricInstancedData& parametricData);
 
     // 整合计算逻辑
+    // computeFeatures = false 时只做亚像素轮廓提取（含工件坐标转换），
+    // 跳过 KNN 建图/追踪/对齐/前角槽宽计算
     void ComputeFlute(VkCommandBuffer commandBuffer, SliceComputeInfo computeInfo,
-                      lve::LveBuffer* tipInfoBuffer);
+                      lve::LveBuffer* tipInfoBuffer, bool computeFeatures = true);
     void ComputeBBox(VkCommandBuffer commandBuffer, VkDescriptorSet descriptorSet,
                      uint32_t width, uint32_t height, uint32_t planeIdx);
 

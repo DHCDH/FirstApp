@@ -1,6 +1,9 @@
-﻿#include "Simulation2DDialog.h"
+#include "Simulation2DDialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
+#include <QDateTime>
+#include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
@@ -211,14 +214,26 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     checkDisplayPixelGrid->setChecked(false);
     m_editDiameter = new QLineEdit("10.", this);
     m_editSliceNum = new QLineEdit("1", this);
+    m_editSliceStep = new QLineEdit("2.0", this);
+    m_editSliceDir = new QLineEdit("", this);
+    m_editSliceDir->setPlaceholderText("empty = normal");
     m_editPoint = new QLineEdit("0.0, 0.0, 0.0", this);
     m_editNormal = new QLineEdit("1.0, 0.0, 0.0", this);
+    m_comboSectionType = new QComboBox(this);
+    m_comboSectionType->addItem("Flute (core radius / slot / rake)");
+    m_comboSectionType->addItem("Contour only (no features)");
+    m_comboSectionType->setCurrentIndex(0);  // 默认容屑槽仿真
+    m_comboSectionType->setToolTip(
+        "Flute: 亚像素轮廓 + 芯厚半径/槽宽角/前角\n"
+        "Contour only: 只做亚像素轮廓提取与工件坐标转换");
     QPushButton* btnDisplayOnly = new QPushButton("Display", this);
     QPushButton* btnDisplayAndAnalysis = new QPushButton("Display&&Calculate", this);
     QPushButton* btnOptimize = new QPushButton("Optimize", this);
     QPushButton* btnAnalyzeFlute = new QPushButton("Analyze Flute", this);
     // GPU 砂轮磨损反演：一键完成「选容屑槽点集 -> 反演圆角半径 -> 导出轮廓 -> 回显」
     QPushButton* btnWearEstimation = new QPushButton("Wear Estimation", this);
+    // 把最近一次分析的各截面有序轮廓导出，供 OCC 放样建模
+    QPushButton* btnExportSections = new QPushButton("Export Sections", this);
     m_labelViewInfo = new QLabel("Center: (0.00, 0.00) | Zoom: 8.00", this);
     m_editViewCenter = new QLineEdit("0.0, 0.0", this);
     m_editViewZoom = new QLineEdit("8.0", this);
@@ -255,8 +270,11 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     sliceForm->setSpacing(6);
     sliceForm->addRow("Diameter", m_editDiameter);
     sliceForm->addRow("Slices", m_editSliceNum);
+    sliceForm->addRow("Step (mm)", m_editSliceStep);
+    sliceForm->addRow("Sweep dir", m_editSliceDir);
     sliceForm->addRow("Point", m_editPoint);
     sliceForm->addRow("Normal", m_editNormal);
+    sliceForm->addRow("Section type", m_comboSectionType);
     sliceLayout->addLayout(sliceForm);
     QHBoxLayout* sliceButtons = new QHBoxLayout();
     sliceButtons->setSpacing(6);
@@ -284,6 +302,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     btnWearEstimation->setToolTip(
         "一次完成：选容屑槽点集 -> 反演砂轮圆角半径 -> 导出轮廓 -> 回显");
     analysisLayout->addWidget(btnWearEstimation);
+    btnExportSections->setToolTip(
+        "把最近一次 Display&&Calculate 的各截面有序轮廓导出成文本文件，\n"
+        "供 OCC 侧放样成实体（壁曲线 + 半径 R 的闭合圆弧）");
+    analysisLayout->addWidget(btnExportSections);
     QHBoxLayout* analysisButtons = new QHBoxLayout();
     analysisButtons->setSpacing(6);
     analysisButtons->addWidget(btnAnalyzeFlute);
@@ -357,6 +379,28 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     m_sliceView->SetDisplayContour(checkDisplaySubpixelContour->isChecked());
     m_sliceView->SetDisplayRawContour(checkDisplayRawContour->isChecked());
     m_sliceView->SetDisplayGrid(checkDisplayPixelGrid->isChecked());
+    m_sliceView->SetFluteFeatureEnabled(m_comboSectionType->currentIndex() == 0);
+
+    // 分析结果就绪后回调：如果这次是 Display&&Calculate 触发的，就弹保存框导出
+    m_sliceView->SetAnalysisFinishedCallback([this]() {
+        if (!m_exportAfterAnalysis) {
+            return;
+        }
+        m_exportAfterAnalysis = false;
+        ExportSectionsToFile();
+    });
+
+    // 截面类型切换：只影响下一次分析请求，不立即重算
+    connect(m_comboSectionType,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this,
+            [this](int index) {
+                if (m_sliceView) {
+                    m_sliceView->SetFluteFeatureEnabled(index == 0);
+                }
+                std::cout << "[Section] type = "
+                          << (index == 0 ? "Flute" : "Contour only") << "\n";
+            });
 
     // 持续轻量重绘：只重新 present 已算好的离屏遮罩，不重跑实例化求交。
     // 用于窗口失去焦点/被遮挡后画面被 Qt 刷黑时自动恢复。
@@ -397,6 +441,10 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
         m_sliceView->SetDisplayGrid(state == Qt::Checked);
     });
 
+    connect(btnExportSections, &QPushButton::clicked, this, [this]() {
+        ExportSectionsToFile();
+    });
+
     connect(btnDisplayOnly, &QPushButton::clicked, this, [this]() {
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_ONLY);
         m_runningMode = RunningMode::DISPLAY_ONLY;
@@ -404,7 +452,8 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     });
 
     connect(btnDisplayAndAnalysis, &QPushButton::clicked, this, [this]() {
-        this->setProperty("isFullAnalysis", true);
+        // 算完自动弹保存框（结果回来在 ProcessAnalysisResult 里回调）
+        m_exportAfterAnalysis = true;
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
         m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
 
@@ -425,7 +474,6 @@ Simulation2DDialog::Simulation2DDialog(lve::LveDevice& device, QWidget* parent)
     connect(inputTimer, &QTimer::timeout, [this]() {
         std::cout << "plane change"
                   << "\n";
-        this->setProperty("isFullAnalysis", false);  // 标记为单截面
         m_sliceView->SetRunningMode(RunningMode::DISPLAY_AND_ANALYZE);
         m_runningMode = RunningMode::DISPLAY_AND_ANALYZE;
         BuildContactMask();
@@ -518,21 +566,20 @@ void Simulation2DDialog::BuildContactMask()
 
     // ---准备帧数据 ---
     SliceFrameData frameData{};
-    frameData.displayPlane = FetchDisplayPlane();
+    const Plane requestedPlane = FetchDisplayPlane();
+
     if (m_runningMode == RunningMode::DISPLAY_AND_ANALYZE) {
-        bool isFullAnalysis = this->property("isFullAnalysis").toBool();
-        if (isFullAnalysis) {
-            int n = m_editSliceNum->text().toDouble();
-            float step = 30. / (float)n;
-            for (int i = 0; i <= n; i++) {
-                Plane pln{{1.f, 0.f, 0.f}, {step * i, 0.f, 0.f}};
-                frameData.planes.emplace_back(pln);
-            }
-        }
+        // 按「起点(第一面) + 布点方向 + 间距 + 数量」生成一组截面，一次全部算完
+        frameData.planes = BuildSectionPlanes(requestedPlane);
+        // 屏上显示用户 Point 里指定的那一面（数组第一项），
+        // 逐面计算结束后渲染器会在最后把它按宏观视野再画一遍
+        frameData.displayPlane = frameData.planes.front();
         m_runningMode = RunningMode::DISPLAY_ONLY;
+    } else {
+        frameData.displayPlane = requestedPlane;
+        frameData.planes.push_back(requestedPlane);
     }
-    // 需要显示的截面永远放在数组最后一位
-    frameData.planes.push_back(frameData.displayPlane);
+    // 需要显示的截面永远放在数组最后一位（上面两个分支都满足）
     frameData.blankMatrix = glm::mat4(1.f);
     frameData.wheelMatrixes.reserve(m_grndWheelInstances.size());
     for (const auto& instance : m_grndWheelInstances) {
@@ -551,12 +598,12 @@ void Simulation2DDialog::BuildContactMask()
     m_targetFlutePath.clear();
 
     // --- 把 GPU 的微观视野反向同步给 UI 的鼠标控制器 ---
+    // 只在单截面分析时做：多截面扫描时屏幕显示的是用户 Point 指定的那一面（宏观视野），
+    // 把镜头拉进某个面的交集区反而和屏幕上的画面不一致。
     if (wasAnalysisRequested) {
         auto microConfigs = m_sliceView->GetLastMicroConfigs();
-        if (!microConfigs.empty()) {
-            // --- 避免对焦到可能没有交集的displayPlane
-
-            auto micro = microConfigs.back();
+        if (microConfigs.size() == 1) {
+            auto micro = microConfigs.front();
 
             // 同步相机的物理中心点到切削交集处
             m_viewCenter.x = (micro.xMin + micro.xMax) * 0.5f;
@@ -572,6 +619,44 @@ void Simulation2DDialog::BuildContactMask()
             }
         }
     }
+}
+
+void Simulation2DDialog::ExportSectionsToFile()
+{
+    if (!m_sliceView) {
+        return;
+    }
+
+    // 闭合圆弧要用棒料半径
+    m_sliceView->SetBlankRadius(m_editDiameter->text().toDouble() * 0.5);
+
+    const QString defaultDir =
+        QStringLiteral("D:/Data/Study/vulkan/FirstApp/output_stuff/gash_sections");
+    const QString defaultName =
+        QString("sections_%1.txt").arg(
+            QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+
+    const QString qPath = QFileDialog::getSaveFileName(
+        this,
+        tr("Export Sections"),
+        QDir(defaultDir).filePath(defaultName),
+        tr("Section files (*.txt);;All files (*.*)"));
+    if (qPath.isEmpty()) {
+        return;  // 用户取消
+    }
+
+    const std::filesystem::path path =
+        std::filesystem::u8path(qPath.toUtf8().constData());
+    const std::filesystem::path written = m_sliceView->ExportSections(path);
+    if (written.empty()) {
+        QMessageBox::warning(this,
+                             tr("Export Sections"),
+                             tr("导出失败：没有可用的截面数据。"));
+        return;
+    }
+    QMessageBox::information(this,
+                             tr("Export Sections"),
+                             QString::fromStdWString(written.wstring()));
 }
 
 SliceViewConfig Simulation2DDialog::UpdateView()
@@ -687,6 +772,68 @@ Plane Simulation2DDialog::FetchDisplayPlane()
     };
 
     return {fetch_value(inputN), fetch_value(inputP)};
+}
+
+std::vector<Plane> Simulation2DDialog::BuildSectionPlanes(const Plane& first) const
+{
+    // --- 数量 ---
+    bool okNum = false;
+    int count = m_editSliceNum->text().trimmed().toInt(&okNum);
+    if (!okNum) count = 1;
+    if (count < 1) count = 1;
+    if (count > static_cast<int>(slice::MAX_PLANES)) {
+        count = static_cast<int>(slice::MAX_PLANES);
+        std::cerr << "[Section] 截面数量超过上限 MAX_PLANES=" << slice::MAX_PLANES
+                  << "，已截断到 " << count << "\n";
+    }
+
+    // --- 法向（输入未必归一化；退化为零向量时回退到 +X）---
+    glm::vec3 normal = first.normal;
+    if (glm::length(normal) < 1e-6f) {
+        std::cerr << "[Section] 法向为零向量，回退为 (1, 0, 0)\n";
+        normal = glm::vec3(1.f, 0.f, 0.f);
+    }
+    normal = glm::normalize(normal);
+
+    // --- 布点方向：留空表示沿法向排列（等距平行截面）---
+    glm::vec3 stepDir = normal;
+    const QString dirText = m_editSliceDir->text().trimmed();
+    if (!dirText.isEmpty()) {
+        static QRegularExpression re(
+            R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?))");
+        QRegularExpressionMatch match = re.match(dirText);
+        if (match.hasMatch()) {
+            glm::vec3 dir{match.captured(1).toFloat(),
+                          match.captured(2).toFloat(),
+                          match.captured(3).toFloat()};
+            if (glm::length(dir) > 1e-6f) {
+                stepDir = glm::normalize(dir);
+            } else {
+                std::cerr << "[Section] 布点方向为零向量，已回退为法向\n";
+            }
+        } else {
+            std::cerr << "[Section] 布点方向解析失败，已回退为法向: "
+                      << dirText.toStdString() << "\n";
+        }
+    }
+
+    // --- 间距 ---
+    bool okStep = false;
+    float step = m_editSliceStep->text().trimmed().toFloat(&okStep);
+    if (!okStep) {
+        std::cerr << "[Section] 间距解析失败，按 0 处理\n";
+        step = 0.f;
+    }
+
+    std::vector<Plane> planes;
+    planes.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        // 第一面就是用户输入的截面位置，第 i 面沿布点方向偏移 step * i
+        planes.push_back(Plane{normal,
+                               first.point + stepDir * (step * static_cast<float>(i))});
+    }
+
+    return planes;
 }
 
 void Simulation2DDialog::OptimizeGrindingWheelPose()

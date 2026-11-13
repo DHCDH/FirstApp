@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <vector>
 
@@ -38,6 +38,12 @@ public:
         return m_contourPoints;
     }
 
+    // 每一面的有序轮廓点（平面局部 2D 坐标），下标与平面索引一一对应
+    const std::vector<std::vector<glm::vec2>>& GetAllContourPoints() const
+    {
+        return m_allContourPoints;
+    }
+
 private:
     lve::LveDevice& m_lveDevice;
 
@@ -47,6 +53,7 @@ private:
     std::unique_ptr<lve::LveBuffer> m_stagingBuffer = nullptr;
 
     std::vector<glm::vec2> m_contourPoints;
+    std::vector<std::vector<glm::vec2>> m_allContourPoints;
 };
 
 }  // namespace slice

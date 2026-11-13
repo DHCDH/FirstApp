@@ -1,4 +1,4 @@
-﻿#include "SliceMaskRenderSystem.h"
+#include "SliceMaskRenderSystem.h"
 
 #define GLM_FORCE_RADIANS  // 无论在什么系统上，glm都会希望角度以弧度指定
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE  //深度缓冲区值范围从0到1，而不是-1到1（OpenGL）
@@ -1137,7 +1137,8 @@ void SliceMaskRenderSystem::RenderMask(VkCommandBuffer commandBuffer,
 
 void SliceMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
                                          SliceComputeInfo computeInfo,
-                                         LveBuffer* tipInfoBuffer)
+                                         LveBuffer* tipInfoBuffer,
+                                         bool computeFeatures)
 {
     // 清空TipInfo Buffer，为每次提取重新寻找最远点做准备
     vkCmdFillBuffer(commandBuffer,
@@ -1233,6 +1234,12 @@ void SliceMaskRenderSystem::ComputeFlute(VkCommandBuffer commandBuffer,
     vkCmdDispatch(commandBuffer, groupCount, 1, 1);
 
     insert_compute_barrier();
+
+    // --- 排序（KNN/追踪/对齐）任何模式都要做：导出截面轮廓依赖有序点列 ---
+    // --- 只有前角/槽宽特征计算是容屑槽专用的，非 Flute 模式在此收尾 ---
+    if (!computeFeatures) {
+        return;
+    }
 
     // --- 派发前角与槽宽计算 ---
     m_rakeAnglePipeline->Bind(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);

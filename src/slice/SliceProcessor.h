@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <memory>
 
@@ -28,6 +28,15 @@ public:
     bool GetAnalysisResult(uint32_t numPlanes, std::vector<ResultData>& results);
     const std::vector<glm::vec2>& GetContourPoints() const;
 
+    // 每一面的有序轮廓点（平面局部 2D），下标与平面索引对应
+    const std::vector<std::vector<glm::vec2>>& GetAllContourPoints() const;
+
+    // 最近一次提交的截面列表（与结果数组一一对应）
+    const std::vector<Plane>& GetPlanes() const
+    {
+        return m_planes;
+    }
+
     // --- 获取离屏渲染图象 ---
     VkDescriptorImageInfo GetOutputImageInfo();
 
@@ -53,6 +62,19 @@ public:
     void SetBlankMatrix(const glm::mat4& matrix)
     {
         m_blankMatrix = matrix;
+    }
+
+    // 容屑槽特征提取开关：false 时只做亚像素轮廓提取 + 工件坐标转换
+    void SetFluteFeatureEnabled(bool enabled)
+    {
+        m_fluteFeatureEnabled = enabled;
+        if (m_rasterizer) {
+            m_rasterizer->SetFluteFeatureEnabled(enabled);
+        }
+    }
+    bool IsFluteFeatureEnabled() const
+    {
+        return m_fluteFeatureEnabled;
     }
 
     void SetGrindingWheelInstances(const std::vector<glm::mat4>& instances)
@@ -102,6 +124,7 @@ private:
     glm::mat4 m_blankMatrix{1.f};
     std::vector<glm::mat4> m_grndWheelInstances;
     std::vector<Plane> m_planes;
+    bool m_fluteFeatureEnabled{true};
 
     std::unique_ptr<SliceResourceContext> m_context = nullptr;
     std::unique_ptr<SliceRasterizer> m_rasterizer = nullptr;

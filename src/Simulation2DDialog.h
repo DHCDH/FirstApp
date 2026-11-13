@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QDialog>
 #include <QLabel>
@@ -17,6 +17,7 @@
 class QTimer;
 class QLineEdit;
 class QLabel;
+class QComboBox;
 
 namespace flute {
 class FluteAnalyzer;
@@ -60,9 +61,12 @@ private:
 
     // --- 用户输入控件 ---
     QLineEdit* m_editDiameter;
-    QLineEdit* m_editSliceNum;
+    QLineEdit* m_editSliceNum;   // 截面数量
+    QLineEdit* m_editSliceStep;  // 截面间距 (mm)
+    QLineEdit* m_editSliceDir;   // 布点方向, 留空表示沿法向
     QLineEdit* m_editPoint;
     QLineEdit* m_editNormal;
+    QComboBox* m_comboSectionType;  // 截面类型: 0=容屑槽, 1=仅轮廓
 
     // --- 镜头控制 ---
     QLabel* m_labelViewInfo;     // 实时显示镜头中心点 + 放大倍数
@@ -104,6 +108,9 @@ private:
 
     Plane FetchDisplayPlane();
 
+    // 按「起点(第一面) + 布点方向 + 间距 + 数量」生成一组截面
+    std::vector<Plane> BuildSectionPlanes(const Plane& first) const;
+
     optimize::GrindingWheelParameters BuildGrindingWheelParameters(
         const WheelParamValues& values) const;
     optimize::CutterParameters BuildCutterParameters(
@@ -118,6 +125,12 @@ private:
     void AnalyzeFluteFromFile();
     void RunWearEstimation();  // GPU 砂轮磨损反演：选点集 -> 反演 -> 回显，一步完成
     void UpdateGrindingWheelInstances();
+
+    // 弹保存对话框并把最近一次分析的截面导出
+    void ExportSectionsToFile();
+
+    // Display&&Calculate 点击后置 true；分析结果回来时据此自动导出
+    bool m_exportAfterAnalysis = false;
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

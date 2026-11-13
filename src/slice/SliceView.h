@@ -1,8 +1,10 @@
-﻿#pragma once
+#pragma once
 
 #include <vulkan/vulkan.h>
 
 #include <chrono>
+#include <filesystem>
+#include <functional>
 #include <memory>
 
 #include "../Global.h"
@@ -41,6 +43,22 @@ public:
     // 轻量重绘：只重新提交已算好的离屏遮罩与线框，不重跑实例化求交
     void RePresent();
 
+    // 把最近一次分析得到的各截面有序轮廓导出成 OCC 可读文件
+    // filePath 由调用方（对话框）决定；返回实际路径，没有数据时返回空 path
+    std::filesystem::path ExportSections(const std::filesystem::path& filePath);
+
+    // 棒料半径，导出时写进文件头（OCC 侧闭合圆弧要用）
+    void SetBlankRadius(double radius)
+    {
+        m_blankRadius = radius;
+    }
+
+    // 一次分析（含逐面结果回读）完成后回调，UI 层用它接"算完就导出"
+    void SetAnalysisFinishedCallback(std::function<void()> callback)
+    {
+        m_onAnalysisFinished = std::move(callback);
+    }
+
     // 更新视图配置
     void UpdateSliceViewConfig(const SliceViewConfig& config);
 
@@ -68,6 +86,18 @@ public:
     void SetRunningMode(RunningMode mode)
     {
         m_runningMode = mode;
+    }
+
+    // 截面类型开关
+    // true : 容屑槽 —— 亚像素轮廓 + 芯厚半径 / 槽宽角 / 前角
+    // false: 仅轮廓 —— 只做亚像素轮廓提取与工件坐标转换
+    void SetFluteFeatureEnabled(bool enabled)
+    {
+        m_fluteFeatureEnabled = enabled;
+    }
+    bool IsFluteFeatureEnabled() const
+    {
+        return m_fluteFeatureEnabled;
     }
 
     lve::LveWindow* GetWindow() const
@@ -110,10 +140,15 @@ private:
     bool m_isWireFrame = false;
     bool m_displayWireframe = true;
     bool m_displayContour = true;
+    bool m_fluteFeatureEnabled = true;  // 默认容屑槽仿真
+    double m_blankRadius = 0.0;         // 棒料半径，导出截面用
+    std::function<void()> m_onAnalysisFinished;  // 分析结果就绪回调（可为空）
     Plane m_lastDisplayPlane{};  // 缓存最近一次的显示截面，用于轻量重绘线框
     RunningMode m_runningMode{RunningMode::DISPLAY_ONLY};
     bool m_isWaitingForAnalysis = false;  // 是否挂起等待GPU
     uint32_t m_analysisPlaneCount = 0;    // 记住派发了多少个面
+    // 发起分析请求时快照的截面列表：结果回来时用它，避免期间被新的显示帧覆盖
+    std::vector<Plane> m_pendingAnalysisPlanes;
 
     std::chrono::high_resolution_clock::time_point m_lastTick;
     float m_frameTimeSec = 0.f;

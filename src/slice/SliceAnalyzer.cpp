@@ -1,4 +1,4 @@
-﻿#include "SliceAnalyzer.h"
+#include "SliceAnalyzer.h"
 
 #include <fstream>
 #include <iostream>
@@ -99,11 +99,26 @@ bool SliceAnalyzer::DownloadGPUCalculateResult(SliceResourceContext& context,
     }
 #endif
 
-    // --- 保存 plane 0 的有序轮廓点，供屏上叠加显示 ---
-    if (numPlanes > 0 && pointCounts[0] > 0) {
-        uint32_t count = pointCounts[0];
+    // --- 收集每一面的有序轮廓点，供导出/建模使用 ---
+    m_allContourPoints.clear();
+    m_allContourPoints.resize(numPlanes);
+    for (uint32_t i = 0; i < numPlanes; i++) {
+        uint32_t count = pointCounts[i];
         if (count > MAX_POINTS) count = MAX_POINTS;
-        m_contourPoints.assign(srcBegin, srcBegin + count);
+        if (count == 0) continue;
+        const glm::vec2* begin = srcBegin + static_cast<size_t>(i) * MAX_POINTS;
+        m_allContourPoints[i].assign(begin, begin + count);
+    }
+
+    // --- 保存「屏上显示的那一面」的有序轮廓点，供屏上叠加显示 ---
+    // 显示面约定为 planes 数组的最后一项（见 Simulation2DDialog::BuildContactMask）
+    const uint32_t displayIdx = (numPlanes > 0) ? (numPlanes - 1) : 0;
+    if (numPlanes > 0 && pointCounts[displayIdx] > 0) {
+        uint32_t count = pointCounts[displayIdx];
+        if (count > MAX_POINTS) count = MAX_POINTS;
+        const glm::vec2* begin =
+            srcBegin + static_cast<size_t>(displayIdx) * MAX_POINTS;
+        m_contourPoints.assign(begin, begin + count);
     } else {
         m_contourPoints.clear();
     }
